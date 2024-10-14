@@ -127,26 +127,26 @@ func addCORSheaders(w http.ResponseWriter) {
 /*
  * Check if there is enough free space on the filesystem where StoreDir is located.
  */
-// func hasEnoughSpace(path string, fileSize int64) error {
-//	var stat syscall.Statfs_t
-//	// Get filesystem stats
-//	if err := syscall.Statfs(path, &stat); err != nil {
-//		return fmt.Errorf("failed to get filesystem stats: %v", err)
-//	}
+ func hasEnoughSpace(path string, fileSize int64) error {
+	var stat syscall.Statfs_t
+	// Get filesystem stats
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return fmt.Errorf("failed to get filesystem stats: %v", err)
+	}
 
-//	// Available blocks * size per block = available bytes
-//	freeSpace := stat.Bavail * uint64(stat.Bsize)
+	// Available blocks * size per block = available bytes
+	freeSpace := stat.Bavail * uint64(stat.Bsize)
 
-//	if int64(freeSpace) < fileSize {
-//		return fmt.Errorf("not enough space to upload file")
-//	}
+	if int64(freeSpace) < fileSize {
+		return fmt.Errorf("not enough space to upload file")
+	}
 
-//	if int64(freeSpace) < minFreeSpaceThreshold {
-//		return fmt.Errorf("disk space is below minimum free space threshold")
-//	}
+	if int64(freeSpace) < minFreeSpaceThreshold {
+		return fmt.Errorf("disk space is below minimum free space threshold")
+	}
 
-//	return nil
-//}
+	return nil
+}
 
 /*
  * Check if a path is rate-limited or banned
