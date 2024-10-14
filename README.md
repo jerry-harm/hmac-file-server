@@ -57,7 +57,7 @@ UnixSocket = true
 UnixSocketPath = "/home/hmac-file-server/hmac.sock"
 
 # Secret key for HMAC authentication
-Secret = "paradigm-fears"
+Secret = "those-who-want-to-believe"
 
 # Directories for storing files
 StoreDir = "/home/hmac-file-server/data"
