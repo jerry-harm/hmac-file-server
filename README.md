@@ -46,7 +46,7 @@ HMAC File Server is a secure server for uploading and downloading files using HM
 The server is configured using a `config.toml` file. Below is a sample configuration:
 
 ```toml
-ListenPort = "8080"
+ListenPort = ":8080"
 UnixSocket = false
 Secret = "your-secret-key"
 StoreDir = "/var/lib/hmac-file-server"
