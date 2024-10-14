@@ -1,0 +1,59 @@
+name: Build hmac-file-server
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        go-version: [1.19.x]
+        platform: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Install dependencies
+        run: go mod tidy
+
+      - name: Build for ${{ matrix.platform }}
+        env:
+          GOARCH: ${{ matrix.platform }}
+          GOOS: linux
+        run: |
+          echo "Building for $GOARCH"
+          go build -o hmac-file-server-${GOARCH}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: hmac-file-server-${{ matrix.platform }}
+          path: hmac-file-server-${{ matrix.platform }}
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.19.x
+
+      - name: Run tests
+        run: go test ./...
