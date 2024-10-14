@@ -1,0 +1,36 @@
+name: Build for ARM64 and AMD64
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.19.x] # Specify the Go version
+        architecture: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build for ${{ matrix.architecture }}
+        run: |
+          GOARCH=${{ matrix.architecture }} go build -o hmac-file-server-${{ matrix.architecture }}
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: hmac-file-server-${{ matrix.architecture }}
+          path: hmac-file-server-${{ matrix.architecture }}
