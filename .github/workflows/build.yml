@@ -1,4 +1,4 @@
-name: Build for ARM64 and AMD64
+name: Build hmac-file-server
 
 on:
   push:
@@ -13,8 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.19.x] # Specify the Go version
-        architecture: [amd64, arm64]
+        arch: [amd64, arm64]
 
     steps:
       - name: Checkout code
@@ -23,14 +22,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: '1.19'
 
-      - name: Build for ${{ matrix.architecture }}
+      - name: Build hmac-file-server for ${{ matrix.arch }}
         run: |
-          GOARCH=${{ matrix.architecture }} go build -o hmac-file-server-${{ matrix.architecture }}
+          GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -o hmac-file-server
 
-      - name: Upload Build Artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
-          name: hmac-file-server-${{ matrix.architecture }}
-          path: hmac-file-server-${{ matrix.architecture }}
+          name: hmac-file-server-${{ matrix.arch }}
+          path: ./hmac-file-server
