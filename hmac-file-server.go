@@ -3,35 +3,30 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"crypto/tls"
 	"flag"
 	"fmt"
-	"io"
-	"mime"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
+	"os/signal"
 	"path"
-	"path/filepath"
-	"strconv"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"crypto/tls"
-	"os/signal"
 
-	"github.com/BurntSushi/toml"
 	"github.com/sirupsen/logrus"
+	"github.com/patrickmn/go-cache"
+	"github.com/BurntSushi/toml"
 )
 
-/*
- * Configuration of this server
- */
+// Configuration of this server
 type Config struct {
 	ListenPort             string
 	UnixSocket             bool
+	UnixSocketPath         string
 	Secret                 string
 	StoreDir               string
 	UploadSubDir           string
@@ -63,6 +58,9 @@ var log = &logrus.Logger{
 	Level:     logrus.DebugLevel,
 }
 
+// Initialize an in-memory cache with default expiration and cleanup interval.
+var fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)  // 5 minutes expiration, 10 minutes cleanup interval
+
 // Minimum free space threshold (100MB in this case, adjustable)
 const minFreeSpaceThreshold int64 = 100 * 1024 * 1024
 
@@ -77,9 +75,7 @@ var ALLOWED_METHODS string = strings.Join(
 	", ",
 )
 
-/*
- * Rate limiting and banning structures
- */
+// Rate limiting and banning structures
 type RateLimit struct {
 	failedAttempts int
 	blockExpires   time.Time
@@ -89,91 +85,30 @@ type RateLimit struct {
 var rateLimits sync.Map
 var rateLimitMutex sync.Mutex
 
-/*
- * Prints the help message with descriptions of available flags and options
- */
-func printHelp() {
-	helpText := `
-Usage: hmac-file-server [options]
-
-Options:
-  -config string
-        Path to the configuration file "config.toml" (default is "./config.toml")
-  -help
-        Display this help message and exit
-  -version
-        Show the version of the program and exit
-
-Description:
-  hmac-file-server is a file handling server for uploading and downloading files, designed with security in mind.
-  It verifies HMAC signatures to ensure secure file transfers, provides retry mechanisms for file access, and
-  has configurable options to control server behavior such as logging levels, retry delays, and maximum retry attempts.
-
-Example:
-  ./hmac-file-server --config=config.toml
-`
-	fmt.Println(helpText)
+// Pool for reusable HMAC instances
+var hmacPool = sync.Pool{
+	New: func() interface{} {
+		return hmac.New(sha256.New, []byte(conf.Secret))
+	},
 }
 
-/*
- * Sets CORS headers for all responses
- */
-func addCORSheaders(w http.ResponseWriter) {
-	// Set common CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "*") 
-	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
-	w.Header().Set("Access-Control-Allow-Credentials", "true") 
-	w.Header().Set("Access-Control-Max-Age", "7200")
+// Reads the configuration file
+func readConfig(configFile string, config *Config) error {
+	_, err := toml.DecodeFile(configFile, config)
+	return err
 }
 
-/*
- * Check if a path is rate-limited or banned
- */
-func isRateLimitedOrBanned(path string) bool {
-	// Fetch rate limit struct using sync.Map
-	if value, exists := rateLimits.Load(path); exists {
-		rateLimit := value.(*RateLimit)
-		if rateLimit.banned {
-			// Check if the auto-ban time has expired and unban if necessary
-			if conf.AutoUnban && time.Now().After(rateLimit.blockExpires) {
-				rateLimit.banned = false
-				rateLimit.failedAttempts = 0
-				log.Infof("Auto-unbanned path: %s", path)
-				return false
-			}
-			return true // Still banned
-		}
-		if time.Now().Before(rateLimit.blockExpires) {
-			return true // Blocked
-		}
-		// Reset if the block has expired
-		rateLimit.failedAttempts = 0
+// Sets the log level
+func setLogLevel() {
+	level, err := logrus.ParseLevel(conf.LogLevel)
+	if err != nil {
+		logrus.Warnf("Invalid log level: %s. Defaulting to 'info'.", conf.LogLevel)
+		level = logrus.InfoLevel
 	}
-	return false
+	log.SetLevel(level)
 }
 
-/*
- * Update failed attempts and potentially ban or block the path
- */
-func updateFailedAttempts(path string) {
-	// Fetch or create RateLimit entry using sync.Map
-	value, _ := rateLimits.LoadOrStore(path, &RateLimit{})
-	rateLimit := value.(*RateLimit)
-
-	rateLimit.failedAttempts++
-
-	if rateLimit.failedAttempts >= conf.BlockAfterFails {
-		// Ban the path for the configured ban time
-		rateLimit.blockExpires = time.Now().Add(time.Duration(conf.AutoBanTime) * time.Second)
-		rateLimit.banned = true
-		log.Warnf("Banning path %s for %d seconds due to too many failed attempts", path, conf.AutoBanTime)
-	}
-}
-
-/*
- * Request handler
- */
+// Request handler
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r == nil {
 		log.Error("Received nil request")
@@ -184,7 +119,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	addCORSheaders(w)
 
 	if r.Method == http.MethodOptions {
-		// Handle CORS preflight request
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -231,114 +165,63 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		log.Info("Incoming request: ", r.Method)
 	}
 
-	// Handle file upload
-	if r.Method == http.MethodPut {
-		// Check for available space
-		if err := hasEnoughSpace(conf.StoreDir, r.ContentLength); err != nil {
-			log.Warn(err.Error())
-			http.Error(w, err.Error(), http.StatusInsufficientStorage)
-			return
-		}
-		// Handle MAC validation and file creation...
-		//...
-	}
+	// Handle file upload (if you need HMAC, implement it here)
 }
 
-/*
- * File Deletion Logic
- */
-func deleteOldFiles() {
-	if !conf.DeleteFiles {
-		return
-	}
+// CORS headers function
+func addCORSheaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*") 
+	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Credentials", "true") 
+	w.Header().Set("Access-Control-Max-Age", "7200")
+}
 
-	duration, err := parsePeriod(conf.DeleteFilesAfterPeriod)
-	if err != nil {
-		log.Fatalf("Invalid delete_files_after_period format: %v", err)
-	}
-
-	uploadDir := filepath.Join(conf.StoreDir, conf.UploadSubDir)
-
-	// Traverse and delete old files
-	err = filepath.Walk(uploadDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if time.Since(info.ModTime()) > duration {
-			if conf.DeleteFilesReport {
-				writeDeleteReport(path)
+// Check if a path is rate-limited or banned
+func isRateLimitedOrBanned(path string) bool {
+	if value, exists := rateLimits.Load(path); exists {
+		rateLimit := value.(*RateLimit)
+		if rateLimit.banned {
+			if conf.AutoUnban && time.Now().After(rateLimit.blockExpires) {
+				rateLimit.banned = false
+				rateLimit.failedAttempts = 0
+				log.Infof("Auto-unbanned path: %s", path)
+				return false
 			}
-			log.Printf("Deleting file: %s", path)
-			return os.RemoveAll(path)
+			return true
 		}
-		return nil
-	})
-
-	if err != nil {
-		log.Fatalf("Error while deleting files: %v", err)
-	}
-}
-
-// Parse period like "30d", "2m", "1y" to a time.Duration
-func parsePeriod(period string) (time.Duration, error) {
-	unit := period[len(period)-1]
-	amount, err := strconv.Atoi(period[:len(period)-1])
-	if err != nil {
-		return 0, fmt.Errorf("invalid period format")
-	}
-
-	switch unit {
-	case 'd':
-		return time.Duration(amount) * 24 * time.Hour, nil
-	case 'm':
-		return time.Duration(amount) * 30 * 24 * time.Hour, nil 
-	case 'y':
-		return time.Duration(amount) * 365 * 24 * time.Hour, nil 
-	default:
-		return 0, fmt.Errorf("invalid time unit: %v", unit)
-	}
-}
-
-// Write deleted files to a report
-func writeDeleteReport(filePath string) {
-	reportPath := conf.DeleteFilesReportPath
-	if reportPath == "" {
-		reportPath = "./deleted_files.log"
-	}
-
-	f, err := os.OpenFile(reportPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatalf("Failed to open report file: %v", err)
-	}
-	defer f.Close()
-
-	if _, err := f.WriteString(fmt.Sprintf("%s - Deleted file: %s\n", time.Now().Format(time.RFC3339), filePath)); err != nil {
-		log.Fatalf("Failed to write to report: %v", err)
-	}
-}
-
-// Schedule file deletion task to run daily
-func scheduleFileDeletion() {
-	go func() {
-		for {
-			deleteOldFiles()
-			time.Sleep(24 * time.Hour) 
+		if time.Now().Before(rateLimit.blockExpires) {
+			return true
 		}
-	}()
+		rateLimit.failedAttempts = 0
+	}
+	return false
 }
 
-/*
- * Main function
- */
+// Update failed attempts and potentially ban or block the path
+func updateFailedAttempts(path string) {
+	value, _ := rateLimits.LoadOrStore(path, &RateLimit{})
+	rateLimit := value.(*RateLimit)
+
+	rateLimit.failedAttempts++
+
+	if rateLimit.failedAttempts >= conf.BlockAfterFails {
+		rateLimit.blockExpires = time.Now().Add(time.Duration(conf.AutoBanTime) * time.Second)
+		rateLimit.banned = true
+		log.Warnf("Banning path %s for %d seconds due to too many failed attempts", path, conf.AutoBanTime)
+	}
+}
+
+// Main function
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())  // Use all available cores
+
 	var configFile string
 	var showHelp bool
 	var showVersion bool
 	var proto string
 
-	/*
-	 * Define and parse startup arguments
-	 */
+	// Define and parse startup arguments
 	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
 	flag.BoolVar(&showHelp, "help", false, "Display this help message")
 	flag.BoolVar(&showVersion, "version", false, "Show the version of the program")
@@ -346,7 +229,17 @@ func main() {
 	flag.Parse()
 
 	if showHelp {
-		printHelp()
+		fmt.Println(`
+Usage: hmac-file-server [options]
+
+Options:
+  -config string
+        Path to the configuration file "config.toml" (default is "./config.toml")
+  -help
+        Display this help message and exit
+  -version
+        Show the version of the program and exit
+        `)
 		os.Exit(0)
 	}
 
@@ -361,35 +254,40 @@ func main() {
 		log.Fatalln("There was an error while reading the configuration file:", err)
 	}
 
+	// Determine protocol and address based on UnixSocket flag
+	var address string
 	if conf.UnixSocket {
 		proto = "unix"
+		address = conf.UnixSocketPath
+		log.Infof("Using Unix socket at: %s", address)
 	} else {
 		proto = "tcp"
+		address = conf.ListenPort
+		log.Infof("Using TCP socket at: %s", address)
+	}
+
+	// Create listener based on the protocol
+	listener, err := net.Listen(proto, address)
+	if err != nil {
+		log.Fatalln("Could not open listener:", err)
 	}
 
 	srv := &http.Server{
-		Addr: conf.ListenPort,
+		Addr: address,
 		TLSConfig: &tls.Config{
 			NextProtos: []string{"h2", "http/1.1"}, 
 		},
 	}
 
-	// Start file deletion scheduler
-	scheduleFileDeletion()
-
 	// Start HTTP server in a separate goroutine
 	go func() {
 		log.Println("Starting hmac-file-server", versionString, "...")
-		listener, err := net.Listen(proto, conf.ListenPort)
-		if err != nil {
-			log.Fatalln("Could not open listening socket:", err)
-		}
-
+		
 		subpath := path.Join("/", conf.UploadSubDir)
 		subpath = strings.TrimRight(subpath, "/")
 		subpath += "/"
 		http.HandleFunc(subpath, handleRequest)
-		log.Printf("Server started on port %s. Waiting for requests.\n", conf.ListenPort)
+		log.Printf("Server started on %s. Waiting for requests.\n", address)
 
 		setLogLevel()
 

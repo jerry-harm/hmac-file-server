@@ -1,3 +1,4 @@
+
 # HMAC File Server
 
 ## Overview
@@ -25,7 +26,7 @@ HMAC File Server is a secure server for uploading and downloading files using HM
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/PlusOne/hmac-file-server.git
+   git clone https://github.com/YOUR-USERNAME/hmac-file-server.git
    cd hmac-file-server
    ```
 
@@ -46,30 +47,47 @@ HMAC File Server is a secure server for uploading and downloading files using HM
 The server is configured using a `config.toml` file. Below is a sample configuration:
 
 ```toml
+# Server listening port for TCP (used if UnixSocket is false)
 ListenPort = ":8080"
-UnixSocket = false
-Secret = "your-secret-key"
-StoreDir = "/var/lib/hmac-file-server"
-UploadSubDir = "uploads"
+
+# Use Unix socket (true or false)
+UnixSocket = true
+
+# Path to the Unix socket (used if UnixSocket is true)
+UnixSocketPath = "/home/hmac-file-server/hmac.sock"
+
+# Secret key for HMAC authentication
+Secret = "paradigm-fears"
+
+# Directories for storing files
+StoreDir = "/home/hmac-file-server/data"
+UploadSubDir = "upload"
+
+# Logging level ("debug", "info", "warn", "error")
 LogLevel = "info"
+
+# Retry settings
 MaxRetries = 5
 RetryDelay = 2
 EnableGetRetries = true
+
+# Rate limiting and banning
 BlockAfterFails = 5
 BlockDuration = 300
 AutoUnban = true
 AutoBanTime = 600
-DeleteFiles = true
-DeleteFilesAfterPeriod = "30d"  # 30 days
-WriteReport = true
-ReportPath = "/var/log/hmac-file-server/deleted-files-report.log"
+
+# File deletion settings
+delete_files = true
+delete_files_after_period = "1y"  # Can be in days (d), months (m), or years (y)
+delete_files_report = true
+delete_files_report_path = "/home/hmac-file-server/deleted_files.log"
 ```
 
-- **ListenPort**: Port for the server to listen on.
-- **UnixSocket**: Option to use Unix sockets instead of TCP.
-- **StoreDir**: Directory where files will be stored.
-- **Auto-File Deletion**: Configure to delete files after a set period.
-- **CORS**: Add custom headers for CORS support when using web-based clients.
+- **UnixSocket**: Enables the use of Unix sockets if set to `true`. If `false`, the server will listen on TCP.
+- **UnixSocketPath**: The path where the Unix socket file will be created.
+- **StoreDir**: Directory where uploaded files will be stored.
+- **LogLevel**: Logging level, which can be `"debug"`, `"info"`, `"warn"`, or `"error"`.
 
 ### Running the server
 ```bash
@@ -148,10 +166,32 @@ Component "upload.example.com" "http_upload"
     -- Optional thumbnail support
     thumbnail = true
 ```
-This configuration allows ejabberd to interact with the file server using HTTP upload for file transfers.
 
 ---
 
 ## Acknowledgements
 
 Special thanks to **Thomas Leister** for his contributions and inspiration for this project. His work has laid the foundation for the development of this secure file handling solution.
+
+---
+
+## Download Instructions
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/hmac-file-server.git
+   ```
+
+2. **Follow the build and configuration steps** listed above to compile and run the server on your environment.
+
+---
+
+### Accessing the Server via Unix Socket:
+
+To interact with the server via a Unix socket, you can use tools like `curl`. Here’s an example command to make a request:
+
+```bash
+curl --unix-socket /home/hmac-file-server/hmac.sock http://localhost/upload/
+```
+
+This command uses the Unix socket to interact with the server.
