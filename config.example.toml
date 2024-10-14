@@ -12,6 +12,9 @@ UploadSubDir = "uploads"             # Sub-directory for file uploads
 # Logging
 LogLevel = "info"                    # Log level (options: "debug", "info", "warn", "error")
 
+# CPU Configuration
+NumCores = "auto"                    # Number of CPU cores to use ("auto" for all available or specify a number)
+
 # Retry Logic for File Access
 MaxRetries = 5                       # Maximum number of retries if a file is not found
 RetryDelay = 2                       # Delay in seconds between retry attempts
