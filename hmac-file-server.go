@@ -6,12 +6,14 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -42,12 +44,13 @@ type Config struct {
 	DeleteFilesAfterPeriod string
 	DeleteFilesReport      bool
 	DeleteFilesReportPath  string
+	NumCores               string // Number of CPU cores to use ("auto" or a number)
 }
 
 var conf = Config{
-	ListenPort: "8080", 
-	MaxRetries: 3,      
-	RetryDelay: 5,     
+	ListenPort: ":8080",
+	MaxRetries: 5,
+	RetryDelay: 2,
 }
 
 var versionString string = "c97fa66"
@@ -108,13 +111,49 @@ func setLogLevel() {
 	log.SetLevel(level)
 }
 
-// Request handler
+// EnsureDirectoryExists checks if a directory exists, and if not, creates it.
+func EnsureDirectoryExists(dirPath string) error {
+	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+		log.Infof("Directory does not exist, creating: %s", dirPath)
+		err := os.MkdirAll(dirPath, 0755)
+		if err != nil {
+			log.Errorf("Error creating directory: %s, error: %v", dirPath, err)
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteFile writes the given data to the specified file path.
+func writeFile(filePath string, data []byte) error {
+	// Open the file for writing
+	file, err := os.Create(filePath)
+	if err != nil {
+		log.Errorf("Error creating file: %s, error: %v", filePath, err)
+		return err
+	}
+	defer file.Close()
+
+	// Write the data to the file
+	_, err = file.Write(data)
+	if err != nil {
+		log.Errorf("Error writing to file: %s, error: %v", filePath, err)
+		return err
+	}
+	log.Infof("Successfully wrote file: %s", filePath)
+	return nil
+}
+
+// Request handler with detailed logging
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r == nil {
 		log.Error("Received nil request")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
+	// Log the incoming request method and URL path for debugging
+	log.Infof("Handling %s request for path: %s", r.Method, r.URL.Path)
 
 	addCORSheaders(w)
 
@@ -129,51 +168,62 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isRateLimitedOrBanned(r.URL.Path) {
-		log.Warn("Request blocked due to rate limiting or ban: ", r.URL.Path)
-		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-		return
-	}
+	// Define the path where the file will be stored
+	dirPath := path.Join(conf.StoreDir, r.URL.Path)
+	filePath := dirPath // Update with your desired file name logic
 
-	if conf.StoreDir == "" {
-		log.Error("StoreDir is not set in the configuration")
+	// Ensure the directory exists before handling the file
+	if err := EnsureDirectoryExists(path.Dir(filePath)); err != nil {
+		log.Errorf("Failed to ensure directory exists: %s, error: %v", path.Dir(filePath), err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	if conf.Secret == "" {
-		log.Error("Secret is not set in the configuration")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	// Handle PUT request (upload file)
+	if r.Method == http.MethodPut {
+		// Read the body data
+		data, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			log.Errorf("Error reading body: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		log.Infof("Received %d bytes of data for path: %s", len(data), filePath)
+
+		// Write the file
+		if err := writeFile(filePath, data); err != nil {
+			log.Errorf("Failed to write file: %s, error: %v", filePath, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		log.Infof("File successfully uploaded: %s", filePath)
 		return
 	}
 
-	if conf.UploadSubDir == "" {
-		log.Error("UploadSubDir is not set in the configuration")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	// Handle GET or HEAD request (serve file)
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			log.Warnf("File not found: %s", filePath)
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
+
+		log.Infof("Serving file: %s", filePath)
+		http.ServeFile(w, r, filePath)
 		return
 	}
 
-	if conf.MaxRetries <= 0 || conf.RetryDelay <= 0 {
-		log.Error("Invalid configuration for MaxRetries or RetryDelay")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	if conf.LogLevel == "debug" {
-		log.Info("Incoming request with full details: ", r.Method, r.URL.String())
-	} else {
-		log.Info("Incoming request: ", r.Method)
-	}
-
-	// Handle file upload (if you need HMAC, implement it here)
+	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 }
 
 // CORS headers function
 func addCORSheaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*") 
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
-	w.Header().Set("Access-Control-Allow-Credentials", "true") 
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
@@ -214,8 +264,6 @@ func updateFailedAttempts(path string) {
 
 // Main function
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())  // Use all available cores
-
 	var configFile string
 	var showHelp bool
 	var showVersion bool
@@ -254,6 +302,20 @@ Options:
 		log.Fatalln("There was an error while reading the configuration file:", err)
 	}
 
+	// Set the number of cores based on config
+	if conf.NumCores == "auto" {
+		runtime.GOMAXPROCS(runtime.NumCPU()) // Use all available cores
+		log.Infof("Using all available cores: %d", runtime.NumCPU())
+	} else {
+		numCores, err := strconv.Atoi(conf.NumCores)
+		if err != nil || numCores < 1 {
+			log.Warn("Invalid NumCores value. Defaulting to 1 core.")
+			numCores = 1
+		}
+		runtime.GOMAXPROCS(numCores)
+		log.Infof("Using %d cores", numCores)
+	}
+
 	// Determine protocol and address based on UnixSocket flag
 	var address string
 	if conf.UnixSocket {
@@ -275,7 +337,7 @@ Options:
 	srv := &http.Server{
 		Addr: address,
 		TLSConfig: &tls.Config{
-			NextProtos: []string{"h2", "http/1.1"}, 
+			NextProtos: []string{"h2", "http/1.1"},
 		},
 	}
 
