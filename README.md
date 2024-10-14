@@ -80,6 +80,21 @@ To test HTTP/2 support, you can use tools like `curl`:
 curl -k --http2 -T /path/to/uploadfile https://example.com/uploads/yourfile
 ```
 
+## Verifying Service Status:
+To verify if the `hmac-file-server` is running correctly, you can check the `systemd` logs. Run the following command:
+
+```bash
+sudo systemctl status hmac-file-server.service
+```
+
+You should see output similar to the following if the service is running successfully:
+
+```
+Oct 14 09:38:42 nginxsslh.uuxo.net systemd[1]: Started hmac-file-server.service - HMAC File Server - Secure File Handling Server.
+Oct 14 09:38:42 nginxsslh.uuxo.net hmac-file-server[1154221]: time="2024-10-14T09:38:42Z" level=info msg="Starting hmac-file-server c97fa66 ..."
+Oct 14 09:38:42 nginxsslh.uuxo.net hmac-file-server[1154221]: time="2024-10-14T09:38:42Z" level=info msg="Server started on port [::1]:5050. Waiting for requests."
+```
+
 ## Dependencies
 - [BurntSushi/toml](https://github.com/BurntSushi/toml) - TOML parser for Go.
 - [Sirupsen/logrus](https://github.com/sirupsen/logrus) - Structured, pluggable logging for Go.
@@ -105,11 +120,11 @@ Description=HMAC File Server - Secure File Handling Server
 After=network.target
 
 [Service]
-ExecStart=/path/to/hmac-file-server --config=/path/to/config.toml
-WorkingDirectory=/path/to/working-directory
+ExecStart=/home/hmac-file-server/hmac-file-server --config=/home/hmac-file-server/config.toml
+WorkingDirectory=/home/hmac-file-server
 Restart=on-failure
-User=your-user
-Group=your-group
+User=hmac-file-server
+Group=hmac-file-server
 LimitNOFILE=4096
 
 [Install]
