@@ -1,4 +1,3 @@
-
 # HMAC File Server
 
 ## Overview
@@ -66,6 +65,9 @@ UploadSubDir = "upload"
 # Logging level ("debug", "info", "warn", "error")
 LogLevel = "info"
 
+# CPU Configuration
+NumCores = "auto"                    # Number of CPU cores to use ("auto" for all available or specify a number)
+
 # Retry settings
 MaxRetries = 5
 RetryDelay = 2
@@ -88,6 +90,7 @@ delete_files_report_path = "/home/hmac-file-server/deleted_files.log"
 - **UnixSocketPath**: The path where the Unix socket file will be created.
 - **StoreDir**: Directory where uploaded files will be stored.
 - **LogLevel**: Logging level, which can be `"debug"`, `"info"`, `"warn"`, or `"error"`.
+- **NumCores**: Defines the number of CPU cores to use for processing. Set to `"auto"` for all available cores or specify a number.
 
 ### Running the server
 ```bash
