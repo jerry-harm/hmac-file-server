@@ -109,7 +109,7 @@ WantedBy=multi-user.target
 
 ---
 
-## ejabberd Integration
+## ejabberd HTTP Upload Integration
 
 Configure ejabberd to work with the HMAC File Server:
 
@@ -126,7 +126,28 @@ mod_http_upload:
       "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
       "Access-Control-Allow-Headers": "Content-Type"
 ```
+---
 
+## Prosody HTTP Upload Integration
+
+You can integrate the HMAC File Server with **Prosody** for HTTP file uploads. Below is a sample configuration for `mod_http_upload`:
+
+```lua
+Component "upload.example.com" "http_upload"
+    http_upload_path = "/upload/"
+    http_external_url = "https://share.example.com"
+    max_size = 536870912 -- 512MB max upload size
+    docroot = "/mnt/storage/prosody_uploads"
+    external_secret = "replace_with_hmac_file_server_secret"
+    custom_headers = {
+        ["Access-Control-Allow-Origin"] = "*";
+        ["Access-Control-Allow-Methods"] = "GET, HEAD, PUT, OPTIONS";
+        ["Access-Control-Allow-Headers"] = "Content-Type";
+    }
+
+    -- Optional thumbnail support
+    thumbnail = true
+```
 This configuration allows ejabberd to interact with the file server using HTTP upload for file transfers.
 
 ---
