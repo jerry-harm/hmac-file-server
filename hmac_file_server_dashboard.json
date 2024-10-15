@@ -1,0 +1,128 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "HMAC File Server Metrics",
+    "uid": "hmac-file-server-metrics",
+    "version": 1,
+    "panels": [
+      {
+        "type": "graph",
+        "title": "Total Requests",
+        "targets": [
+          {
+            "expr": "http_requests_total",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "options": {
+          "legend": {
+            "show": true
+          },
+          "lines": true,
+          "fill": 1,
+          "stacking": {
+            "group": "A",
+            "mode": "normal"
+          }
+        }
+      },
+      {
+        "type": "graph",
+        "title": "Request Duration (95th Percentile)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "95th Percentile",
+            "refId": "B"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "options": {
+          "legend": {
+            "show": true
+          },
+          "lines": true,
+          "fill": 1
+        }
+      },
+      {
+        "type": "graph",
+        "title": "Error Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~'5..'}[5m])",
+            "legendFormat": "Errors",
+            "refId": "C"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 24,
+          "h": 8
+        },
+        "options": {
+          "legend": {
+            "show": true
+          },
+          "lines": true,
+          "fill": 1
+        }
+      },
+      {
+        "type": "gauge",
+        "title": "Active Connections",
+        "targets": [
+          {
+            "expr": "http_connections_active",
+            "legendFormat": "Active Connections",
+            "refId": "D"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 24,
+          "h": 8
+        },
+        "options": {
+          "minValue": 0,
+          "maxValue": 100,
+          "thresholds": "0,50,100",
+          "unit": "connections"
+        }
+      }
+    ],
+    "schemaVersion": 26,
+    "tags": [],
+    "style": "dark",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": [],
+      "time_options": []
+    },
+    "templating": {
+      "list": []
+    }
+  },
+  "overwrite": true
+}

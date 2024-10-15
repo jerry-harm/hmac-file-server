@@ -18,9 +18,56 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/patrickmn/go-cache"
 	"github.com/BurntSushi/toml"
+)
+
+// Custom Prometheus metrics
+var (
+	fileUploadsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hmac_file_uploads_total",
+			Help: "Total number of successful file uploads",
+		},
+		[]string{"status"},
+	)
+	fileDownloadsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hmac_file_downloads_total",
+			Help: "Total number of successful file downloads",
+		},
+		[]string{"status"},
+	)
+	fileDeletionsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hmac_file_deletions_total",
+			Help: "Total number of files deleted",
+		},
+		[]string{"status"},
+	)
+	failedUploadsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hmac_failed_uploads_total",
+			Help: "Total number of failed upload attempts",
+		},
+		[]string{"reason"},
+	)
+	failedDownloadsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hmac_failed_downloads_total",
+			Help: "Total number of failed download attempts",
+		},
+		[]string{"reason"},
+	)
+	totalStorageUsedGauge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "hmac_total_storage_used_bytes",
+			Help: "Total storage used by files in bytes",
+		},
+	)
 )
 
 // Configuration of this server
@@ -46,6 +93,8 @@ type Config struct {
 	NumCores               string // Number of CPU cores to use ("auto" or a number)
 	ReaskSecretEnabled     bool   `toml:"reask_secret_enabled"`    // Enable reasking for the secret
 	ReaskSecretInterval    string `toml:"reask_secret_interval"`   // Interval for reasking the secret
+	MetricsEnabled         bool   `toml:"metrics_enabled"`         // Enable Prometheus metrics
+	MetricsPort            string `toml:"metrics_port"`            // Port for metrics endpoint
 }
 
 var conf = Config{
@@ -54,9 +103,11 @@ var conf = Config{
 	RetryDelay:             2,
 	ReaskSecretEnabled:     true,
 	ReaskSecretInterval:    "24h", // Default interval for reasking secret
+	MetricsEnabled:         true,
+	MetricsPort:            ":9090", // Default metrics port
 }
 
-var versionString string = "c97fa66"
+var versionString string = "1.0.1"
 var log = &logrus.Logger{
 	Out:       os.Stdout,
 	Formatter: new(logrus.TextFormatter),
@@ -144,6 +195,7 @@ func writeFile(filePath string, data []byte) error {
 		return err
 	}
 	log.Infof("Successfully wrote file: %s", filePath)
+	totalStorageUsedGauge.Set(float64(len(data))) // Update total storage used
 	return nil
 }
 
@@ -162,12 +214,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.URL == nil {
-		log.Error("Request URL is nil")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
@@ -196,10 +242,12 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		// Write the file
 		if err := writeFile(filePath, data); err != nil {
 			log.Errorf("Failed to write file: %s, error: %v", filePath, err)
+			failedUploadsCounter.WithLabelValues("write_failed").Inc()
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 
+		fileUploadsCounter.WithLabelValues("success").Inc() // Increment successful uploads
 		w.WriteHeader(http.StatusCreated)
 		log.Infof("File successfully uploaded: %s", filePath)
 		return
@@ -209,12 +257,14 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			log.Warnf("File not found: %s", filePath)
+			failedDownloadsCounter.WithLabelValues("not_found").Inc()
 			http.Error(w, "Not Found", http.StatusNotFound)
 			return
 		}
 
 		log.Infof("Serving file: %s", filePath)
 		http.ServeFile(w, r, filePath)
+		fileDownloadsCounter.WithLabelValues("success").Inc() // Increment successful downloads
 		return
 	}
 
@@ -336,6 +386,17 @@ Options:
 		}
 		runtime.GOMAXPROCS(numCores)
 		log.Infof("Using %d cores", numCores)
+	}
+
+	// Start metrics server
+	if conf.MetricsEnabled {
+		go func() {
+			http.Handle("/metrics", promhttp.Handler()) // Handle metrics requests
+			log.Infof("Metrics server started on %s", conf.MetricsPort)
+			if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
+				log.Fatalf("Could not start metrics server: %v", err)
+			}
+		}()
 	}
 
 	// Determine protocol and address based on UnixSocket flag
