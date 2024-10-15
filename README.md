@@ -29,7 +29,7 @@ HMAC File Server is a secure server for uploading and downloading files using HM
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/YOUR-USERNAME/hmac-file-server.git
+   git clone https://github.com/PlusOne/hmac-file-server.git
    cd hmac-file-server
    ```
 
