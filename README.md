@@ -1,3 +1,4 @@
+
 # HMAC File Server
 
 ## Overview
@@ -80,10 +81,10 @@ AutoUnban = true
 AutoBanTime = 600
 
 # File deletion settings
-delete_files = true
-delete_files_after_period = "1y"  # Can be in days (d), months (m), or years (y)
-delete_files_report = true
-delete_files_report_path = "/home/hmac-file-server/deleted_files.log"
+DeleteFiles = true
+DeleteFilesAfterPeriod = "1y"  # Can be in days (d), months (m), or years (y)
+WriteReport = true
+ReportPath = "/home/hmac-file-server/deleted_files.log"
 ```
 
 - **UnixSocket**: Enables the use of Unix sockets if set to `true`. If `false`, the server will listen on TCP.
@@ -182,7 +183,7 @@ Special thanks to **Thomas Leister** for his contributions and inspiration for t
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/YOUR-USERNAME/hmac-file-server.git
+   git clone https://github.com/PlusOne/hmac-file-server.git
    ```
 
 2. **Follow the build and configuration steps** listed above to compile and run the server on your environment.
