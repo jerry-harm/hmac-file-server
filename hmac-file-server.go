@@ -110,11 +110,38 @@ var (
 		Name: "hmac_file_server_goroutines",
 		Help: "Number of goroutines that currently exist.",
 	})
+
+	totalUploads = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hmac_file_server_total_uploads",
+			Help: "Total number of uploads",
+		},
+		[]string{"status"}, // You can use labels to categorize your metrics
+	)
+
+	totalDownloads = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "hmac_file_server_total_downloads",
+			Help: "Total number of downloads",
+		},
+		[]string{"status"},
+	)
+
+	uploadDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "hmac_file_server_upload_duration_seconds",
+			Help:    "Duration of uploads in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
 )
 
 func init() {
 	// Register metrics
 	prometheus.MustRegister(goroutines)
+	prometheus.MustRegister(totalUploads)
+	prometheus.MustRegister(totalDownloads)
+	prometheus.MustRegister(uploadDuration)
 }
 
 // Reads the configuration file
@@ -177,6 +204,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Log the incoming request method and URL path for debugging
 	log.Infof("Handling %s request for path: %s", r.Method, r.URL.Path)
 
+	// Update the goroutine metric
+	goroutines.Set(float64(runtime.NumGoroutine()))
+
 	addCORSheaders(w)
 
 	if r.Method == http.MethodOptions {
@@ -203,6 +233,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Handle PUT request (upload file)
 	if r.Method == http.MethodPut {
+		// Start timing the upload
+		start := time.Now()
+
 		// Read the body data
 		data, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -219,6 +252,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Update metrics after successful upload
+		totalUploads.WithLabelValues("success").Inc()
+		uploadDuration.Observe(time.Since(start).Seconds())
+
 		w.WriteHeader(http.StatusCreated)
 		log.Infof("File successfully uploaded: %s", filePath)
 		return
@@ -234,6 +271,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 		log.Infof("Serving file: %s", filePath)
 		http.ServeFile(w, r, filePath)
+
+		// Update metrics after successful download
+		totalDownloads.WithLabelValues("success").Inc()
 		return
 	}
 
