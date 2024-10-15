@@ -1,211 +1,177 @@
+
 # HMAC File Server
 
 ## Overview
 
-HMAC File Server is a secure file handling server designed for use with XMPP servers like Prosody and ejabberd. It enables HMAC-based file uploads and downloads, rate limiting, auto-banning, auto-file deletion, multicore processing, and caching.
+The HMAC File Server is a secure file handling server that utilizes HMAC for authentication. It allows you to upload and manage files securely while providing metrics for monitoring.
 
-### Key Features
-- **HMAC Authentication**: Secure file transfers using HMAC signatures.
-- **Retry Mechanism**: Automatic retries for file access and downloads.
-- **Disk Space Checks**: Prevents uploads if disk space is low.
-- **Rate Limiting & Auto-Banning**: Protects against abuse by limiting failed access attempts.
-- **Auto-File Deletion**: Automatically delete files older than a configurable period.
-- **Max Upload Size**: Set maximum upload size (default is 1GB) for better control over file handling.
-- **Multicore Support**: Efficiently uses all available CPU cores for optimized performance.
-- **Caching**: In-memory caching to speed up file metadata handling.
-- **Monitoring with Prometheus**: Metrics exposed for monitoring file server performance.
-- **HTTP/2 & CORS Support**: For faster and cross-origin file transfers.
-- **Systemd Support**: Easily manage as a service.
+## Features
 
----
+- **HMAC Authentication**: Ensures the integrity and authenticity of uploaded files using HMAC.
+- **Secure File Uploads and Downloads**: Facilitates secure uploading and downloading of files.
+- **Prometheus Metrics Support**: Exposes metrics for monitoring using Prometheus.
+- **Rate Limiting and Banning**: Configurable options to prevent abuse by limiting failed attempts.
+- **Automatic File Deletion**: Automatically deletes files after a specified period.
+- **Dynamic Configuration**: Easily adjustable settings via a TOML configuration file.
+- **CORS Support**: Configurable Cross-Origin Resource Sharing (CORS) headers for API access.
 
-## Configuration and Setup
+## Configuration
 
-The server is configured using a `config.toml` file. Below is a sample configuration:
+The server is configured via a `config.toml` file. Below are the key configuration options:
 
 ```toml
-# Server Configuration
-ListenPort = ":8080"                         # The port on which HMAC File Server will listen for HTTP requests
-UnixSocket = false                           # Use Unix socket instead of TCP (set to true if you want to use Unix socket)
+# Server listening port for TCP (used if UnixSocket is false)
+ListenPort = ":8080"
 
-# Authentication
-Secret = "your-secret-key"                   # HMAC secret key for secure file uploads and downloads
+# Use Unix socket (true or false)
+UnixSocket = false
 
-# File Storage
-StoreDir = "/var/lib/hmac-file-server"       # Directory where uploaded files will be stored
-UploadSubDir = "uploads"                     # Sub-directory for file uploads
+# Path to the Unix socket (used if UnixSocket is true)
+# UnixSocketPath = "/home/hmac-file-server/hmac.sock"
 
-# Logging
-LogLevel = "info"                            # Log level (options: "debug", "info", "warn", "error")
+# Secret key for HMAC authentication
+Secret = "your-secret-key"
 
-# CPU Configuration
-NumCores = "auto"                            # Number of CPU cores to use ("auto" for all available or specify a number)
+# Directories for storing files
+StoreDir = "/mnt/storage/hmac-file-server/"
+UploadSubDir = "upload"
 
-# Max Upload Size
-MaxUploadSize = 1073741824                   # Maximum upload size in bytes (1 GB)
+# Logging level ("debug", "info", "warn", "error")
+LogLevel = "info"
 
-# Retry Logic for File Access
-MaxRetries = 5                               # Maximum number of retries if a file is not found
-RetryDelay = 2                               # Delay in seconds between retry attempts
-EnableGetRetries = true                       # Enable retries for GET requests if files are not found
+# Retry settings
+MaxRetries = 5
+RetryDelay = 2
+EnableGetRetries = true
 
-# Rate Limiting and Auto-Banning
-BlockAfterFails = 5                          # Number of failed attempts before blocking a path
-BlockDuration = 300                          # Duration (in seconds) to block a path after too many failed attempts
-AutoUnban = true                             # Automatically unban a path after a certain period
-AutoBanTime = 600                            # Time (in seconds) for how long a path remains banned before auto-unban
+# Rate limiting and banning
+BlockAfterFails = 5
+BlockDuration = 300            # Duration in seconds to block after exceeding failed attempts
+AutoUnban = true               # Automatically unban after block duration
+AutoBanTime = 600              # Duration in seconds for auto-ban
 
-# Buffer Configuration
-BufferEnabled = true                          # Enable or disable buffer usage for read and write operations
-BufferSize = 8192                            # Size of the buffer (in bytes)
+# File deletion settings
+DeleteFiles = true
+DeleteFilesAfterPeriod = "1y" # Can be in days (d), months (m), or years (y)
+DeleteFilesReport = true
+DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
 
-# File Deletion Configuration
-DeleteFiles = true                           # Enable automatic deletion of files
-DeleteFilesAfterPeriod = "30d"              # Period after which files will be deleted (e.g., "30d" for 30 days)
+# CPU core settings
+NumCores = "auto"              # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
 
-# Report Configuration
-WriteReport = true                           # Enable writing a report of deleted files
-ReportPath = "/var/log/hmac-file-server/deleted-files-report.log"  # Path for the deletion report log
+# Buffer settings
+BufferEnabled = true           # Enable or disable the buffer pool for read/write operations
+BufferSize = 65536             # Size of the buffer in bytes (e.g., 64 KB)
+
+# HMAC Secret Re-ask Configuration
+ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
+ReaskSecretInterval = "24h"                   # Interval for reasking the secret (e.g., "24h" for 24 hours)
 
 # Monitoring Configuration
 MetricsEnabled = true                         # Enable Prometheus metrics
-MetricsPort = ":9090"                        # Port for metrics endpoint
+MetricsPort = ":9090"                         # Port for metrics endpoint
 ```
 
-### Custom Headers for CORS
+### Explanation of Configuration Options
 
-In case you are using web-based clients, you may need to handle cross-origin requests (CORS). For that, you can define custom headers as shown below in both Prosody and ejabberd configurations.
+- **ListenPort**: The TCP port on which the server listens for file handling requests. Default is `:8080`.
+- **UnixSocket**: If set to `true`, the server will use a Unix socket instead of a TCP port.
+- **UnixSocketPath**: The file system path for the Unix socket. Only applicable if `UnixSocket` is `true`.
+- **Secret**: The secret key used for HMAC authentication.
+- **StoreDir**: Directory where uploaded files are stored.
+- **UploadSubDir**: Subdirectory within `StoreDir` for uploads.
+- **LogLevel**: Logging verbosity level (`debug`, `info`, `warn`, `error`).
+- **MaxRetries**: Maximum number of retry attempts for failed operations.
+- **RetryDelay**: Delay between retry attempts in seconds.
+- **EnableGetRetries**: Enable retries for GET requests.
+- **BlockAfterFails**: Number of failed attempts after which the path is banned.
+- **BlockDuration**: Duration (in seconds) to block a path after exceeding failed attempts.
+- **AutoUnban**: Automatically unban a path after the block duration expires.
+- **AutoBanTime**: Duration (in seconds) for which a path remains banned.
+- **DeleteFiles**: Enable automatic deletion of files after a certain period.
+- **DeleteFilesAfterPeriod**: Time period after which files are deleted (`d` for days, `m` for months, `y` for years).
+- **DeleteFilesReport**: Enable logging of deleted files.
+- **DeleteFilesReportPath**: File path where deletion logs are stored.
+- **NumCores**: Number of CPU cores to utilize (`auto` to use all available cores).
+- **BufferEnabled**: Enable or disable the buffer pool for read/write operations.
+- **BufferSize**: Size of the buffer in bytes.
+- **ReaskSecretEnabled**: Enable periodic reasking for the HMAC secret.
+- **ReaskSecretInterval**: Interval for reasking the HMAC secret.
+- **MetricsEnabled**: Enable Prometheus metrics collection.
+- **MetricsPort**: Port on which the metrics server listens (default `:9090`).
 
----
+## Running the Server
 
-## Prosody HTTP Upload Integration
-
-You can integrate the HMAC File Server with **Prosody** for HTTP file uploads. Below is a sample configuration for `mod_http_upload`:
-
-```lua
-Component "upload.example.com" "http_upload"
-    http_upload_path = "/upload/"
-    http_external_url = "https://share.example.com"
-    max_size = 1073741824 -- 1GB max upload size
-    docroot = "/mnt/storage/prosody_uploads"
-    external_secret = "replace_with_hmac_file_server_secret"
-    custom_headers = {
-        ["Access-Control-Allow-Origin"] = "*";
-        ["Access-Control-Allow-Methods"] = "GET, HEAD, PUT, OPTIONS";
-        ["Access-Control-Allow-Headers"] = "Content-Type";
-    }
-
-    -- Optional thumbnail support
-    thumbnail = true
-```
-
-### Explanation of Configuration:
-
-- **`http_external_url`**: The public URL used for uploaded file access.
-- **`max_size`**: Maximum file size for uploads (set to 1GB).
-- **`docroot`**: The local directory where uploaded files are stored.
-- **`external_secret`**: Use the same HMAC secret as configured in `hmac-file-server`. Replace `"replace_with_hmac_file_server_secret"` with the actual secret.
-- **`custom_headers`**: These headers are necessary if you're handling **cross-origin requests** (CORS), especially for web-based clients.
-
----
-
-## ejabberd HTTP Upload Integration
-
-For **ejabberd**, the HTTP file upload integration with HMAC File Server can be configured as shown below:
-
-```yaml
-mod_http_upload:
-    max_size: 1073741824  # 1GB max upload size
-    thumbnail: true  # Optional thumbnail generation
-    put_url: https://share.example.com
-    get_url: https://share.example.com
-    docroot: /mnt/storage/ejabberd
-    external_secret: "replace_with_hmac_file_server_secret"
-    custom_headers:
-      "Access-Control-Allow-Origin": "*"
-      "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
-      "Access-Control-Allow-Headers": "Content-Type"
-```
-
-### Explanation of Configuration:
-
-- **`put_url`**: The URL used for file uploads.
-- **`get_url`**: The URL used for file downloads.
-- **`docroot`**: The local directory where the uploaded files are stored.
-- **`external_secret`**: Use the same HMAC secret as configured in `hmac-file-server`. Replace `"replace_with_hmac_file_server_secret"` with the actual secret.
-- **`custom_headers`**: These headers ensure that the HTTP upload service works with cross-origin requests (CORS).
-- **`max_size`**: Maximum size for file uploads (in bytes). The example is set to 1GB.
-
-### Custom Headers
-
-If you use web-based clients or need to handle cross-origin requests, it's important to include these headers in the ejabberd configuration to allow CORS.
-
----
-
-## Multicore Processing
-
-HMAC File Server now supports **multicore processing**. This allows the server to efficiently use all available CPU cores, improving performance, especially under high-load conditions. It uses Go's `GOMAXPROCS` to set the number of CPUs that can be used simultaneously.
-
-To enable multicore processing, no additional configuration is required. The server automatically utilizes all available CPU cores:
-
-```go
-runtime.GOMAXPROCS(runtime.NumCPU())
-```
-
----
-
-## Monitoring with Prometheus
-
-The HMAC File Server exposes metrics that can be scraped by Prometheus for monitoring. Ensure the metrics endpoint is enabled in the configuration.
-
-### Example Metrics Endpoint
-
-Access the metrics at the configured port:
-
-```
-http://localhost:9090/metrics
-```
-
-This will provide various metrics related to the HMAC File Server's performance and resource usage.
-
----
-
-## Ensuring SOCKS Proxy Usage
-
-To ensure that the `hmac-file-server` uses a SOCKS proxy, you can configure the environment to route requests through a SOCKS proxy server.
-
-### Steps:
-
-1. Install **proxychains** (or another proxy utility) on your system:
+To run the HMAC File Server, use the following command:
 
 ```bash
-sudo apt-get install proxychains
+./hmac-file-server --config=/path/to/config.toml
 ```
 
-2. Configure `proxychains` to use your SOCKS proxy. Edit the configuration file at `/etc/proxychains.conf`:
+Ensure that your `config.toml` is correctly configured with the desired settings before running the server.
+
+## Accessing Metrics
+
+If **Metrics Support** is enabled in your configuration (`MetricsEnabled = true`), the server exposes metrics for Prometheus at the following endpoint:
+
+```
+http://<your-server-ip>:9090/metrics
+```
+
+### Available Metrics
+
+- **Go Runtime Metrics**: Includes garbage collection stats, memory usage, goroutines, and more.
+- **Custom Metrics**: Number of active goroutines specific to the HMAC File Server.
+
+You can visualize these metrics using monitoring tools like **Grafana** by setting up Prometheus as a data source.
+
+## File Operations
+
+### Uploading a File
+
+To upload a file, send a `PUT` request to the server:
 
 ```bash
-nano /etc/proxychains.conf
+curl -X PUT --data-binary @/path/to/your/file http://<your-server-ip>:8080/upload/<your-file>
 ```
 
-Add or update the following at the end of the file to point to your SOCKS proxy server:
+### Downloading a File
 
-```conf
-socks5  127.0.0.1 9050  # Example SOCKS5 proxy running on localhost and port 9050
-```
-
-3. Start the `hmac-file-server` using `proxychains`:
+To download a file, send a `GET` request:
 
 ```bash
-proxychains ./hmac-file-server --config=config.toml
+curl -O http://<your-server-ip>:8080/upload/<your-file>
 ```
 
-This will route all traffic through the configured SOCKS proxy.
+## Rate Limiting and Banning
 
----
+The server can automatically ban paths that exceed a specified number of failed attempts. This helps prevent abuse and ensures the server remains secure.
 
-## Acknowledgements
+### Configuration Options
 
-A huge thanks to **Thomas Leister** for providing inspiration and the foundation for the development of this project. His work has been invaluable in shaping the functionality and design of the `hmac-file-server`.
+- **BlockAfterFails**: Number of failed attempts before banning.
+- **BlockDuration**: Duration for which the path remains banned.
+- **AutoUnban**: Automatically unban after the block duration.
 
----
+## Automatic File Deletion
+
+The server can be configured to automatically delete files after a specified period, helping manage storage effectively.
+
+### Configuration Options
+
+- **DeleteFiles**: Enable or disable automatic file deletion.
+- **DeleteFilesAfterPeriod**: Time period after which files are deleted.
+- **DeleteFilesReport**: Enable logging of deleted files.
+- **DeleteFilesReportPath**: Path to the log file for deletions.
+
+## License
+
+This project is licensed under the MIT License.
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request for any enhancements or bug fixes.
+
+## Contact
+
+For any questions or support, please contact [your-email@example.com](mailto:your-email@example.com).
