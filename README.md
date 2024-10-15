@@ -1,4 +1,3 @@
-
 # HMAC File Server
 
 ## Overview
@@ -11,6 +10,10 @@ HMAC File Server is a secure server for uploading and downloading files using HM
 - **Disk Space Checks**: Prevents uploads if disk space is low.
 - **Rate Limiting & Auto-Banning**: Protects against abuse by limiting failed access attempts.
 - **Auto-File Deletion**: Automatically delete files older than a configurable period.
+- **Max Upload Size**: Set maximum upload size (default is 1GB) for better control over file handling.
+- **Multicore Support**: Efficiently uses all available CPU cores for optimized performance.
+- **Buffer Configuration**: Enables buffering for read and write operations to improve performance.
+- **Automatic Caching**: Introduced automatic caching through goroutines to enhance performance and reduce latency for frequently accessed file metadata.
 - **HTTP/2 & CORS Support**: For faster and cross-origin file transfers.
 - **Systemd Support**: Easily manage as a service.
 
@@ -51,28 +54,28 @@ The server is configured using a `config.toml` file. Below is a sample configura
 ListenPort = ":8080"
 
 # Use Unix socket (true or false)
-UnixSocket = true
+UnixSocket = false
 
 # Path to the Unix socket (used if UnixSocket is true)
-UnixSocketPath = "/home/hmac-file-server/hmac.sock"
+# UnixSocketPath = "/home/hmac-file-server/hmac.sock"
 
 # Secret key for HMAC authentication
-Secret = "those-who-want-to-believe"
+Secret = "your-hmac-secret-key"  # Placeholder for the actual HMAC secret key
 
 # Directories for storing files
-StoreDir = "/home/hmac-file-server/data"
+StoreDir = "/mnt/storage/hmac-file-server/"
 UploadSubDir = "upload"
 
 # Logging level ("debug", "info", "warn", "error")
 LogLevel = "info"
 
-# CPU Configuration
-NumCores = "auto"                    # Number of CPU cores to use ("auto" for all available or specify a number)
-
 # Retry settings
 MaxRetries = 5
 RetryDelay = 2
 EnableGetRetries = true
+
+# Max Upload Size
+MaxUploadSize = 1073741824  # 1 GB in bytes
 
 # Rate limiting and banning
 BlockAfterFails = 5
@@ -83,15 +86,22 @@ AutoBanTime = 600
 # File deletion settings
 DeleteFiles = true
 DeleteFilesAfterPeriod = "1y"  # Can be in days (d), months (m), or years (y)
-WriteReport = true
-ReportPath = "/home/hmac-file-server/deleted_files.log"
-```
+DeleteFilesReport = true
+DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
 
-- **UnixSocket**: Enables the use of Unix sockets if set to `true`. If `false`, the server will listen on TCP.
-- **UnixSocketPath**: The path where the Unix socket file will be created.
-- **StoreDir**: Directory where uploaded files will be stored.
-- **LogLevel**: Logging level, which can be `"debug"`, `"info"`, `"warn"`, or `"error"`.
-- **NumCores**: Defines the number of CPU cores to use for processing. Set to `"auto"` for all available cores or specify a number.
+# CPU core settings
+NumCores = "auto"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
+
+# Enable or disable the buffer pool for read/write operations
+BufferEnabled = true
+
+# Size of the buffer (in bytes)
+BufferSize = 65536  # Example: 64 KB
+
+# HMAC Secret Re-ask Configuration
+ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
+ReaskSecretInterval = "24h"                  # Interval for reasking the secret (e.g., "24h" for 24 hours)
+```
 
 ### Running the server
 ```bash
@@ -137,7 +147,7 @@ Configure ejabberd to work with the HMAC File Server:
 
 ```yaml
 mod_http_upload:
-    max_size: 536870912  # 512MB max upload size
+    max_size: 1073741824  # 1GB max upload size
     thumbnail: true  # Optional thumbnail generation
     put_url: https://share.example.com
     get_url: https://share.example.com
@@ -148,6 +158,7 @@ mod_http_upload:
       "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
       "Access-Control-Allow-Headers": "Content-Type"
 ```
+
 ---
 
 ## Prosody HTTP Upload Integration
@@ -158,7 +169,7 @@ You can integrate the HMAC File Server with **Prosody** for HTTP file uploads. B
 Component "upload.example.com" "http_upload"
     http_upload_path = "/upload/"
     http_external_url = "https://share.example.com"
-    max_size = 536870912 -- 512MB max upload size
+    max_size = 1073741824 -- 1GB max upload size
     docroot = "/mnt/storage/prosody_uploads"
     external_secret = "replace_with_hmac_file_server_secret"
     custom_headers = {
@@ -183,7 +194,7 @@ Special thanks to **Thomas Leister** for his contributions and inspiration for t
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/PlusOne/hmac-file-server.git
+   git clone https://github.com/YOUR-USERNAME/hmac-file-server.git
    ```
 
 2. **Follow the build and configuration steps** listed above to compile and run the server on your environment.
