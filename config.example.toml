@@ -1,31 +1,55 @@
-# Server Configuration
-ListenPort = ":8080"                      # The port on which Prosody Filer will listen for HTTP requests
-UnixSocket = false                        # Use Unix socket instead of TCP (set to true if you want to use Unix socket)
+# Server listening port for TCP (used if UnixSocket is false)
+ListenPort = ":8080"
 
-# Authentication
-Secret = "supersecretkey"                 # HMAC secret key for secure file uploads and downloads
+# Use Unix socket (true or false)
+UnixSocket = false
 
-# File Storage
-StoreDir = "/var/lib/hmac-file-server"    # Directory where uploaded files will be stored
-UploadSubDir = "uploads"                  # Sub-directory for file uploads
+# Path to the Unix socket (used if UnixSocket is true)
+# UnixSocketPath = "/home/hmac-file-server/hmac.sock"
 
-# Logging
-LogLevel = "info"                         # Log level (options: "debug", "info", "warn", "error")
+# Secret key for HMAC authentication
+Secret = "your-hmac-secret-key"  # Placeholder for the actual HMAC secret key
 
-# CPU Configuration
-NumCores = "auto"                         # Number of CPU cores to use ("auto" for all available or specify a number)
+# Directories for storing files
+StoreDir = "/mnt/storage/hmac-file-server/"
+UploadSubDir = "upload"
 
-# Retry Logic for File Access
-MaxRetries = 5                            # Maximum number of retries if a file is not found
-RetryDelay = 2                            # Delay in seconds between retry attempts
-EnableGetRetries = true                   # Enable retries for GET requests if files are not found
+# Logging level ("debug", "info", "warn", "error")
+LogLevel = "info"
 
-# Rate Limiting and Auto-Banning
-BlockAfterFails = 5                       # Number of failed attempts before blocking a path
-BlockDuration = 300                       # Duration (in seconds) to block a path after too many failed attempts
-AutoUnban = true                          # Automatically unban a path after a certain period
-AutoBanTime = 600                         # Time (in seconds) for how long a path remains banned before auto-unban
+# Retry settings
+MaxRetries = 5
+RetryDelay = 2
+EnableGetRetries = true
 
-# Buffer Configuration
-BufferEnabled = true                       # Enable or disable buffer usage for read and write operations
-BufferSize = 8192                         # Size of the buffer (in bytes)
+# Max Upload Size
+MaxUploadSize = 1073741824  # 1 GB in bytes
+
+# Rate limiting and banning
+BlockAfterFails = 5
+BlockDuration = 300
+AutoUnban = true
+AutoBanTime = 600
+
+# File deletion settings
+DeleteFiles = true
+DeleteFilesAfterPeriod = "1y"  # Can be in days (d), months (m), or years (y)
+DeleteFilesReport = true
+DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
+
+# CPU core settings
+NumCores = "auto"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
+
+# Enable or disable the buffer pool for read/write operations
+BufferEnabled = true
+
+# Size of the buffer (in bytes)
+BufferSize = 65536  # Example: 64 KB
+
+# HMAC Secret Re-ask Configuration
+ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
+ReaskSecretInterval = "24h"                  # Interval for reasking the secret (e.g., "24h" for 24 hours)
+
+# Metrics Configuration
+MetricsEnabled = true                         # Enable Prometheus metrics
+MetricsPort = ":9090"                        # Port for metrics endpoint
