@@ -100,6 +100,8 @@ MetricsPort = ":9090"                         # Port for metrics endpoint
 - **MetricsEnabled**: Enable Prometheus metrics collection.
 - **MetricsPort**: Port on which the metrics server listens (default `:9090`).
 
+![image](https://github.com/user-attachments/assets/e4ee1ef3-52ab-4fca-b8ad-201eff0a49cc)
+
 ## Running the Server
 
 To run the HMAC File Server, use the following command:
