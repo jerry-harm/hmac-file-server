@@ -103,6 +103,10 @@ ReaskSecretEnabled = true                    # Enable or disable periodic secret
 ReaskSecretInterval = "24h"                  # Interval for reasking the secret (e.g., "24h" for 24 hours)
 ```
 
+### Reask Secret Configuration
+- **ReaskSecretEnabled**: A boolean value to enable or disable the periodic reasking of the HMAC secret.
+- **ReaskSecretInterval**: A string that defines the interval for reasking the secret, e.g., `"24h"` for 24 hours.
+
 ### Running the server
 ```bash
 ./hmac-file-server --config=config.toml
