@@ -1,4 +1,3 @@
-
 ## Overview
 
 HMAC File Server is a secure file handling server designed for use with XMPP servers like Prosody and ejabberd. It enables HMAC-based file uploads and downloads, rate limiting, auto-banning, auto-file deletion, multicore processing, and caching.

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -44,7 +45,9 @@ type Config struct {
 	DeleteFilesAfterPeriod string
 	DeleteFilesReport      bool
 	DeleteFilesReportPath  string
-	NumCores               string // Number of CPU cores to use ("auto" or a number)
+	NumCores               string  // Number of CPU cores to use ("auto" or a number)
+	BufferEnabled          bool    // Enable/Disable buffer usage
+	BufferSize             int     // Size of buffer pool in bytes
 }
 
 var conf = Config{
@@ -53,7 +56,7 @@ var conf = Config{
 	RetryDelay: 2,
 }
 
-var versionString string = "c97fa66"
+var versionString = "c97fa66"
 var log = &logrus.Logger{
 	Out:       os.Stdout,
 	Formatter: new(logrus.TextFormatter),
@@ -95,10 +98,25 @@ var hmacPool = sync.Pool{
 	},
 }
 
+// Buffer pool for read/write operations
+var bufferPool sync.Pool
+
 // Reads the configuration file
 func readConfig(configFile string, config *Config) error {
 	_, err := toml.DecodeFile(configFile, config)
 	return err
+}
+
+// Initialize buffer pool based on configuration
+func initBufferPool() {
+	if conf.BufferEnabled {
+		bufferPool = sync.Pool{
+			New: func() interface{} {
+				return make([]byte, conf.BufferSize)
+			},
+		}
+		log.Infof("Buffer pool initialized with buffer size: %d", conf.BufferSize)
+	}
 }
 
 // Sets the log level
@@ -124,7 +142,7 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
-// WriteFile writes the given data to the specified file path.
+// WriteFile writes the given data to the specified file path, with buffer if enabled.
 func writeFile(filePath string, data []byte) error {
 	// Open the file for writing
 	file, err := os.Create(filePath)
@@ -134,12 +152,34 @@ func writeFile(filePath string, data []byte) error {
 	}
 	defer file.Close()
 
-	// Write the data to the file
-	_, err = file.Write(data)
-	if err != nil {
-		log.Errorf("Error writing to file: %s, error: %v", filePath, err)
-		return err
+	// Write the data using buffer pool if enabled
+	if conf.BufferEnabled {
+		buffer := bufferPool.Get().([]byte)
+		defer bufferPool.Put(buffer)
+
+		reader := strings.NewReader(string(data))
+		for {
+			n, err := reader.Read(buffer)
+			if err != nil && err != io.EOF {
+				log.Errorf("Error reading data: %v", err)
+				return err
+			}
+			if n == 0 {
+				break
+			}
+			if _, err := file.Write(buffer[:n]); err != nil {
+				log.Errorf("Error writing to file: %s, error: %v", filePath, err)
+				return err
+			}
+		}
+	} else {
+		_, err = file.Write(data)
+		if err != nil {
+			log.Errorf("Error writing to file: %s, error: %v", filePath, err)
+			return err
+		}
 	}
+
 	log.Infof("Successfully wrote file: %s", filePath)
 	return nil
 }
@@ -181,20 +221,40 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Handle PUT request (upload file)
 	if r.Method == http.MethodPut {
-		// Read the body data
-		data, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			log.Errorf("Error reading body: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		log.Infof("Received %d bytes of data for path: %s", len(data), filePath)
+		// Read the body data using buffer pool if enabled
+		if conf.BufferEnabled {
+			buffer := bufferPool.Get().([]byte)
+			defer bufferPool.Put(buffer)
 
-		// Write the file
-		if err := writeFile(filePath, data); err != nil {
-			log.Errorf("Failed to write file: %s, error: %v", filePath, err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
+			n, err := r.Body.Read(buffer)
+			if err != nil && err != io.EOF {
+				log.Errorf("Error reading body: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			log.Infof("Received %d bytes of data for path: %s", n, filePath)
+
+			// Write the file
+			if err := writeFile(filePath, buffer[:n]); err != nil {
+				log.Errorf("Failed to write file: %s, error: %v", filePath, err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			data, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				log.Errorf("Error reading body: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			log.Infof("Received %d bytes of data for path: %s", len(data), filePath)
+
+			// Write the file
+			if err := writeFile(filePath, data); err != nil {
+				log.Errorf("Failed to write file: %s, error: %v", filePath, err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		w.WriteHeader(http.StatusCreated)
@@ -227,41 +287,6 @@ func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-// Check if a path is rate-limited or banned
-func isRateLimitedOrBanned(path string) bool {
-	if value, exists := rateLimits.Load(path); exists {
-		rateLimit := value.(*RateLimit)
-		if rateLimit.banned {
-			if conf.AutoUnban && time.Now().After(rateLimit.blockExpires) {
-				rateLimit.banned = false
-				rateLimit.failedAttempts = 0
-				log.Infof("Auto-unbanned path: %s", path)
-				return false
-			}
-			return true
-		}
-		if time.Now().Before(rateLimit.blockExpires) {
-			return true
-		}
-		rateLimit.failedAttempts = 0
-	}
-	return false
-}
-
-// Update failed attempts and potentially ban or block the path
-func updateFailedAttempts(path string) {
-	value, _ := rateLimits.LoadOrStore(path, &RateLimit{})
-	rateLimit := value.(*RateLimit)
-
-	rateLimit.failedAttempts++
-
-	if rateLimit.failedAttempts >= conf.BlockAfterFails {
-		rateLimit.blockExpires = time.Now().Add(time.Duration(conf.AutoBanTime) * time.Second)
-		rateLimit.banned = true
-		log.Warnf("Banning path %s for %d seconds due to too many failed attempts", path, conf.AutoBanTime)
-	}
-}
-
 // Main function
 func main() {
 	var configFile string
@@ -270,7 +295,7 @@ func main() {
 	var proto string
 
 	// Define and parse startup arguments
-	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
+	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file 'config.toml'.")
 	flag.BoolVar(&showHelp, "help", false, "Display this help message")
 	flag.BoolVar(&showVersion, "version", false, "Show the version of the program")
 
@@ -301,6 +326,9 @@ Options:
 	if err != nil {
 		log.Fatalln("There was an error while reading the configuration file:", err)
 	}
+
+	// Initialize buffer pool if enabled
+	initBufferPool()
 
 	// Set the number of cores based on config
 	if conf.NumCores == "auto" {
@@ -344,7 +372,7 @@ Options:
 	// Start HTTP server in a separate goroutine
 	go func() {
 		log.Println("Starting hmac-file-server", versionString, "...")
-		
+
 		subpath := path.Join("/", conf.UploadSubDir)
 		subpath = strings.TrimRight(subpath, "/")
 		subpath += "/"

@@ -1,27 +1,31 @@
 # Server Configuration
-ListenPort = "8080"         # The port on which Prosody Filer will listen for HTTP requests
-UnixSocket = false          # Use Unix socket instead of TCP (set to true if you want to use Unix socket)
+ListenPort = ":8080"                      # The port on which Prosody Filer will listen for HTTP requests
+UnixSocket = false                        # Use Unix socket instead of TCP (set to true if you want to use Unix socket)
 
 # Authentication
-Secret = "supersecretkey"    # HMAC secret key for secure file uploads and downloads
+Secret = "supersecretkey"                 # HMAC secret key for secure file uploads and downloads
 
 # File Storage
-StoreDir = "/var/lib/hmac-file-server"  # Directory where uploaded files will be stored
-UploadSubDir = "uploads"             # Sub-directory for file uploads
+StoreDir = "/var/lib/hmac-file-server"    # Directory where uploaded files will be stored
+UploadSubDir = "uploads"                  # Sub-directory for file uploads
 
 # Logging
-LogLevel = "info"                    # Log level (options: "debug", "info", "warn", "error")
+LogLevel = "info"                         # Log level (options: "debug", "info", "warn", "error")
 
 # CPU Configuration
-NumCores = "auto"                    # Number of CPU cores to use ("auto" for all available or specify a number)
+NumCores = "auto"                         # Number of CPU cores to use ("auto" for all available or specify a number)
 
 # Retry Logic for File Access
-MaxRetries = 5                       # Maximum number of retries if a file is not found
-RetryDelay = 2                       # Delay in seconds between retry attempts
-EnableGetRetries = true              # Enable retries for GET requests if files are not found
+MaxRetries = 5                            # Maximum number of retries if a file is not found
+RetryDelay = 2                            # Delay in seconds between retry attempts
+EnableGetRetries = true                   # Enable retries for GET requests if files are not found
 
 # Rate Limiting and Auto-Banning
-BlockAfterFails = 5                  # Number of failed attempts before blocking a path
-BlockDuration = 300                  # Duration (in seconds) to block a path after too many failed attempts
-AutoUnban = true                     # Automatically unban a path after a certain period
-AutoBanTime = 600                    # Time (in seconds) for how long a path remains banned before auto-unban
+BlockAfterFails = 5                       # Number of failed attempts before blocking a path
+BlockDuration = 300                       # Duration (in seconds) to block a path after too many failed attempts
+AutoUnban = true                          # Automatically unban a path after a certain period
+AutoBanTime = 600                         # Time (in seconds) for how long a path remains banned before auto-unban
+
+# Buffer Configuration
+BufferEnabled = true                       # Enable or disable buffer usage for read and write operations
+BufferSize = 8192                         # Size of the buffer (in bytes)
