@@ -1,177 +1,162 @@
 
-# HMAC File Server
+# HMAC File Server - Secure File Handling Server
 
-## Overview
+### Version 1.0.3
 
-The HMAC File Server is a secure file handling server that utilizes HMAC for authentication. It allows you to upload and manage files securely while providing metrics for monitoring.
+#### Overview
 
-## Features
+The **HMAC File Server** is a lightweight, highly configurable HTTP-based file server that enables secure file uploads and downloads with support for HMAC (Hash-based Message Authentication Code) for secure validation. It also includes robust rate-limiting, logging, monitoring with Prometheus metrics, and now supports **resumable uploads** for greater flexibility.
 
-- **HMAC Authentication**: Ensures the integrity and authenticity of uploaded files using HMAC.
-- **Secure File Uploads and Downloads**: Facilitates secure uploading and downloading of files.
-- **Prometheus Metrics Support**: Exposes metrics for monitoring using Prometheus.
-- **Rate Limiting and Banning**: Configurable options to prevent abuse by limiting failed attempts.
-- **Automatic File Deletion**: Automatically deletes files after a specified period.
-- **Dynamic Configuration**: Easily adjustable settings via a TOML configuration file.
-- **CORS Support**: Configurable Cross-Origin Resource Sharing (CORS) headers for API access.
+### What's New in Version 1.0.3
 
-## Configuration
+- **Resumable Uploads**: Supports resuming file uploads from where they left off using the `Range` HTTP header.
+- **Queue-based Upload Processing**: Incoming upload requests are managed in a queue to handle concurrent uploads efficiently.
+- **Detailed Logging**: Improved logging for file uploads, resumable uploads, and file serving.
+- **Prometheus Metrics**: Enhanced metrics tracking for uploads, downloads, and server performance.
 
-The server is configured via a `config.toml` file. Below are the key configuration options:
+### Features
+
+- **HMAC Validation**: Ensures that only authorized clients can upload or download files.
+- **Resumable Uploads**: Clients can now resume large file uploads by specifying a byte offset using the `Range` header.
+- **Queue-based Processing**: Uploads are managed with a queue to optimize resource use and prevent overload.
+- **Auto-ban Mechanism**: Clients making too many invalid requests can be automatically banned for a configurable period.
+- **Prometheus Integration**: Built-in metrics collection for monitoring server performance.
+- **Multi-core Support**: Configurable to utilize multiple CPU cores for improved concurrency and performance.
+- **Rate Limiting**: Throttles excessive requests to protect the server from abuse.
+- **Cross-Origin Resource Sharing (CORS)**: CORS support is included for flexible integration with web-based clients.
+
+### Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/yourrepo/hmac-file-server.git
+   ```
+
+2. Build the binary:
+
+   ```bash
+   cd hmac-file-server
+   go build -o hmac-file-server
+   ```
+
+3. Prepare the `config.toml` configuration file (an example is provided).
+
+4. Run the server:
+
+   ```bash
+   ./hmac-file-server -config ./config.toml
+   ```
+
+### Configuration (config.toml)
 
 ```toml
-# Server listening port for TCP (used if UnixSocket is false)
-ListenPort = ":8080"
+# Server settings
+ListenPort = ":8080"            # Port for the HTTP server
+UnixSocket = false              # Use Unix socket (true/false)
+UnixSocketPath = ""             # Path to Unix socket (only if UnixSocket is true)
 
-# Use Unix socket (true or false)
-UnixSocket = false
+# HMAC secret for file uploads/downloads
+Secret = "your-hmac-secret"     # HMAC key for securing requests
 
-# Path to the Unix socket (used if UnixSocket is true)
-# UnixSocketPath = "/home/hmac-file-server/hmac.sock"
+# File handling
+StoreDir = "/mnt/storage/hmac-file-server"   # Directory for storing uploaded files
+UploadSubDir = "upload"                      # Subdirectory for uploads
 
-# Secret key for HMAC authentication
-Secret = "your-secret-key"
+# Logging and system settings
+LogLevel = "info"               # Logging level (debug, info, warn, error)
+NumCores = "auto"               # Number of CPU cores to use (auto or specify number)
 
-# Directories for storing files
-StoreDir = "/mnt/storage/hmac-file-server/"
-UploadSubDir = "upload"
+# Retry and blocking settings
+MaxRetries = 5                  # Maximum number of retries for failed requests
+RetryDelay = 2                  # Delay between retries (in seconds)
+BlockAfterFails = 5             # Block client after these many failures
+BlockDuration = 300             # Duration of the block (in seconds)
 
-# Logging level ("debug", "info", "warn", "error")
-LogLevel = "info"
+# Auto-unban feature
+AutoUnban = true                # Automatically unban clients after block duration
+AutoBanTime = 600               # Ban duration (in seconds)
 
-# Retry settings
-MaxRetries = 5
-RetryDelay = 2
-EnableGetRetries = true
+# Metrics
+MetricsEnabled = true           # Enable Prometheus metrics
+MetricsPort = ":9090"           # Port for Prometheus metrics server
 
-# Rate limiting and banning
-BlockAfterFails = 5
-BlockDuration = 300            # Duration in seconds to block after exceeding failed attempts
-AutoUnban = true               # Automatically unban after block duration
-AutoBanTime = 600              # Duration in seconds for auto-ban
-
-# File deletion settings
-DeleteFiles = true
-DeleteFilesAfterPeriod = "1y" # Can be in days (d), months (m), or years (y)
-DeleteFilesReport = true
-DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
-
-# CPU core settings
-NumCores = "auto"              # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
-
-# Buffer settings
-BufferEnabled = true           # Enable or disable the buffer pool for read/write operations
-BufferSize = 65536             # Size of the buffer in bytes (e.g., 64 KB)
-
-# HMAC Secret Re-ask Configuration
-ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
-ReaskSecretInterval = "24h"                   # Interval for reasking the secret (e.g., "24h" for 24 hours)
-
-# Monitoring Configuration
-MetricsEnabled = true                         # Enable Prometheus metrics
-MetricsPort = ":9090"                         # Port for metrics endpoint
+# Resumable upload settings
+DeleteFiles = false             # Delete files after a set period
+DeleteFilesAfterPeriod = "48h"  # Time after which files are deleted (if enabled)
 ```
 
-### Explanation of Configuration Options
+### Usage
 
-- **ListenPort**: The TCP port on which the server listens for file handling requests. Default is `:8080`.
-- **UnixSocket**: If set to `true`, the server will use a Unix socket instead of a TCP port.
-- **UnixSocketPath**: The file system path for the Unix socket. Only applicable if `UnixSocket` is `true`.
-- **Secret**: The secret key used for HMAC authentication.
-- **StoreDir**: Directory where uploaded files are stored.
-- **UploadSubDir**: Subdirectory within `StoreDir` for uploads.
-- **LogLevel**: Logging verbosity level (`debug`, `info`, `warn`, `error`).
-- **MaxRetries**: Maximum number of retry attempts for failed operations.
-- **RetryDelay**: Delay between retry attempts in seconds.
-- **EnableGetRetries**: Enable retries for GET requests.
-- **BlockAfterFails**: Number of failed attempts after which the path is banned.
-- **BlockDuration**: Duration (in seconds) to block a path after exceeding failed attempts.
-- **AutoUnban**: Automatically unban a path after the block duration expires.
-- **AutoBanTime**: Duration (in seconds) for which a path remains banned.
-- **DeleteFiles**: Enable automatic deletion of files after a certain period.
-- **DeleteFilesAfterPeriod**: Time period after which files are deleted (`d` for days, `m` for months, `y` for years).
-- **DeleteFilesReport**: Enable logging of deleted files.
-- **DeleteFilesReportPath**: File path where deletion logs are stored.
-- **NumCores**: Number of CPU cores to utilize (`auto` to use all available cores).
-- **BufferEnabled**: Enable or disable the buffer pool for read/write operations.
-- **BufferSize**: Size of the buffer in bytes.
-- **ReaskSecretEnabled**: Enable periodic reasking for the HMAC secret.
-- **ReaskSecretInterval**: Interval for reasking the HMAC secret.
-- **MetricsEnabled**: Enable Prometheus metrics collection.
-- **MetricsPort**: Port on which the metrics server listens (default `:9090`).
+#### Uploading Files
 
-## Running the Server
-
-To run the HMAC File Server, use the following command:
+To upload a file, send a `PUT` request to the `/upload/<file-path>` endpoint:
 
 ```bash
-./hmac-file-server --config=/path/to/config.toml
+curl -X PUT -T /path/to/file http://server-address:8080/upload/<file-path>      -H "Authorization: HMAC <your-auth-token>"
 ```
 
-Ensure that your `config.toml` is correctly configured with the desired settings before running the server.
+#### Resumable Uploads
 
-## Accessing Metrics
-
-If **Metrics Support** is enabled in your configuration (`MetricsEnabled = true`), the server exposes metrics for Prometheus at the following endpoint:
-
-```
-http://<your-server-ip>:9090/metrics
-```
-
-### Available Metrics
-
-- **Go Runtime Metrics**: Includes garbage collection stats, memory usage, goroutines, and more.
-- **Custom Metrics**: Number of active goroutines specific to the HMAC File Server.
-
-You can visualize these metrics using monitoring tools like **Grafana** by setting up Prometheus as a data source.
-
-## File Operations
-
-### Uploading a File
-
-To upload a file, send a `PUT` request to the server:
+To resume an upload, specify the `Range` header to indicate the byte offset:
 
 ```bash
-curl -X PUT --data-binary @/path/to/your/file http://<your-server-ip>:8080/upload/<your-file>
+curl -X PUT -T /path/to/file http://server-address:8080/upload/<file-path>      -H "Authorization: HMAC <your-auth-token>"      -H "Range: bytes=1024-"
 ```
 
-### Downloading a File
+This will append the data starting from byte 1024.
 
-To download a file, send a `GET` request:
+#### Downloading Files
+
+To download a file, send a `GET` request to the `/upload/<file-path>` endpoint:
 
 ```bash
-curl -O http://<your-server-ip>:8080/upload/<your-file>
+curl -X GET http://server-address:8080/upload/<file-path>      -H "Authorization: HMAC <your-auth-token>"
 ```
 
-## Rate Limiting and Banning
+#### Monitoring
 
-The server can automatically ban paths that exceed a specified number of failed attempts. This helps prevent abuse and ensures the server remains secure.
+The server exposes Prometheus metrics on the `/metrics` endpoint:
 
-### Configuration Options
+```bash
+curl http://server-address:9090/metrics
+```
 
-- **BlockAfterFails**: Number of failed attempts before banning.
-- **BlockDuration**: Duration for which the path remains banned.
-- **AutoUnban**: Automatically unban after the block duration.
+Metrics include:
+- `hmac_file_server_total_uploads`: Total number of file uploads.
+- `hmac_file_server_total_downloads`: Total number of file downloads.
+- `hmac_file_server_upload_duration_seconds`: Histogram of upload durations.
+- `hmac_file_server_goroutines`: Current number of active goroutines.
 
-## Automatic File Deletion
+### Systemd Service Example
 
-The server can be configured to automatically delete files after a specified period, helping manage storage effectively.
+To run the HMAC File Server as a service on Linux systems, you can create a systemd service file:
 
-### Configuration Options
+```ini
+[Unit]
+Description=HMAC File Server - Secure File Handling Server
+After=network.target
 
-- **DeleteFiles**: Enable or disable automatic file deletion.
-- **DeleteFilesAfterPeriod**: Time period after which files are deleted.
-- **DeleteFilesReport**: Enable logging of deleted files.
-- **DeleteFilesReportPath**: Path to the log file for deletions.
+[Service]
+ExecStart=/path/to/hmac-file-server -config /path/to/config.toml
+Restart=on-failure
 
-## License
+[Install]
+WantedBy=multi-user.target
+```
 
-This project is licensed under the MIT License.
+Enable and start the service:
 
-## Contributing
+```bash
+sudo systemctl enable hmac-file-server
+sudo systemctl start hmac-file-server
+```
 
-Contributions are welcome! Please open an issue or submit a pull request for any enhancements or bug fixes.
+### Contributing
 
-## Contact
+We welcome contributions! Please fork the repository and submit a pull request, or open an issue for discussion.
 
-For any questions or support, please contact [your-email@example.com](mailto:your-email@example.com).
+### License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+

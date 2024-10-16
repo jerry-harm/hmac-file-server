@@ -46,10 +46,10 @@ type Config struct {
 	WriteReport            bool
 	ReportPath             string
 	NumCores               string // Number of CPU cores to use ("auto" or a number)
-	ReaskSecretEnabled     bool   `toml:"reask_secret_enabled"`    // Enable reasking for the secret
-	ReaskSecretInterval    string `toml:"reask_secret_interval"`   // Interval for reasking the secret
-	MetricsEnabled         bool   `toml:"metrics_enabled"`         // Enable Prometheus metrics
-	MetricsPort            string `toml:"metrics_port"`            // Port for metrics endpoint
+	ReaskSecretEnabled     bool   `toml:"reask_secret_enabled"`
+	ReaskSecretInterval    string `toml:"reask_secret_interval"`
+	MetricsEnabled         bool   `toml:"metrics_enabled"`
+	MetricsPort            string `toml:"metrics_port"`
 }
 
 var conf = Config{
@@ -71,10 +71,10 @@ var log = &logrus.Logger{
 }
 
 // Initialize an in-memory cache with default expiration and cleanup interval.
-var fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute) // 5 minutes expiration, 10 minutes cleanup interval
+var fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)
 
-// Minimum free space threshold (100MB in this case, adjustable)
-const minFreeSpaceThreshold int64 = 100 * 1024 * 1024
+// Minimum free space threshold as a variable (100MB in this case, adjustable)
+var minFreeSpaceThreshold int64 = 100 * 1024 * 1024 // 100MB
 
 // Allowed HTTP methods
 var ALLOWED_METHODS string = strings.Join(
@@ -116,7 +116,7 @@ var (
 			Name: "hmac_file_server_total_uploads",
 			Help: "Total number of uploads",
 		},
-		[]string{"status"}, // You can use labels to categorize your metrics
+		[]string{"status"},
 	)
 
 	totalDownloads = prometheus.NewCounterVec(
@@ -173,23 +173,33 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
-// WriteFile writes the given data to the specified file path.
-func writeFile(filePath string, data []byte) error {
-	// Open the file for writing
-	file, err := os.Create(filePath)
+// WriteFileResumable writes data to the specified file, supporting resume by seeking to a byte offset.
+func WriteFileResumable(filePath string, data []byte, offset int64) error {
+	// Open the file for writing, creating it if necessary, and support appending
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
-		log.Errorf("Error creating file: %s, error: %v", filePath, err)
+		log.Errorf("Error opening file for writing: %s, error: %v", filePath, err)
 		return err
 	}
 	defer file.Close()
 
-	// Write the data to the file
+	// Seek to the desired offset
+	if offset > 0 {
+		_, err = file.Seek(offset, 0) // Seek from the beginning of the file
+		if err != nil {
+			log.Errorf("Error seeking to offset %d: %v", offset, err)
+			return err
+		}
+	}
+
+	// Write the data starting at the specified offset
 	_, err = file.Write(data)
 	if err != nil {
 		log.Errorf("Error writing to file: %s, error: %v", filePath, err)
 		return err
 	}
-	log.Infof("Successfully wrote file: %s", filePath)
+
+	log.Infof("Successfully wrote data to file: %s starting from offset %d", filePath, offset)
 	return nil
 }
 
@@ -233,20 +243,38 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Handle PUT request (upload file)
 	if r.Method == http.MethodPut {
-		// Start timing the upload
-		start := time.Now()
+		// Check if the request contains a Range header to resume an upload
+		rangeHeader := r.Header.Get("Range")
+		var offset int64 = 0
+		var err error // Define err here
+
+		if rangeHeader != "" {
+			// Example: "Range: bytes=1024-"
+			rangeParts := strings.Split(rangeHeader, "=")
+			if len(rangeParts) == 2 && strings.HasPrefix(rangeParts[1], "bytes") {
+				offsetStr := strings.TrimPrefix(rangeParts[1], "bytes=")
+				offset, err = strconv.ParseInt(offsetStr, 10, 64)
+				if err != nil {
+					log.Errorf("Invalid Range header: %s", rangeHeader)
+					http.Error(w, "Invalid Range header", http.StatusBadRequest)
+					return
+				}
+			}
+		}
 
 		// Read the body data
-		data, err := ioutil.ReadAll(r.Body)
+		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			log.Errorf("Error reading body: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		log.Infof("Received %d bytes of data for path: %s", len(data), filePath)
 
-		// Write the file
-		if err := writeFile(filePath, data); err != nil {
+		// Log the upload progress
+		log.Infof("Received %d bytes of data for path: %s with offset %d", len(body), filePath, offset)
+
+		// Write the file with the ability to resume from the specified offset
+		if err := WriteFileResumable(filePath, body, offset); err != nil {
 			log.Errorf("Failed to write file: %s, error: %v", filePath, err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -254,29 +282,44 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Update metrics after successful upload
 		totalUploads.WithLabelValues("success").Inc()
-		uploadDuration.Observe(time.Since(start).Seconds())
 
+		// Set the status code
 		w.WriteHeader(http.StatusCreated)
-		log.Infof("File successfully uploaded: %s", filePath)
+		log.Infof("File successfully uploaded/resumed: %s", filePath)
 		return
 	}
 
 	// Handle GET or HEAD request (serve file)
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// Explicitly check if the file exists before serving
+		fileInfo, err := os.Stat(filePath)
+		if os.IsNotExist(err) {
 			log.Warnf("File not found: %s", filePath)
-			http.Error(w, "Not Found", http.StatusNotFound)
+			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
 
+		if err != nil {
+			log.Errorf("Error accessing file: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		if fileInfo.IsDir() {
+			http.Error(w, "Directory listing forbidden", http.StatusForbidden)
+			return
+		}
+
+		// Serve the file
 		log.Infof("Serving file: %s", filePath)
-		http.ServeFile(w, r, filePath)
+		http.ServeFile(w, r, filePath) // Automatically handles headers
 
 		// Update metrics after successful download
 		totalDownloads.WithLabelValues("success").Inc()
 		return
 	}
 
+	// If the method is not allowed, send a 405 Method Not Allowed
 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 }
 
@@ -287,56 +330,6 @@ func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Max-Age", "7200")
-}
-
-// Check if a path is rate-limited or banned
-func isRateLimitedOrBanned(path string) bool {
-	if value, exists := rateLimits.Load(path); exists {
-		rateLimit := value.(*RateLimit)
-		if rateLimit.banned {
-			if conf.AutoUnban && time.Now().After(rateLimit.blockExpires) {
-				rateLimit.banned = false
-				rateLimit.failedAttempts = 0
-				log.Infof("Auto-unbanned path: %s", path)
-				return false
-			}
-			return true
-		}
-		if time.Now().Before(rateLimit.blockExpires) {
-			return true
-		}
-		rateLimit.failedAttempts = 0
-	}
-	return false
-}
-
-// Update failed attempts and potentially ban or block the path
-func updateFailedAttempts(path string) {
-	value, _ := rateLimits.LoadOrStore(path, &RateLimit{})
-	rateLimit := value.(*RateLimit)
-
-	rateLimit.failedAttempts++
-
-	if rateLimit.failedAttempts >= conf.BlockAfterFails {
-		rateLimit.blockExpires = time.Now().Add(time.Duration(conf.AutoBanTime) * time.Second)
-		rateLimit.banned = true
-		log.Warnf("Banning path %s for %d seconds due to too many failed attempts", path, conf.AutoBanTime)
-	}
-}
-
-// Function to periodically reask for the HMAC secret
-func reaskHMACSecret() {
-	interval, err := time.ParseDuration(conf.ReaskSecretInterval)
-	if err != nil {
-		log.Fatalf("Invalid ReaskSecretInterval: %v", err)
-	}
-
-	for {
-		time.Sleep(interval)
-
-		// Logic to reask for the HMAC secret
-		log.Info("Reasking for HMAC secret...")
-	}
 }
 
 // Main function
@@ -433,7 +426,8 @@ Options:
 		subpath := path.Join("/", conf.UploadSubDir)
 		subpath = strings.TrimRight(subpath, "/")
 		subpath += "/"
-		http.HandleFunc(subpath, handleRequest)
+		http.HandleFunc(subpath, handleRequest) // Directly handle requests
+
 		log.Printf("Server started on %s. Waiting for requests.\n", address)
 
 		setLogLevel()
@@ -442,11 +436,6 @@ Options:
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
-
-	// Start reasking for HMAC secret if enabled
-	if conf.ReaskSecretEnabled {
-		go reaskHMACSecret()
-	}
 
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
