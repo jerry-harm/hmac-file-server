@@ -1,3 +1,4 @@
+
 # Server listening port for TCP (used if UnixSocket is false)
 ListenPort = ":8080"
 
@@ -17,13 +18,21 @@ UploadSubDir = "upload"
 # Logging level ("debug", "info", "warn", "error")
 LogLevel = "info"
 
+# Log file path (optional). Leave empty to log to console
+LogFile = ""
+
 # Retry settings
 MaxRetries = 5
 RetryDelay = 2
 EnableGetRetries = true
 
-# Max Upload Size
+# Manually set Max Upload Size (in bytes) and Buffer Size (in bytes)
+# These values will override automatic dynamic settings based on memory
 MaxUploadSize = 1073741824  # 1 GB in bytes
+BufferSize = 65536          # 64 KB in bytes
+
+# Minimum free space threshold (in bytes)
+MinFreeSpaceThreshold = 104857600  # 100MB in bytes
 
 # Rate limiting and banning
 BlockAfterFails = 5
@@ -43,13 +52,10 @@ NumCores = "auto"  # Set to "auto" to use all available cores or a specific numb
 # Enable or disable the buffer pool for read/write operations
 BufferEnabled = true
 
-# Size of the buffer (in bytes)
-BufferSize = 65536  # Example: 64 KB
-
 # HMAC Secret Re-ask Configuration
 ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
-ReaskSecretInterval = "24h"                  # Interval for reasking the secret (e.g., "24h" for 24 hours)
+ReaskSecretInterval = "1h"                   # Interval for reasking the secret (e.g., "1h")
 
-# Metrics Configuration
+# Monitoring Configuration
 MetricsEnabled = true                         # Enable Prometheus metrics
-MetricsPort = ":9090"                        # Port for metrics endpoint
+MetricsPort = ":9090"                         # Port for metrics endpoint
