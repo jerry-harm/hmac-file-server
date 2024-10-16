@@ -1,28 +1,31 @@
-
 # HMAC File Server
 
-HMAC File Server is a secure server for uploading and downloading files using HMAC signatures for authentication. It includes rate-limiting, auto-banning, file access retries, disk space checks, dynamic resource management, and the ability to resume file uploads.
+## Overview
 
-## Key Features
+HMAC File Server is a secure server for uploading and downloading files using HMAC signatures for authentication. It includes rate-limiting, auto-banning, file access retries, and disk space checks. It supports CORS, Unix sockets, HTTP/2, and graceful shutdowns, ensuring efficient and safe file transfers.
 
+### Key Features
 - **HMAC Authentication**: Secure file transfers using HMAC signatures.
-- **Upload Resume Support**: Ability to resume uploads from a specified offset, improving fault tolerance and efficiency.
 - **Retry Mechanism**: Automatic retries for file access and downloads.
-- **Disk Space Checks**: Prevents uploads if disk space is low, configurable via `MinFreeSpaceThreshold`.
+- **Disk Space Checks**: Prevents uploads if disk space is low.
 - **Rate Limiting & Auto-Banning**: Protects against abuse by limiting failed access attempts.
-- **Auto-File Deletion**: Automatically delete files older than a configurable period.
-- **Max Upload Size**: Dynamically managed based on memory detection (Low, Medium, High) with configurable options for manual overrides.
-- **Multicore Support**: Efficiently uses available CPU cores for optimized performance.
-- **Buffer Configuration**: Dynamic buffer size management based on available memory, with configurable manual overrides.
-- **Prometheus Metrics**: Tracks performance, including CPU, memory usage, upload duration, and total downloads.
-- **Interactive Configuration**: The server can now prompt users for missing configuration parameters if `config.toml` is not found, automatically generating the configuration file.
+- **Auto-File Deletion**: Automatically deletes files older than a configurable period.
+- **Max Upload Size**: Set maximum upload size (default is 1GB) for better control over file handling.
+- **Multicore Support**: Efficiently uses all available CPU cores for optimized performance.
+- **Buffer Configuration**: Enables buffering for read and write operations to improve performance.
+- **Automatic Caching**: Introduced automatic caching through goroutines to enhance performance and reduce latency for frequently accessed file metadata.
+- **HTTP/2 & CORS Support**: For faster and cross-origin file transfers.
+- **Systemd Support**: Easily managed as a service.
+- **Prometheus Metrics**: Exposes metrics for monitoring and performance tracking, enabling integration with Prometheus for observability.
+- **Interactive Configuration**: Prompts for configuration values if the `config.toml` file is missing, ensuring easy setup.
+
+![HMAC File Server](https://github.com/user-attachments/assets/54c7673a-e14b-48e6-adf1-0409ee158ee4)
 
 ---
 
 ## Installation and Compilation
 
 ### Prerequisites
-
 - **Go**: Ensure Go is installed on your system. [Download Go](https://golang.org/dl/).
 - **Git**: Verify Git is installed.
 
@@ -44,18 +47,14 @@ HMAC File Server is a secure server for uploading and downloading files using HM
    ./hmac-file-server --config=config.toml
    ```
 
-If the `config.toml` file is not found, the server will interactively prompt for configuration parameters and generate the configuration file automatically.
-
 ---
 
-## Configuration
+## Configuration and Running
 
-The server is configured using a `config.toml` file. If not provided, you can generate the file interactively by running the server.
-
-Here is an example `config.toml`:
+The server is configured using a `config.toml` file. Below is a sample configuration:
 
 ```toml
-# Server listening port for TCP (used if UnixSocket is false)
+# Server listening port for TCP
 ListenPort = ":8080"
 
 # Use Unix socket (true or false)
@@ -65,7 +64,7 @@ UnixSocket = false
 # UnixSocketPath = "/home/hmac-file-server/hmac.sock"
 
 # Secret key for HMAC authentication
-Secret = "your-hmac-secret-key"
+Secret = "your-hmac-secret-key"  # Placeholder for the actual HMAC secret key
 
 # Directories for storing files
 StoreDir = "/mnt/storage/hmac-file-server/"
@@ -74,20 +73,17 @@ UploadSubDir = "upload"
 # Logging level ("debug", "info", "warn", "error")
 LogLevel = "debug"
 
+# Log file path (optional). Leave empty to log to console
+LogFile = "/var/log/hmac-file-server.log"
+
 # Retry settings
 MaxRetries = 5
 RetryDelay = 2
 EnableGetRetries = true
 
-# Dynamic resource management based on memory size.
-# If not set, values will be adjusted automatically:
-# - Low Memory (<2 GB): Buffer size = 32 KB, MaxUploadSize = 512 MB
-# - Medium Memory (2 GB - 8 GB): Buffer size = 64 KB, MaxUploadSize = 1 GB
-# - High Memory (>8 GB): Buffer size = 128 KB, MaxUploadSize = 2 GB
+# Max Upload Size
 MaxUploadSize = 1073741824  # 1 GB in bytes
-BufferSize = 65536          # 64 KB in bytes
-
-# Minimum free space threshold before uploads are blocked (in bytes)
+BufferSize = 65536           # 64 KB in bytes
 MinFreeSpaceThreshold = 104857600  # 100 MB
 
 # Rate limiting and banning
@@ -103,39 +99,24 @@ DeleteFilesReport = true
 DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
 
 # CPU core settings
-NumCores = "auto"  # Set to "auto" to use all available cores
-
-# Buffer pool configuration
-BufferEnabled = true
+NumCores = "2"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
 
 # HMAC Secret Re-ask Configuration
-ReaskSecretEnabled = true
-ReaskSecretInterval = "24h"
+ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
+ReaskSecretInterval = "1h"                   # Interval for reasking the secret (e.g., "24h" for 24 hours)
 
 # Monitoring Configuration
-MetricsEnabled = true
-MetricsPort = ":9090"
+MetricsEnabled = true                         # Enable Prometheus metrics
+MetricsPort = ":9090"                        # Port for metrics endpoint
 ```
 
----
+### Interactive Configuration
+If `config.toml` is not found, the server will prompt you to input configuration values, creating the file with the provided settings.
 
-## Interactive Configuration Generation
-
-If `config.toml` is missing, the server will prompt for the following inputs interactively:
-
-1. Server Listen Port
-2. Use Unix Socket (true/false)
-3. Secret for HMAC Authentication
-4. Store Directory and Upload Subdirectory
-5. Log Level
-6. Max Upload Size and Buffer Size (with dynamic memory management defaults)
-7. Minimum Free Space Threshold
-8. Retry and Rate Limiting settings
-9. File Deletion settings
-10. CPU Cores and Buffer Pool settings
-11. Metrics and Monitoring configuration
-
-The generated `config.toml` will be saved in the working directory.
+### Running the server
+```bash
+./hmac-file-server --config=config.toml
+```
 
 ---
 
@@ -170,12 +151,6 @@ WantedBy=multi-user.target
 
 ---
 
-## Monitoring and Metrics
-
-Prometheus metrics are exposed on the `/metrics` endpoint if `MetricsEnabled = true`.
-
----
-
 ## ejabberd HTTP Upload Integration
 
 Configure ejabberd to work with the HMAC File Server:
@@ -183,17 +158,22 @@ Configure ejabberd to work with the HMAC File Server:
 ```yaml
 mod_http_upload:
     max_size: 1073741824  # 1GB max upload size
+    thumbnail: true  # Optional thumbnail generation
     put_url: https://share.example.com
     get_url: https://share.example.com
     docroot: /mnt/storage/ejabberd
     external_secret: "replace_with_hmac_file_server_secret"
+    custom_headers:
+      "Access-Control-Allow-Origin": "*"
+      "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
+      "Access-Control-Allow-Headers": "Content-Type"
 ```
 
 ---
 
 ## Prosody HTTP Upload Integration
 
-To integrate HMAC File Server with **Prosody**, use the following configuration:
+You can integrate the HMAC File Server with **Prosody** for HTTP file uploads. Below is a sample configuration for `mod_http_upload`:
 
 ```lua
 Component "upload.example.com" "http_upload"
@@ -202,10 +182,41 @@ Component "upload.example.com" "http_upload"
     max_size = 1073741824 -- 1GB max upload size
     docroot = "/mnt/storage/prosody_uploads"
     external_secret = "replace_with_hmac_file_server_secret"
+    custom_headers = {
+        ["Access-Control-Allow-Origin"] = "*";
+        ["Access-Control-Allow-Methods"] = "GET, HEAD, PUT, OPTIONS";
+        ["Access-Control-Allow-Headers"] = "Content-Type";
+    }
+
+    -- Optional thumbnail support
+    thumbnail = true
 ```
 
 ---
 
-## License
+## Acknowledgements
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+Special thanks to **Thomas Leister** for his contributions and inspiration for this project. His work has laid the foundation for the development of this secure file handling solution.
+
+---
+
+## Download Instructions
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/hmac-file-server.git
+   ```
+
+2. **Follow the build and configuration steps** listed above to compile and run the server on your environment.
+
+---
+
+### Accessing the Server via Unix Socket:
+
+To interact with the server via a Unix socket, you can use tools like `curl`. Here’s an example command to make a request:
+
+```bash
+curl --unix-socket /home/hmac-file-server/hmac.sock http://localhost/upload/
+```
+
+This command uses the Unix socket to interact with the server.
