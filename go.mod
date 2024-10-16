@@ -1,4 +1,4 @@
-module github.com/ThomasLeister/hmac-file-server
+module github.com/PlusOne/hmac-file-server
 
 go 1.16
 
