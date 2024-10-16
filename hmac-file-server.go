@@ -50,6 +50,8 @@ type Config struct {
 	ReaskSecretInterval    string `toml:"reask_secret_interval"`
 	MetricsEnabled         bool   `toml:"metrics_enabled"`
 	MetricsPort            string `toml:"metrics_port"`
+	MaxUploadSize          int64  // Maximum upload size in bytes
+	BufferSize             int    // Buffer size in bytes for file read/write
 }
 
 var conf = Config{
@@ -60,6 +62,8 @@ var conf = Config{
 	ReaskSecretInterval:    "24h", // Default interval for reasking secret
 	MetricsEnabled:         true,
 	MetricsPort:            ":9090", // Default metrics port
+	MaxUploadSize:          1073741824, // Default 1 GB
+	BufferSize:             65536,      // Default 64 KB
 }
 
 var versionString string = "c97fa66"
@@ -144,6 +148,46 @@ func init() {
 	prometheus.MustRegister(uploadDuration)
 }
 
+// Detect available memory
+func detectMemory() (uint64, error) {
+	var sysinfo syscall.Sysinfo_t
+	err := syscall.Sysinfo(&sysinfo)
+	if err != nil {
+		return 0, err
+	}
+	totalMem := sysinfo.Totalram * uint64(syscall.Getpagesize()) // In bytes
+	return totalMem, nil
+}
+
+// Adjust dynamic configurations based on memory
+func adjustDynamicConfigs() {
+	totalMem, err := detectMemory()
+	if err != nil {
+		log.Fatalf("Error detecting memory: %v", err)
+	}
+
+	// Convert total memory to MB
+	totalMemMB := totalMem / (1024 * 1024)
+	fmt.Printf("Total Memory: %d MB\n", totalMemMB)
+
+	// Dynamically adjust based on available memory
+	if totalMemMB < 2048 {
+		// Low memory system, set smaller buffer and max upload size
+		conf.BufferSize = 32768   // 32 KB
+		conf.MaxUploadSize = 536870912 // 512 MB
+	} else if totalMemMB < 8192 {
+		// Medium memory system
+		conf.BufferSize = 65536   // 64 KB
+		conf.MaxUploadSize = 1073741824 // 1 GB
+	} else {
+		// High memory system
+		conf.BufferSize = 131072  // 128 KB
+		conf.MaxUploadSize = 2147483648 // 2 GB
+	}
+
+	log.Printf("Dynamically adjusted BufferSize to %d and MaxUploadSize to %d bytes", conf.BufferSize, conf.MaxUploadSize)
+}
+
 // Reads the configuration file
 func readConfig(configFile string, config *Config) error {
 	_, err := toml.DecodeFile(configFile, config)
@@ -173,33 +217,23 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
-// WriteFileResumable writes data to the specified file, supporting resume by seeking to a byte offset.
-func WriteFileResumable(filePath string, data []byte, offset int64) error {
-	// Open the file for writing, creating it if necessary, and support appending
-	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE, 0644)
+// WriteFile writes the given data to the specified file path.
+func writeFile(filePath string, data []byte) error {
+	// Open the file for writing
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		log.Errorf("Error opening file for writing: %s, error: %v", filePath, err)
+		log.Errorf("Error creating file: %s, error: %v", filePath, err)
 		return err
 	}
 	defer file.Close()
 
-	// Seek to the desired offset
-	if offset > 0 {
-		_, err = file.Seek(offset, 0) // Seek from the beginning of the file
-		if err != nil {
-			log.Errorf("Error seeking to offset %d: %v", offset, err)
-			return err
-		}
-	}
-
-	// Write the data starting at the specified offset
+	// Write the data to the file
 	_, err = file.Write(data)
 	if err != nil {
 		log.Errorf("Error writing to file: %s, error: %v", filePath, err)
 		return err
 	}
-
-	log.Infof("Successfully wrote data to file: %s starting from offset %d", filePath, offset)
+	log.Infof("Successfully wrote file: %s", filePath)
 	return nil
 }
 
@@ -243,25 +277,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Handle PUT request (upload file)
 	if r.Method == http.MethodPut {
-		// Check if the request contains a Range header to resume an upload
-		rangeHeader := r.Header.Get("Range")
-		var offset int64 = 0
-		var err error // Define err here
-
-		if rangeHeader != "" {
-			// Example: "Range: bytes=1024-"
-			rangeParts := strings.Split(rangeHeader, "=")
-			if len(rangeParts) == 2 && strings.HasPrefix(rangeParts[1], "bytes") {
-				offsetStr := strings.TrimPrefix(rangeParts[1], "bytes=")
-				offset, err = strconv.ParseInt(offsetStr, 10, 64)
-				if err != nil {
-					log.Errorf("Invalid Range header: %s", rangeHeader)
-					http.Error(w, "Invalid Range header", http.StatusBadRequest)
-					return
-				}
-			}
-		}
-
 		// Read the body data
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -270,11 +285,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Log the upload progress
-		log.Infof("Received %d bytes of data for path: %s with offset %d", len(body), filePath, offset)
+		log.Infof("Received %d bytes of data for path: %s", len(body), filePath)
 
-		// Write the file with the ability to resume from the specified offset
-		if err := WriteFileResumable(filePath, body, offset); err != nil {
+		// Write the file
+		if err := writeFile(filePath, body); err != nil {
 			log.Errorf("Failed to write file: %s, error: %v", filePath, err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -285,7 +299,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Set the status code
 		w.WriteHeader(http.StatusCreated)
-		log.Infof("File successfully uploaded/resumed: %s", filePath)
+		log.Infof("File successfully uploaded: %s", filePath)
 		return
 	}
 
@@ -371,6 +385,9 @@ Options:
 	if err != nil {
 		log.Fatalln("There was an error while reading the configuration file:", err)
 	}
+
+	// Adjust configurations based on detected memory
+	adjustDynamicConfigs()
 
 	// Set the number of cores based on config
 	if conf.NumCores == "auto" {
