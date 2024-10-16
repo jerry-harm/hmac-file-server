@@ -19,8 +19,6 @@ HMAC File Server is a secure server for uploading and downloading files using HM
 - **Prometheus Metrics**: Exposes metrics for monitoring and performance tracking, enabling integration with Prometheus for observability.
 - **Interactive Configuration**: Prompts for configuration values if the `config.toml` file is missing, ensuring easy setup.
 
-![HMAC File Server](https://github.com/user-attachments/assets/54c7673a-e14b-48e6-adf1-0409ee158ee4)
-
 ---
 
 ## Installation and Compilation
