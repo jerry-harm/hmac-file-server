@@ -90,7 +90,15 @@ DeleteFilesAfterPeriod = "48h"  # Time after which files are deleted (if enabled
 
 #### Uploading Files
 
+<<<<<<< HEAD
 To upload a file, send a `PUT` request to the `/upload/<file-path>` endpoint:
+=======
+![image](https://github.com/user-attachments/assets/e4ee1ef3-52ab-4fca-b8ad-201eff0a49cc)
+
+## Running the Server
+
+To run the HMAC File Server, use the following command:
+>>>>>>> eefa059a862a144c044c7a77b2a0e2b0d115ba6f
 
 ```bash
 curl -X PUT -T /path/to/file http://server-address:8080/upload/<file-path>      -H "Authorization: HMAC <your-auth-token>"
