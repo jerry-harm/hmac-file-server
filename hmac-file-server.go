@@ -156,6 +156,36 @@ func init() {
     prometheus.MustRegister(uploadDuration)
 }
 
+// Cache initialization function
+func initializeCache() error {
+    // Example: Reading directories and populating cache
+    files, err := ioutil.ReadDir(conf.StoreDir)
+    if err != nil {
+        log.Errorf("Error reading directory %s: %v", conf.StoreDir, err)
+        return err
+    }
+
+    for _, file := range files {
+        log.Infof("Caching file: %s", file.Name())
+        fileMetadataCache.Set(file.Name(), file, cache.DefaultExpiration)
+    }
+
+    log.Info("Cache initialization complete.")
+    return nil
+}
+
+// Function to block server start until cache is fully initialized
+func startServerWhenReady() {
+    err := initializeCache()
+    if err != nil {
+        log.Fatalf("Failed to initialize cache, server will not start: %v", err)
+    } else {
+        // Proceed to start the HTTP server
+        log.Info("Cache initialized, starting server...")
+        startServer()
+    }
+}
+
 // Reads the configuration file
 func readConfig(configFile string, config *Config) error {
     _, err := toml.DecodeFile(configFile, config)
@@ -346,7 +376,6 @@ func main() {
     var configFile string
     var showHelp bool
     var showVersion bool
-    var proto string
 
     // Define and parse startup arguments
     flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
@@ -404,8 +433,17 @@ Options:
         log.Infof("Using %d cores", numCores)
     }
 
-    // Determine protocol and address based on UnixSocket flag
+    // Start the server after initializing the cache
+    startServerWhenReady()
+}
+
+// Function to actually start the server once ready
+func startServer() {
+    // Create listener based on the protocol
     var address string
+    var proto string
+
+    // Determine protocol and address based on UnixSocket flag
     if conf.UnixSocket {
         proto = "unix"
         address = conf.UnixSocketPath
@@ -416,7 +454,6 @@ Options:
         log.Infof("Using TCP socket at: %s", address)
     }
 
-    // Create listener based on the protocol
     listener, err := net.Listen(proto, address)
     if err != nil {
         log.Fatalln("Could not open listener:", err)
@@ -446,7 +483,10 @@ Options:
         subpath += "/"
         http.HandleFunc(subpath, handleRequest) // Directly handle requests
 
-        log.Printf("Server started on %s. Waiting for requests.\n", address)
+        log.Printf("Server started on %s. Waiting for requests...\n", address)
+
+        // Server ready message
+        log.Println("HMAC File Server is now ready to handle requests.")
 
         setLogLevel()
 
