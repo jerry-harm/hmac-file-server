@@ -1,225 +1,182 @@
 
 # HMAC File Server
 
-## Overview
+The HMAC File Server is a secure, high-performance HTTP server for file uploads and downloads. It uses HMAC (Hash-based Message Authentication Code) to ensure file integrity and includes features like versioning, rate limiting, automatic file deletion, and Prometheus metrics.
 
-HMAC File Server is a secure server for uploading and downloading files using HMAC signatures for authentication. It includes rate-limiting, auto-banning, file access retries, and disk space checks. It supports CORS, Unix sockets, HTTP/2, and graceful shutdowns, ensuring efficient and safe file transfers.
+## Features
 
-### Key Features
-- **HMAC Authentication**: Secure file transfers using HMAC signatures.
-- **Retry Mechanism**: Automatic retries for file access and downloads.
-- **Disk Space Checks**: Prevents uploads if disk space is low.
-- **Rate Limiting & Auto-Banning**: Protects against abuse by limiting failed access attempts.
-- **Auto-File Deletion**: Automatically deletes files older than a configurable period.
-- **Max Upload Size**: Set maximum upload size (default is 1GB) for better control over file handling.
-- **Multicore Support**: Efficiently uses all available CPU cores for optimized performance.
-- **Buffer Configuration**: Enables buffering for read and write operations to improve performance.
-- **Automatic Caching**: Introduced automatic caching through goroutines to enhance performance and reduce latency for frequently accessed file metadata.
-- **HTTP/2 & CORS Support**: For faster and cross-origin file transfers.
-- **Systemd Support**: Easily managed as a service.
-- **Prometheus Metrics**: Exposes metrics for monitoring and performance tracking, enabling integration with Prometheus for observability.
-- **Interactive Configuration**: Prompts for configuration values if the `config.toml` file is missing, ensuring easy setup.
-- **File Versioning**: Enable file versioning to track file changes.
+- **HMAC-based security** for file uploads/downloads.
+- **File versioning** with configurable strategies and limits.
+- **Rate limiting** and **auto-banning** to prevent abuse.
+- **Prometheus integration** for server and request metrics.
+- **CORS support** for cross-origin file handling.
+- **Configurable CPU core usage** for optimal performance.
+- **Automatic file deletion** with reporting.
+- **Unix socket and TCP support** for flexible communication.
+- **Detailed logging** to file and console.
+- **Graceful shutdown** on system signals.
 
----
+## Table of Contents
 
-## Installation and Compilation
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Versioning](#versioning)
+- [Metrics](#metrics)
+- [Logging](#logging)
+- [Contributing](#contributing)
+- [License](#license)
 
-### Prerequisites
-- **Go**: Ensure Go is installed on your system. [Download Go](https://golang.org/dl/).
-- **Git**: Verify Git is installed.
+## Installation
 
-### Build Steps
+1. **Clone the repository**:
 
-1. **Clone the Repository**:
    ```bash
    git clone https://github.com/PlusOne/hmac-file-server.git
    cd hmac-file-server
    ```
 
-2. **Compile the Project**:
+2. **Build the binary**:
+
    ```bash
-   GOARCH=amd64 GOOS=linux go build -o hmac-file-server
+   go build -o hmac-file-server .
    ```
 
-3. **Run the Application**:
+3. **Configure the server**:
+
+   Create a `config.toml` file or use the default one provided in the repository. See the [Configuration](#configuration) section for details.
+
+4. **Run the server**:
+
    ```bash
-   ./hmac-file-server --config=config.toml
+   ./hmac-file-server -config config.toml
    ```
 
----
+## Configuration
 
-## Configuration and Running
-
-The server is configured using a `config.toml` file. Below is a sample configuration:
+The configuration is managed via a `config.toml` file. Below is an example configuration file with explanations:
 
 ```toml
-# Server listening port for TCP
 ListenPort = ":8080"
-
-# Use Unix socket (true or false)
 UnixSocket = false
+UnixSocketPath = "/tmp/hmac-file-server.sock"
 
-# Path to the Unix socket (used if UnixSocket is true)
-# UnixSocketPath = "/home/hmac-file-server/hmac.sock"
+Secret = "your-secret-here"
+StoreDir = "/mnt/storage/hmac-file-server"
+UploadSubDir = "uploads"
 
-# Secret key for HMAC authentication
-Secret = "your-hmac-secret-key"  # Placeholder for the actual HMAC secret key
-
-# Directories for storing files
-StoreDir = "/mnt/storage/hmac-file-server/"
-UploadSubDir = "upload"
-
-# Logging level ("debug", "info", "warn", "error")
-LogLevel = "debug"
-
-# Log file path (optional). Leave empty to log to console
+LogLevel = "info"
 LogFile = "/var/log/hmac-file-server.log"
 
-# Retry settings
+EnableVersioning = true
+VersioningDirectory = "/mnt/storage/hmac-file-server/versions/"
+MaxVersions = 5
+VersioningStrategy = "timestamp"
+
 MaxRetries = 5
 RetryDelay = 2
 EnableGetRetries = true
-
-# Max Upload Size
-MaxUploadSize = 1073741824  # 1 GB in bytes
-BufferSize = 65536           # 64 KB in bytes
-MinFreeSpaceThreshold = 104857600  # 100 MB
-
-# Rate limiting and banning
-BlockAfterFails = 5
-BlockDuration = 300
+BlockAfterFails = 3
+BlockDuration = 3600
 AutoUnban = true
-AutoBanTime = 600
+AutoBanTime = 7200
 
-# File deletion settings
 DeleteFiles = true
-DeleteFilesAfterPeriod = "1y"  # Can be in days (d), months (m), or years (y)
+DeleteFilesAfterPeriod = "24h"
 DeleteFilesReport = true
-DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
+DeleteFilesReportPath = "/var/log/hmac-file-server/deleted_files.log"
 
-# CPU core settings
-NumCores = "auto"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
+NumCores = "auto"
+ReaskSecretEnabled = true
+ReaskSecretInterval = "24h"
 
-# HMAC Secret Re-ask Configuration
-ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
-ReaskSecretInterval = "1h"                   # Interval for reasking the secret (e.g., "24h" for 24 hours)
+MetricsEnabled = true
+MetricsPort = ":9090"
 
-# Monitoring Configuration
-MetricsEnabled = true                         # Enable Prometheus metrics
-MetricsPort = ":9090"                         # Port for metrics endpoint
-
-# File versioning configuration
-FileVersioningEnabled = true                 # Enable file versioning to track file changes
+MinFreeSpaceThreshold = 104857600  # 100MB
+MaxUploadSize = 1073741824         # 1GB
+BufferSize = 65536                 # 64KB
 ```
 
-### Interactive Configuration
-If `config.toml` is not found, the server will prompt you to input configuration values, creating the file with the provided settings.
+### Key Configuration Options
 
-### Running the server
-```bash
-./hmac-file-server --config=config.toml
-```
+- **ListenPort**: Port to listen on (default `:8080`).
+- **UnixSocket**: Use Unix socket instead of TCP (set to `true` or `false`).
+- **Secret**: HMAC secret key for secure file operations.
+- **StoreDir**: Directory where uploaded files are stored.
+- **EnableVersioning**: Enable versioning of uploaded files.
+- **MaxRetries**: Maximum number of retries before banning.
+- **MetricsEnabled**: Enable Prometheus metrics on a separate port.
+- **MaxUploadSize**: Maximum allowed file upload size.
 
----
+## Usage
 
-## Systemd Integration
+### Command Line Options
 
-To manage the HMAC File Server as a systemd service, use the following configuration:
+- `-config` : Path to the configuration file. Example:
 
-```ini
-[Unit]
-Description=HMAC File Server - Secure File Handling Server
-After=network.target
-
-[Service]
-ExecStart=/path/to/hmac-file-server --config=/path/to/config.toml
-WorkingDirectory=/path/to/working-directory
-Restart=on-failure
-User=hmac-file-server
-Group=hmac-file-server
-LimitNOFILE=4096
-
-[Install]
-WantedBy=multi-user.target
-```
-
-- Place this file in `/etc/systemd/system/hmac-file-server.service`.
-- Reload systemd and enable the service:
   ```bash
-  sudo systemctl daemon-reload
-  sudo systemctl enable hmac-file-server.service
-  sudo systemctl start hmac-file-server.service
+  ./hmac-file-server -config ./config.toml
   ```
 
----
+- `-help`: Display help message.
+  
+  ```bash
+  ./hmac-file-server -help
+  ```
 
-## ejabberd HTTP Upload Integration
+- `-version`: Display the current version.
 
-Configure ejabberd to work with the HMAC File Server:
+  ```bash
+  ./hmac-file-server -version
+  ```
 
-```yaml
-mod_http_upload:
-    max_size: 1073741824  # 1GB max upload size
-    thumbnail: true  # Optional thumbnail generation
-    put_url: https://share.example.com
-    get_url: https://share.example.com
-    docroot: /mnt/storage/ejabberd
-    external_secret: "replace_with_hmac_file_server_secret"
-    custom_headers:
-      "Access-Control-Allow-Origin": "*"
-      "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
-      "Access-Control-Allow-Headers": "Content-Type"
-```
+### File Upload
 
----
-
-## Prosody HTTP Upload Integration
-
-You can integrate the HMAC File Server with **Prosody** for HTTP file uploads. Below is a sample configuration for `mod_http_upload`:
-
-```lua
-Component "upload.example.com" "http_upload"
-    http_upload_path = "/upload/"
-    http_external_url = "https://share.example.com"
-    max_size = 1073741824 -- 1GB max upload size
-    docroot = "/mnt/storage/prosody_uploads"
-    external_secret = "replace_with_hmac_file_server_secret"
-    custom_headers = {
-        ["Access-Control-Allow-Origin"] = "*";
-        ["Access-Control-Allow-Methods"] = "GET, HEAD, PUT, OPTIONS";
-        ["Access-Control-Allow-Headers"] = "Content-Type";
-    }
-
-    -- Optional thumbnail support
-    thumbnail = true
-```
-
----
-
-## Acknowledgements
-
-Special thanks to **Thomas Leister** for his contributions and inspiration for this project. His work has laid the foundation for the development of this secure file handling solution.
-
----
-
-## Download Instructions
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/PlusOne/hmac-file-server.git
-   ```
-
-2. **Follow the build and configuration steps** listed above to compile and run the server on your environment.
-
----
-
-### Accessing the Server via Unix Socket:
-
-To interact with the server via a Unix socket, you can use tools like `curl`. Here’s an example command to make a request:
+Upload files using `PUT` requests:
 
 ```bash
-curl --unix-socket /home/hmac-file-server/hmac.sock http://localhost/upload/
+curl -X PUT --data-binary @/path/to/your/file http://your-server:8080/uploads/filename
 ```
 
-This command uses the Unix socket to interact with the server.
+### File Download
+
+Download files using `GET` requests:
+
+```bash
+curl -O http://your-server:8080/uploads/filename
+```
+
+## Versioning
+
+If **versioning** is enabled in the configuration, files are stored with versions based on the chosen strategy (e.g., timestamp). You can set the `MaxVersions` parameter to limit the number of versions to retain per file.
+
+## Metrics
+
+The server supports **Prometheus metrics** if enabled in the configuration. Metrics can be accessed at the `/metrics` endpoint, served on a configurable port.
+
+Available metrics:
+- **hmac_file_server_total_uploads**: Total number of file uploads.
+- **hmac_file_server_total_downloads**: Total number of file downloads.
+- **hmac_file_server_upload_duration_seconds**: Duration of file uploads.
+- **hmac_file_server_goroutines**: Number of active goroutines.
+
+## Logging
+
+The server logs events such as file uploads, downloads, errors, and bans. Logs are written to both the console and the specified log file in the configuration (`LogFile`).
+
+Log levels can be configured using the `LogLevel` option. Available levels: `debug`, `info`, `warn`, `error`.
+
+## Contributing
+
+Feel free to contribute to this project by submitting issues or pull requests. Follow these steps for contributions:
+
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature-branch`).
+3. Commit your changes (`git commit -m "Add a new feature"`).
+4. Push to your branch (`git push origin feature-branch`).
+5. Open a pull request.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
