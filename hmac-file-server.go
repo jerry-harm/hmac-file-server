@@ -254,11 +254,41 @@ func checkFreeSpace(path string) int64 {
     return int64(stat.Bavail * uint64(stat.Bsize)) // Available space
 }
 
-// Request handler with detailed logging
+// List of known bot User-Agents
+var knownBots = []string{
+    "Googlebot",
+    "Bingbot",
+    "Slurp",
+    "DuckDuckBot",
+    "Baidu",
+    "Yandex",
+    "Sogou",
+    "Exabot",
+}
+
+// Function to check if a User-Agent is a known bot
+func isBot(userAgent string) bool {
+    for _, bot := range knownBots {
+        if strings.Contains(userAgent, bot) {
+            return true
+        }
+    }
+    return false
+}
+
+// Request handler with detailed logging and User-Agent validation
 func handleRequest(w http.ResponseWriter, r *http.Request) {
     if r == nil {
         log.Error("Received nil request")
         http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        return
+    }
+
+    // Validate User-Agent
+    userAgent := r.Header.Get("User-Agent")
+    if isBot(userAgent) {
+        log.Warnf("Blocked request from bot: %s", userAgent)
+        http.Error(w, "Forbidden", http.StatusForbidden)
         return
     }
 
