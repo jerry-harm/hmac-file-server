@@ -3,6 +3,7 @@ package main
 import (
     "crypto/hmac"
     "crypto/sha256"
+    "hash"  // Import the hash package
     "flag"
     "fmt"
     "io/ioutil"
@@ -29,12 +30,12 @@ import (
 type Config struct {
     ListenPort             string
     UnixSocket             bool
-    UnixSocketPath         string // Added UnixSocketPath
+    UnixSocketPath         string
     Secret                 string
     StoreDir               string
     UploadSubDir           string
     LogLevel               string
-    LogFile                string // Log file path
+    LogFile                string
     EnableVersioning       bool
     VersioningDirectory    string
     MaxVersions            int
@@ -49,15 +50,15 @@ type Config struct {
     DeleteFiles            bool
     DeleteFilesAfterPeriod string
     DeleteFilesReport      bool
-    DeleteFilesReportPath  string // Path for delete report
-    NumCores               string // Number of CPU cores to use ("auto" or a number)
-    ReaskSecretEnabled     bool   `toml:"reask_secret_enabled"`
-    ReaskSecretInterval    string `toml:"reask_secret_interval"`
-    MetricsEnabled         bool   `toml:"metrics_enabled"`
-    MetricsPort            string `toml:"metrics_port"`
-    MinFreeSpaceThreshold  int64  // Minimum free space threshold in bytes
-    MaxUploadSize          int64  // Maximum upload size in bytes
-    BufferSize             int64  // Buffer size in bytes
+    DeleteFilesReportPath  string
+    NumCores               string
+    ReaskSecretEnabled     bool
+    ReaskSecretInterval    string
+    MetricsEnabled         bool
+    MetricsPort            string
+    MinFreeSpaceThreshold  int64
+    MaxUploadSize          int64
+    BufferSize             int64
 }
 
 var conf = Config{
@@ -69,8 +70,8 @@ var conf = Config{
     MaxVersions:            5,
     VersioningStrategy:     "timestamp",
     MinFreeSpaceThreshold:  100 * 1024 * 1024, // Default 100MB threshold
-    MaxUploadSize:          1073741824, // Default 1GB
-    BufferSize:             65536, // Default buffer size 64KB
+    MaxUploadSize:          1073741824,        // Default 1GB
+    BufferSize:             65536,             // Default buffer size 64KB
     DeleteFiles:            true,
     DeleteFilesReport:      true,
     DeleteFilesReportPath:  "/home/hmac-file-server/deleted_files.log",
@@ -88,33 +89,22 @@ var log = &logrus.Logger{
 // Initialize an in-memory cache with default expiration and cleanup interval.
 var fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)
 
-// Allowed HTTP methods
-var ALLOWED_METHODS string = strings.Join(
-    []string{
-        http.MethodOptions,
-        http.MethodHead,
-        http.MethodGet,
-        http.MethodPut,
-    },
-    ", ",
-)
-
-// Rate limiting and banning structures
-type RateLimit struct {
-    failedAttempts int
-    blockExpires   time.Time
-    banned         bool
-}
-
-var rateLimits sync.Map
-var rateLimitMutex sync.Mutex
-
 // Pool for reusable HMAC instances
 var hmacPool = sync.Pool{
     New: func() interface{} {
-        return hmac.New(sha256.New, []byte(conf.Secret))
+        return hmac.New(sha256.New, []byte(conf.Secret)) // Using sha256 for HMAC
     },
 }
+
+// Define allowed HTTP methods
+var ALLOWED_METHODS = strings.Join(
+    []string{
+        http.MethodOptions,
+        http.MethodGet,
+        http.MethodHead,
+        http.MethodPut,
+    }, ", ",
+)
 
 // Prometheus metrics
 var (
@@ -154,6 +144,17 @@ func init() {
     prometheus.MustRegister(totalUploads)
     prometheus.MustRegister(totalDownloads)
     prometheus.MustRegister(uploadDuration)
+}
+
+// Function to generate HMAC signature
+func generateHMAC(data string) string {
+    h := hmacPool.Get().(hash.Hash)
+    defer hmacPool.Put(h)
+
+    h.Reset()
+    h.Write([]byte(data))
+
+    return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // Cache initialization function
@@ -254,29 +255,7 @@ func checkFreeSpace(path string) int64 {
     return int64(stat.Bavail * uint64(stat.Bsize)) // Available space
 }
 
-// List of known bot User-Agents
-var knownBots = []string{
-    "Googlebot",
-    "Bingbot",
-    "Slurp",
-    "DuckDuckBot",
-    "Baidu",
-    "Yandex",
-    "Sogou",
-    "Exabot",
-}
-
-// Function to check if a User-Agent is a known bot
-func isBot(userAgent string) bool {
-    for _, bot := range knownBots {
-        if strings.Contains(userAgent, bot) {
-            return true
-        }
-    }
-    return false
-}
-
-// Request handler with detailed logging and User-Agent validation
+// Request handler with HMAC validation
 func handleRequest(w http.ResponseWriter, r *http.Request) {
     if r == nil {
         log.Error("Received nil request")
@@ -284,16 +263,19 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Validate User-Agent
-    userAgent := r.Header.Get("User-Agent")
-    if isBot(userAgent) {
-        log.Warnf("Blocked request from bot: %s", userAgent)
-        http.Error(w, "Forbidden", http.StatusForbidden)
-        return
-    }
-
     // Log the incoming request method and URL path for debugging
     log.Infof("Handling %s request for path: %s", r.Method, r.URL.Path)
+
+    // Validate HMAC in request headers (for example)
+    if r.Method == http.MethodPut {
+        receivedHMAC := r.Header.Get("X-HMAC-Signature")
+        expectedHMAC := generateHMAC(r.URL.Path)
+        if receivedHMAC != expectedHMAC {
+            log.Warn("HMAC validation failed")
+            http.Error(w, "Forbidden", http.StatusForbidden)
+            return
+        }
+    }
 
     // Update the goroutine metric
     goroutines.Set(float64(runtime.NumGoroutine()))
@@ -321,7 +303,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
     // Define the path where the file will be stored
     dirPath := path.Join(conf.StoreDir, r.URL.Path)
-    filePath := dirPath // Update with your desired file name logic
+    filePath := dirPath
 
     // Ensure the directory exists before handling the file
     if err := EnsureDirectoryExists(path.Dir(filePath)); err != nil {
@@ -381,7 +363,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
         // Serve the file
         log.Infof("Serving file: %s", filePath)
-        http.ServeFile(w, r, filePath) // Automatically handles headers
+        http.ServeFile(w, r, filePath)
 
         // Update metrics after successful download
         totalDownloads.WithLabelValues("success").Inc()
@@ -442,12 +424,6 @@ Options:
 
     // Set up logging to file
     setupLogFile(conf.LogFile)
-
-    // Check if the config file is present and set defaults if not
-    if _, err := os.Stat(configFile); os.IsNotExist(err) {
-        log.Warn("Configuration file not found. Prompting for values.")
-        promptForConfigValues()
-    }
 
     // Set the number of cores based on config
     if conf.NumCores == "auto" {
@@ -511,7 +487,7 @@ func startServer() {
         subpath := path.Join("/", conf.UploadSubDir)
         subpath = strings.TrimRight(subpath, "/")
         subpath += "/"
-        http.HandleFunc(subpath, handleRequest) // Directly handle requests
+        http.HandleFunc(subpath, handleRequest)
 
         log.Printf("Server started on %s. Waiting for requests...\n", address)
 
@@ -534,18 +510,4 @@ func startServer() {
     if err := srv.Shutdown(nil); err != nil {
         log.Fatal("Server forced to shutdown:", err)
     }
-}
-
-// promptForConfigValues prompts the user for configuration values if the config file is missing
-func promptForConfigValues() {
-    fmt.Println("Prompting for configuration values...")
-    fmt.Print("Enter the ListenPort (default :8080): ")
-    var listenPort string
-    fmt.Scanln(&listenPort)
-    if listenPort != "" {
-        conf.ListenPort = listenPort
-    }
-
-    // Continue prompting for other values similarly...
-    // This is just a placeholder; implement as needed for all fields in the Config struct.
 }
