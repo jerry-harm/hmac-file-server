@@ -1,61 +1,95 @@
 
-# Server listening port for TCP (used if UnixSocket is false)
+# HMAC File Server Configuration (Version 1.0.4)
+
+## Server listening port for TCP (used if UnixSocket is false)
+```
 ListenPort = ":8080"
+```
 
-# Use Unix socket (true or false)
+## Use Unix socket (true or false)
+```
 UnixSocket = false
+```
 
-# Path to the Unix socket (used if UnixSocket is true)
+## Path to the Unix socket (used if UnixSocket is true)
+```
 # UnixSocketPath = "/home/hmac-file-server/hmac.sock"
+```
 
-# Secret key for HMAC authentication
+## Secret key for HMAC authentication
+```
 Secret = "your-hmac-secret-key"  # Placeholder for the actual HMAC secret key
+```
 
-# Directories for storing files
+## Directories for storing files
+```
 StoreDir = "/mnt/storage/hmac-file-server/"
 UploadSubDir = "upload"
+```
 
-# Logging level ("debug", "info", "warn", "error")
+## Logging level ("debug", "info", "warn", "error")
+```
 LogLevel = "info"
+```
 
-# Log file path (optional). Leave empty to log to console
+## Log file path (optional). Leave empty to log to console
+```
 LogFile = ""
+```
 
-# Retry settings
+## Retry settings
+```
 MaxRetries = 5
 RetryDelay = 2
 EnableGetRetries = true
+```
 
-# Manually set Max Upload Size (in bytes) and Buffer Size (in bytes)
-# These values will override automatic dynamic settings based on memory
+## Manually set Max Upload Size (in bytes) and Buffer Size (in bytes)
+These values will override automatic dynamic settings based on memory.
+```
 MaxUploadSize = 1073741824  # 1 GB in bytes
 BufferSize = 65536          # 64 KB in bytes
+```
 
-# Minimum free space threshold (in bytes)
+## Minimum free space threshold (in bytes)
+```
 MinFreeSpaceThreshold = 104857600  # 100MB in bytes
+```
 
-# Rate limiting and banning
+## Rate limiting and banning
+```
 BlockAfterFails = 5
 BlockDuration = 300
 AutoUnban = true
 AutoBanTime = 600
+```
 
-# File deletion settings
+## File deletion settings
+```
 DeleteFiles = true
 DeleteFilesAfterPeriod = "1y"  # Can be in days (d), months (m), or years (y)
 DeleteFilesReport = true
 DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
+```
 
-# CPU core settings
+## CPU core settings
+```
 NumCores = "auto"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
+```
 
-# Enable or disable the buffer pool for read/write operations
+## Enable or disable the buffer pool for read/write operations
+```
 BufferEnabled = true
+```
 
-# HMAC Secret Re-ask Configuration
+## HMAC Secret Re-ask Configuration
+```
 ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
 ReaskSecretInterval = "1h"                   # Interval for reasking the secret (e.g., "1h")
+```
 
-# Monitoring Configuration
+## Monitoring Configuration
+```
 MetricsEnabled = true                         # Enable Prometheus metrics
 MetricsPort = ":9090"                         # Port for metrics endpoint
+```
