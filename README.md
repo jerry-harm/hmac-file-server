@@ -1,3 +1,4 @@
+
 # HMAC File Server
 
 ## Overview
@@ -18,6 +19,7 @@ HMAC File Server is a secure server for uploading and downloading files using HM
 - **Systemd Support**: Easily managed as a service.
 - **Prometheus Metrics**: Exposes metrics for monitoring and performance tracking, enabling integration with Prometheus for observability.
 - **Interactive Configuration**: Prompts for configuration values if the `config.toml` file is missing, ensuring easy setup.
+- **File Versioning**: Enable file versioning to track file changes.
 
 ---
 
@@ -97,7 +99,7 @@ DeleteFilesReport = true
 DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
 
 # CPU core settings
-NumCores = "2"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
+NumCores = "auto"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
 
 # HMAC Secret Re-ask Configuration
 ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
@@ -105,7 +107,10 @@ ReaskSecretInterval = "1h"                   # Interval for reasking the secret 
 
 # Monitoring Configuration
 MetricsEnabled = true                         # Enable Prometheus metrics
-MetricsPort = ":9090"                        # Port for metrics endpoint
+MetricsPort = ":9090"                         # Port for metrics endpoint
+
+# File versioning configuration
+FileVersioningEnabled = true                 # Enable file versioning to track file changes
 ```
 
 ### Interactive Configuration
