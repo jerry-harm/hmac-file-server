@@ -1,95 +1,34 @@
 
-# HMAC File Server Configuration (Version 1.0.4)
+# Configuration Example for HMAC File Server
 
-## Server listening port for TCP (used if UnixSocket is false)
-```
-ListenPort = ":8080"
-```
+This is an example configuration file for the HMAC File Server.
 
-## Use Unix socket (true or false)
-```
-UnixSocket = false
-```
-
-## Path to the Unix socket (used if UnixSocket is true)
-```
-# UnixSocketPath = "/home/hmac-file-server/hmac.sock"
-```
-
-## Secret key for HMAC authentication
-```
-Secret = "your-hmac-secret-key"  # Placeholder for the actual HMAC secret key
-```
-
-## Directories for storing files
-```
-StoreDir = "/mnt/storage/hmac-file-server/"
-UploadSubDir = "upload"
+```toml
+ListenPort = ":8080" # The port the server listens on.
+UnixSocket = false # Use Unix Socket for communication.
+UnixSocketPath = "/tmp/hmac-file-server.sock" # Path for Unix Socket.
+Secret = "your-secret-here" # HMAC authentication secret.
+StoreDir = "/mnt/storage/hmac-file-server" # Directory for uploaded files.
+UploadSubDir = "uploads" # Subdirectory for uploads.
+LogLevel = "info" # Logging level.
+LogFile = "/var/log/hmac-file-server.log" # Log file path.
+EnableVersioning = true # Enable file versioning.
+VersioningDirectory = "/mnt/storage/hmac-file-server/versions/" # Directory for versions.
+MaxVersions = 5 # Maximum number of file versions to keep.
+MaxRetries = 5 # Maximum retries before banning a user.
+RetryDelay = 2 # Delay between retries in seconds.
+DeleteFiles = true # Enable automatic file deletion.
+DeleteFilesAfterPeriod = "24h" # Period after which files are deleted.
+MetricsEnabled = true # Enable Prometheus metrics.
+MetricsPort = ":9090" # Port for Prometheus metrics.
+MaxUploadSize = 1073741824 # Maximum upload size in bytes (1GB).
+BufferSize = 65536 # Buffer size in bytes (64KB).
 ```
 
-## Logging level ("debug", "info", "warn", "error")
-```
-LogLevel = "info"
-```
-
-## Log file path (optional). Leave empty to log to console
-```
-LogFile = ""
-```
-
-## Retry settings
-```
-MaxRetries = 5
-RetryDelay = 2
-EnableGetRetries = true
-```
-
-## Manually set Max Upload Size (in bytes) and Buffer Size (in bytes)
-These values will override automatic dynamic settings based on memory.
-```
-MaxUploadSize = 1073741824  # 1 GB in bytes
-BufferSize = 65536          # 64 KB in bytes
-```
-
-## Minimum free space threshold (in bytes)
-```
-MinFreeSpaceThreshold = 104857600  # 100MB in bytes
-```
-
-## Rate limiting and banning
-```
-BlockAfterFails = 5
-BlockDuration = 300
-AutoUnban = true
-AutoBanTime = 600
-```
-
-## File deletion settings
-```
-DeleteFiles = true
-DeleteFilesAfterPeriod = "1y"  # Can be in days (d), months (m), or years (y)
-DeleteFilesReport = true
-DeleteFilesReportPath = "/home/hmac-file-server/deleted_files.log"
-```
-
-## CPU core settings
-```
-NumCores = "auto"  # Set to "auto" to use all available cores or a specific number like "2", "4", etc.
-```
-
-## Enable or disable the buffer pool for read/write operations
-```
-BufferEnabled = true
-```
-
-## HMAC Secret Re-ask Configuration
-```
-ReaskSecretEnabled = true                    # Enable or disable periodic secret reasking
-ReaskSecretInterval = "1h"                   # Interval for reasking the secret (e.g., "1h")
-```
-
-## Monitoring Configuration
-```
-MetricsEnabled = true                         # Enable Prometheus metrics
-MetricsPort = ":9090"                         # Port for metrics endpoint
-```
+## Configuration Options
+- **ListenPort**: TCP port for the server.
+- **UnixSocket**: Use Unix socket if true.
+- **Secret**: HMAC secret key.
+- **StoreDir**: Directory for uploaded files.
+- **LogLevel**: Log verbosity level.
+- **MetricsEnabled**: Enable metrics for monitoring.
