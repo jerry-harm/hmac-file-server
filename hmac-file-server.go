@@ -29,11 +29,16 @@ import (
 type Config struct {
     ListenPort             string
     UnixSocket             bool
-    UnixSocketPath         string
+    UnixSocketPath         string // Added UnixSocketPath
     Secret                 string
     StoreDir               string
     UploadSubDir           string
     LogLevel               string
+    LogFile                string // Log file path
+    EnableVersioning       bool
+    VersioningDirectory    string
+    MaxVersions            int
+    VersioningStrategy     string
     MaxRetries             int
     RetryDelay             int
     EnableGetRetries       bool
@@ -43,8 +48,8 @@ type Config struct {
     AutoBanTime            int
     DeleteFiles            bool
     DeleteFilesAfterPeriod string
-    WriteReport            bool
-    ReportPath             string
+    DeleteFilesReport      bool
+    DeleteFilesReportPath  string // Path for delete report
     NumCores               string // Number of CPU cores to use ("auto" or a number)
     ReaskSecretEnabled     bool   `toml:"reask_secret_enabled"`
     ReaskSecretInterval    string `toml:"reask_secret_interval"`
@@ -59,13 +64,17 @@ var conf = Config{
     ListenPort:             ":8080",
     MaxRetries:             5,
     RetryDelay:             2,
-    ReaskSecretEnabled:     true,
-    ReaskSecretInterval:    "24h", // Default interval for reasking secret
-    MetricsEnabled:         true,
-    MetricsPort:            ":9090", // Default metrics port
+    EnableVersioning:       true,
+    VersioningDirectory:    "/mnt/storage/hmac-file-server/versions/",
+    MaxVersions:            5,
+    VersioningStrategy:     "timestamp",
     MinFreeSpaceThreshold:  100 * 1024 * 1024, // Default 100MB threshold
     MaxUploadSize:          1073741824, // Default 1GB
     BufferSize:             65536, // Default buffer size 64KB
+    DeleteFiles:            true,
+    DeleteFilesReport:      true,
+    DeleteFilesReportPath:  "/home/hmac-file-server/deleted_files.log",
+    NumCores:               "auto",
 }
 
 var versionString string = "c97fa66"
@@ -161,6 +170,15 @@ func setLogLevel() {
         level = logrus.InfoLevel
     }
     log.SetLevel(level)
+}
+
+// Setup logging to a file
+func setupLogFile(logFile string) {
+    file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+    if err != nil {
+        log.Fatalf("Could not open log file: %s, error: %v", logFile, err)
+    }
+    log.SetOutput(file)
 }
 
 // EnsureDirectoryExists checks if a directory exists, and if not, creates it.
@@ -363,6 +381,9 @@ Options:
         log.Fatalln("There was an error while reading the configuration file:", err)
     }
 
+    // Set up logging to file
+    setupLogFile(conf.LogFile)
+
     // Check if the config file is present and set defaults if not
     if _, err := os.Stat(configFile); os.IsNotExist(err) {
         log.Warn("Configuration file not found. Prompting for values.")
@@ -448,8 +469,6 @@ Options:
 // promptForConfigValues prompts the user for configuration values if the config file is missing
 func promptForConfigValues() {
     fmt.Println("Prompting for configuration values...")
-    // Here you can add prompts for each configuration value and set them in the `conf` variable.
-    // Example:
     fmt.Print("Enter the ListenPort (default :8080): ")
     var listenPort string
     fmt.Scanln(&listenPort)
