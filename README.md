@@ -207,7 +207,7 @@ Special thanks to **Thomas Leister** for his contributions and inspiration for t
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/YOUR-USERNAME/hmac-file-server.git
+   git clone https://github.com/PlusOne/hmac-file-server.git
    ```
 
 2. **Follow the build and configuration steps** listed above to compile and run the server on your environment.
