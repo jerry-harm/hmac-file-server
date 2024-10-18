@@ -1,10 +1,37 @@
 
-# HMAC File Server
+# HMAC File Server - Version 1.0.3 *Final*
 
-The HMAC File Server is a lightweight, secure file-handling server that uses HMAC-based authentication. It offers configurable features like file versioning, rate-limiting, auto-banning, and Prometheus metrics for monitoring.
+**Release Date:** October 18, 2024
+
+---
+
+**Summary:**  
+This release rolls back to version 1.0.3 from the previously introduced version 1.0.4. After internal testing, it was determined that version 1.0.4 introduced several overly complex and unnecessary features, which caused performance overheads and instability in certain environments.
+
+---
+
+**Key Changes in Version 1.0.3 (Revert Release):**
+- **Reverted to stable version 1.0.3**, which offers a more balanced and reliable feature set without the excessive features introduced in 1.0.4.
+- **Stable multicore processing** and **efficient HMAC validation** as seen in the 1.0.3 version.
+- Features like **chunked uploads** and **multiversion file storage** have been toned down or optimized in this release for better performance.
+
+---
+
+**What’s not included in this release:**
+- **1.0.4 features** such as the additional chunk processing logic, aggressive retries, and extra banning mechanisms have been removed to simplify operation and reduce the CPU and memory footprint.
+
+---
+
+This release provides a balanced and performant HMAC file server that focuses on stability and efficiency. We highly recommend users to switch back to this version if they have experienced any issues with the 1.0.4 release.
+
+---
+
+**Note:**  
+Version 1.0.4 will be re-evaluated for potential inclusion in a future release, but it will be subject to a more modular and opt-in design for its advanced features.
 
 ## Features
 - **HMAC-based authentication** for secure file handling.
+- **Multicore processing**: Efficiently utilizes multiple CPU cores.
 - **File versioning**: Automatically version your files.
 - **Rate-limiting and auto-banning**: Protects the server from abuse.
 - **Prometheus metrics**: Monitor server performance.
