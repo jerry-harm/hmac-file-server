@@ -104,17 +104,41 @@ var hmacPool = sync.Pool{
 	},
 }
 
-// Prometheus metrics
+// Prometheus metrics with "hmac_" prefix
 var (
 	goroutines = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "hmac_file_server_goroutines",
-		Help: "Number of goroutines that currently exist.",
+		Namespace: "hmac", // Add "hmac_" prefix to the metric
+		Name:      "file_server_goroutines",
+		Help:      "Number of goroutines that currently exist in the HMAC File Server.",
+	})
+
+	// Additional metrics
+	uploadsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac", // Add "hmac_" prefix
+		Name:      "file_server_uploads_total",
+		Help:      "Total number of successful file uploads.",
+	})
+
+	uploadErrorsCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac", // Add "hmac_" prefix
+		Name:      "file_server_upload_errors_total",
+		Help:      "Total number of file upload errors.",
+	})
+
+	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac", // Add "hmac_" prefix
+		Name:      "file_server_upload_duration_seconds",
+		Help:      "Histogram of file upload duration in seconds.",
+		Buckets:   prometheus.DefBuckets, // Default bucket sizes for timing
 	})
 )
 
 func init() {
-	// Register metrics
+	// Register the new metrics
 	prometheus.MustRegister(goroutines)
+	prometheus.MustRegister(uploadsCounter)
+	prometheus.MustRegister(uploadErrorsCounter)
+	prometheus.MustRegister(uploadDuration)
 }
 
 // Reads the configuration file
@@ -168,6 +192,8 @@ func writeFile(filePath string, data []byte) error {
 
 // Request handler with detailed logging
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now() // Start timing the upload
+
 	if r == nil {
 		log.Error("Received nil request")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -206,6 +232,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		// Read the body data
 		data, err := ioutil.ReadAll(r.Body)
 		if err != nil {
+			uploadErrorsCounter.Inc() // Increment error counter
 			log.Errorf("Error reading body: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -214,10 +241,15 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Write the file
 		if err := writeFile(filePath, data); err != nil {
+			uploadErrorsCounter.Inc() // Increment error counter
 			log.Errorf("Failed to write file: %s, error: %v", filePath, err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
+
+		uploadsCounter.Inc() // Increment successful uploads counter
+		duration := time.Since(startTime).Seconds()
+		uploadDuration.Observe(duration) // Record the upload duration
 
 		w.WriteHeader(http.StatusCreated)
 		log.Infof("File successfully uploaded: %s", filePath)
