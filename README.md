@@ -1,182 +1,57 @@
 
 # HMAC File Server
 
-The HMAC File Server is a secure, high-performance HTTP server for file uploads and downloads. It uses HMAC (Hash-based Message Authentication Code) to ensure file integrity and includes features like versioning, rate limiting, automatic file deletion, and Prometheus metrics.
+This project provides a secure file upload server that uses HMAC-based authentication to validate uploads. It integrates with XMPP servers like ejabberd or Prosody to handle HTTP file uploads using the `mod_http_upload_external` module. The server supports chunked uploads, Prometheus metrics for monitoring, and detailed logging to a file.
 
 ## Features
 
-- **HMAC-based security** for file uploads/downloads.
-- **File versioning** with configurable strategies and limits.
-- **Rate limiting** and **auto-banning** to prevent abuse.
-- **Prometheus integration** for server and request metrics.
-- **CORS support** for cross-origin file handling.
-- **Configurable CPU core usage** for optimal performance.
-- **Automatic file deletion** with reporting.
-- **Unix socket and TCP support** for flexible communication.
-- **Detailed logging** to file and console.
-- **Graceful shutdown** on system signals.
+### 1. HMAC Validation for Secure Uploads
+- **HMAC-Based Authentication**: The server validates file uploads by verifying an HMAC signature sent as a query parameter in the upload URL. The HMAC is calculated using a shared secret and includes the file path, content length, and MIME type (for protocol version `v2` or `token`).
+- **Compatibility with ejabberd/Prosody**: The server supports the HMAC generation methods required by **ejabberd** and **Prosody** when using `mod_http_upload_external`.
+- **Logging of HMAC Details**: Logs include detailed HMAC validation information, such as expected and received HMACs, file paths, content lengths, and MIME types.
 
-## Table of Contents
+### 2. Chunked File Uploads
+- **Chunked Transfer Encoding**: The server supports chunked uploads by reading incoming files in chunks, allowing large file uploads without requiring the entire file to be stored in memory.
+- **Efficient File Handling**: Files are written directly to disk in small chunks, ensuring the server can handle large files while conserving memory.
 
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Versioning](#versioning)
-- [Metrics](#metrics)
-- [Logging](#logging)
-- [Contributing](#contributing)
-- [License](#license)
+### 3. Prometheus Metrics Integration
+- **Real-Time Monitoring**: The server exposes key metrics via the `/metrics` endpoint (default port `9090`) for Prometheus monitoring. These metrics include:
+  - **Number of goroutines**: Shows the number of active goroutines in the server.
+  - **Total uploads**: Tracks the total number of file uploads, with success/failure labels.
+  - **Total downloads**: Tracks the total number of file downloads, with success/failure labels.
+  - **Upload duration**: A histogram of upload durations, useful for monitoring performance.
+- **Easy Integration with Prometheus**: The server is ready to be integrated into a Prometheus-based monitoring stack to track health and performance.
 
-## Installation
+### 4. File Logging
+- **Log to File**: The server writes logs to a file specified in the configuration (`LogFile`), providing detailed information about HMAC validation, file uploads, and server activity.
 
-1. **Clone the repository**:
+### 5. Configuration via TOML
+- **TOML Configuration**: The server is configurable via a TOML file, allowing you to set key parameters such as:
+  - **Server ports** (`ListenPort`, `MetricsPort`): Control the ports for the file upload server and the Prometheus metrics endpoint.
+  - **HMAC Secret** (`Secret`): Set the shared secret used for HMAC validation.
+  - **Storage Directories** (`StoreDir`, `UploadSubDir`): Specify where uploaded files are stored.
+  - **Log File** (`LogFile`): Configure the log file location.
 
-   ```bash
-   git clone https://github.com/PlusOne/hmac-file-server.git
-   cd hmac-file-server
-   ```
+### 6. Dynamic Protocol Handling
+- **Supports Multiple HMAC Protocols**: The server supports both the legacy `v` protocol (file path + content length) and the newer `v2` or `token` protocols (file path + content length + MIME type), ensuring compatibility with older and newer XMPP configurations.
 
-2. **Build the binary**:
-
-   ```bash
-   go build -o hmac-file-server .
-   ```
-
-3. **Configure the server**:
-
-   Create a `config.toml` file or use the default one provided in the repository. See the [Configuration](#configuration) section for details.
-
-4. **Run the server**:
-
-   ```bash
-   ./hmac-file-server -config config.toml
-   ```
-
-## Configuration
-
-The configuration is managed via a `config.toml` file. Below is an example configuration file with explanations:
+## Example Configuration (`config.toml`):
 
 ```toml
-ListenPort = ":8080"
-UnixSocket = false
-UnixSocketPath = "/tmp/hmac-file-server.sock"
-
-Secret = "your-secret-here"
-StoreDir = "/mnt/storage/hmac-file-server"
-UploadSubDir = "uploads"
-
-LogLevel = "info"
-LogFile = "/var/log/hmac-file-server.log"
-
-EnableVersioning = true
-VersioningDirectory = "/mnt/storage/hmac-file-server/versions/"
-MaxVersions = 5
-VersioningStrategy = "timestamp"
-
-MaxRetries = 5
-RetryDelay = 2
-EnableGetRetries = true
-BlockAfterFails = 3
-BlockDuration = 3600
-AutoUnban = true
-AutoBanTime = 7200
-
-DeleteFiles = true
-DeleteFilesAfterPeriod = "24h"
-DeleteFilesReport = true
-DeleteFilesReportPath = "/var/log/hmac-file-server/deleted_files.log"
-
-NumCores = "auto"
-ReaskSecretEnabled = true
-ReaskSecretInterval = "24h"
-
-MetricsEnabled = true
-MetricsPort = ":9090"
-
-MinFreeSpaceThreshold = 104857600  # 100MB
-MaxUploadSize = 1073741824         # 1GB
-BufferSize = 65536                 # 64KB
+ListenPort = ":8080"               # Port for file uploads
+MetricsPort = ":9090"              # Port for Prometheus metrics
+Secret = "your-shared-secret"      # Shared HMAC secret for validation
+StoreDir = "/mnt/storage/uploads"  # Directory where files will be stored
+UploadSubDir = "upload"            # Subdirectory for uploads
+LogFile = "/var/log/hmac-file-server.log" # Path for log file
 ```
-
-### Key Configuration Options
-
-- **ListenPort**: Port to listen on (default `:8080`).
-- **UnixSocket**: Use Unix socket instead of TCP (set to `true` or `false`).
-- **Secret**: HMAC secret key for secure file operations.
-- **StoreDir**: Directory where uploaded files are stored.
-- **EnableVersioning**: Enable versioning of uploaded files.
-- **MaxRetries**: Maximum number of retries before banning.
-- **MetricsEnabled**: Enable Prometheus metrics on a separate port.
-- **MaxUploadSize**: Maximum allowed file upload size.
 
 ## Usage
 
-### Command Line Options
-
-- `-config` : Path to the configuration file. Example:
-
-  ```bash
-  ./hmac-file-server -config ./config.toml
-  ```
-
-- `-help`: Display help message.
-  
-  ```bash
-  ./hmac-file-server -help
-  ```
-
-- `-version`: Display the current version.
-
-  ```bash
-  ./hmac-file-server -version
-  ```
-
-### File Upload
-
-Upload files using `PUT` requests:
-
-```bash
-curl -X PUT --data-binary @/path/to/your/file http://your-server:8080/uploads/filename
-```
-
-### File Download
-
-Download files using `GET` requests:
-
-```bash
-curl -O http://your-server:8080/uploads/filename
-```
-
-## Versioning
-
-If **versioning** is enabled in the configuration, files are stored with versions based on the chosen strategy (e.g., timestamp). You can set the `MaxVersions` parameter to limit the number of versions to retain per file.
-
-## Metrics
-
-The server supports **Prometheus metrics** if enabled in the configuration. Metrics can be accessed at the `/metrics` endpoint, served on a configurable port.
-
-Available metrics:
-- **hmac_file_server_total_uploads**: Total number of file uploads.
-- **hmac_file_server_total_downloads**: Total number of file downloads.
-- **hmac_file_server_upload_duration_seconds**: Duration of file uploads.
-- **hmac_file_server_goroutines**: Number of active goroutines.
-
-## Logging
-
-The server logs events such as file uploads, downloads, errors, and bans. Logs are written to both the console and the specified log file in the configuration (`LogFile`).
-
-Log levels can be configured using the `LogLevel` option. Available levels: `debug`, `info`, `warn`, `error`.
-
-## Contributing
-
-Feel free to contribute to this project by submitting issues or pull requests. Follow these steps for contributions:
-
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature-branch`).
-3. Commit your changes (`git commit -m "Add a new feature"`).
-4. Push to your branch (`git push origin feature-branch`).
-5. Open a pull request.
+1. **Upload a File**: Clients (like ejabberd/Prosody) can upload files to the server by calculating an HMAC signature and including it in the query string.
+2. **Monitor with Prometheus**: You can scrape the `/metrics` endpoint with Prometheus to monitor the performance and health of the server in real time.
+3. **Check Logs**: Review logs in the specified log file to troubleshoot any upload issues or inspect server activity.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.
