@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/rand"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -14,7 +13,9 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,15 +28,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/patrickmn/go-cache"
 )
-
-type Session struct {
-	ID       string
-	Expires  time.Time
-	Data     map[string]interface{}
-}
-
-var sessions = sync.Map{}  // In-memory session store
-var sessionDuration = 30 * time.Minute  // Session expiration time
 
 // Configuration of this server
 type Config struct {
@@ -63,6 +55,10 @@ type Config struct {
 	ReaskSecretInterval    string
 	MetricsEnabled         bool
 	MetricsPort            string
+	ChecksumVerification   bool
+	RetentionPolicyEnabled bool
+	MaxRetentionSize       int64
+	MaxRetentionTime       string
 }
 
 var conf = Config{
@@ -73,9 +69,13 @@ var conf = Config{
 	ReaskSecretInterval:    "24h",
 	MetricsEnabled:         true,
 	MetricsPort:            ":9090",
+	ChecksumVerification:   true,
+	RetentionPolicyEnabled: true,
+	MaxRetentionSize:       10737418240, // Default 10 GB
+	MaxRetentionTime:       "30d",       // Default 30 days
 }
 
-var versionString string = "1.0.3-final"
+var versionString string = "1.0.4"
 var log = logrus.New()
 
 // Initialize an in-memory cache with default expiration and cleanup interval.
@@ -164,75 +164,6 @@ func setupLogging() {
 	log.SetLevel(level)
 }
 
-// GenerateSessionToken generates a unique session token
-func GenerateSessionToken() string {
-	b := make([]byte, 16)
-	_, err := rand.Read(b)
-	if err != nil {
-		log.Fatalf("Error generating session token: %v", err)
-	}
-	return hex.EncodeToString(b)
-}
-
-// SessionMiddleware validates or creates a session
-func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("session_token")
-		var session *Session
-
-		if err != nil || cookie == nil {
-			// No valid session, create a new one
-			session = createSession()
-			http.SetCookie(w, &http.Cookie{
-				Name:    "session_token",
-				Value:   session.ID,
-				Expires: session.Expires,
-				Path:    "/",
-			})
-		} else {
-			// Check if session exists and is valid
-			if s, ok := sessions.Load(cookie.Value); ok {
-				session = s.(*Session)
-				if session.Expires.Before(time.Now()) {
-					// Session expired, remove it
-					sessions.Delete(cookie.Value)
-					session = createSession()
-					http.SetCookie(w, &http.Cookie{
-						Name:    "session_token",
-						Value:   session.ID,
-						Expires: session.Expires,
-						Path:    "/",
-					})
-				}
-			} else {
-				// Invalid session token, create new session
-				session = createSession()
-				http.SetCookie(w, &http.Cookie{
-					Name:    "session_token",
-					Value:   session.ID,
-					Expires: session.Expires,
-					Path:    "/",
-				})
-			}
-		}
-		// Attach session data to request context
-		ctx := context.WithValue(r.Context(), "session", session)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
-}
-
-// createSession creates a new session
-func createSession() *Session {
-	sessionID := GenerateSessionToken()
-	session := &Session{
-		ID:      sessionID,
-		Expires: time.Now().Add(sessionDuration),
-		Data:    make(map[string]interface{}),
-	}
-	sessions.Store(sessionID, session)
-	return session
-}
-
 // EnsureDirectoryExists checks if a directory exists, and if not, creates it.
 func EnsureDirectoryExists(dirPath string) error {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
@@ -264,11 +195,18 @@ func writeFile(filePath string, data []byte) error {
 	return nil
 }
 
+// Calculate checksum of a file using SHA-256
+func calculateChecksum(file *os.File) (string, error) {
+	hash := sha256.New()
+	_, err := io.Copy(hash, file)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 // Request handler with enhanced error handling, logging, and file streaming
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Retrieve session from context
-	session := r.Context().Value("session").(*Session)
-
 	if r == nil {
 		log.Error("Received nil request")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -276,10 +214,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.WithFields(logrus.Fields{
-		"method":  r.Method,
-		"path":    r.URL.Path,
-		"ip":      r.RemoteAddr,
-		"session": session.ID,
+		"method": r.Method,
+		"path":   r.URL.Path,
+		"ip":     r.RemoteAddr,
 	}).Info("Handling request")
 
 	addCORSheaders(w)
@@ -310,11 +247,34 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		defer file.Close()
 
+		// Write file data to disk
 		if _, err := io.Copy(file, r.Body); err != nil {
 			log.Errorf("Error copying body to file: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			uploadErrorsTotal.Inc()
 			return
+		}
+
+		// Checksum verification (optional)
+		if conf.ChecksumVerification {
+			expectedChecksum := r.Header.Get("X-Checksum")
+			if expectedChecksum != "" {
+				// Re-open file to calculate checksum
+				file.Seek(0, 0)
+				actualChecksum, err := calculateChecksum(file)
+				if err != nil {
+					log.Errorf("Error calculating checksum: %v", err)
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					return
+				}
+				if actualChecksum != expectedChecksum {
+					log.Errorf("Checksum mismatch for file %s: expected %s, got %s", filePath, expectedChecksum, actualChecksum)
+					http.Error(w, "Checksum Mismatch", http.StatusBadRequest)
+					return
+				}
+			} else {
+				log.Warnf("No checksum provided for file %s. Skipping checksum validation.", filePath)
+			}
 		}
 
 		duration := time.Since(startTime).Seconds()
@@ -348,6 +308,143 @@ func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Max-Age", "7200")
+}
+
+// Function to get total storage size of the files
+func getTotalStorageSize(dir string) (int64, error) {
+	var size int64
+	err := filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size, err
+}
+
+// Struct to hold file information for sorting
+type FileInfo struct {
+	Path string
+	Info os.FileInfo
+}
+
+// Function to get files sorted by modification time (oldest first)
+func getFilesSortedByAge(dir string) ([]FileInfo, error) {
+	var files []FileInfo
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			files = append(files, FileInfo{Path: path, Info: info})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort files by modification time (oldest first)
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Info.ModTime().Before(files[j].Info.ModTime())
+	})
+	return files, nil
+}
+
+// Function to delete oldest files until the size is under the limit
+func deleteOldestFiles(dir string, excessSize int64) {
+	files, err := getFilesSortedByAge(dir)
+	if err != nil {
+		log.Errorf("Error getting files by age: %v", err)
+		return
+	}
+	var deletedSize int64
+	for _, file := range files {
+		if deletedSize >= excessSize {
+			break
+		}
+		fileSize := file.Info.Size()
+		os.Remove(file.Path)
+		deletedSize += fileSize
+		log.Infof("Deleted file: %s (Size: %d bytes)", file.Path, fileSize)
+	}
+}
+
+// Function to delete files older than a specific duration
+func deleteFilesOlderThan(dir string, maxAge string) {
+	var cutoff time.Time
+
+	// Check for year (y) or day (d) units and handle them manually
+	if strings.HasSuffix(maxAge, "y") {
+		years, err := strconv.Atoi(strings.TrimSuffix(maxAge, "y"))
+		if err != nil {
+			log.Errorf("Invalid maxAge format: %v", err)
+			return
+		}
+		cutoff = time.Now().AddDate(-years, 0, 0)  // Subtract years from the current time
+	} else if strings.HasSuffix(maxAge, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(maxAge, "d"))
+		if err != nil {
+			log.Errorf("Invalid maxAge format: %v", err)
+			return
+		}
+		cutoff = time.Now().AddDate(0, 0, -days)  // Subtract days from the current time
+	} else {
+		// Handle regular durations like "h", "m", "s"
+		duration, err := time.ParseDuration(maxAge)
+		if err != nil {
+			log.Errorf("Invalid maxAge format: %v", err)
+			return
+		}
+		cutoff = time.Now().Add(-duration)
+	}
+
+	log.Infof("Deleting files older than: %s (cutoff: %s)", maxAge, cutoff.Format(time.RFC3339))
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			log.Infof("Checking file: %s (modified: %s)", path, info.ModTime().Format(time.RFC3339))
+
+			// Only delete files older than the specified age
+			if info.ModTime().Before(cutoff) {
+				log.Infof("Deleting file due to age: %s", path)
+				os.Remove(path)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Errorf("Error deleting old files: %v", err)
+	}
+}
+
+// Enforce retention policy based on size and age
+func enforceRetentionPolicy() {
+	if !conf.RetentionPolicyEnabled {
+		return
+	}
+
+	// Check total size of the storage directory
+	totalSize, err := getTotalStorageSize(conf.StoreDir)
+	if err != nil {
+		log.Errorf("Error calculating total storage size: %v", err)
+		return
+	}
+
+	// If size exceeds the maximum allowed, delete the oldest files
+	if totalSize > conf.MaxRetentionSize {
+		log.Infof("Total storage size exceeds limit: %d bytes. Starting cleanup...", totalSize)
+		deleteOldestFiles(conf.StoreDir, totalSize-conf.MaxRetentionSize)
+	}
+
+	// Delete files older than MaxRetentionTime
+	deleteFilesOlderThan(conf.StoreDir, conf.MaxRetentionTime)
 }
 
 // Main function with graceful shutdown, request timeout, and metrics
@@ -412,6 +509,14 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	// Launch retention policy checks in a separate goroutine
+	go func() {
+		for {
+			enforceRetentionPolicy()
+			time.Sleep(24 * time.Hour) // Run retention checks daily
+		}
+	}()
+
 	go func() {
 		log.Println("Starting hmac-file-server", versionString, "...")
 		if conf.MetricsEnabled {
@@ -426,7 +531,7 @@ func main() {
 
 		subpath := path.Join("/", conf.UploadSubDir)
 		subpath = strings.TrimRight(subpath, "/") + "/"
-		http.HandleFunc(subpath, SessionMiddleware(handleRequest))  // Apply session middleware
+		http.HandleFunc(subpath, handleRequest)
 		log.Printf("Server started on %s. Waiting for requests.\n", address)
 
 		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
