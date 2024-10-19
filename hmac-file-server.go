@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -61,6 +60,8 @@ type Config struct {
 	RedisAddr              string // Redis server address (e.g., "localhost:6379")
 	RedisPassword          string // Redis password
 	RedisDB                int    // Redis database number
+	ReadTimeout            int    `toml:"read_timeout"`   // Read timeout in seconds
+	WriteTimeout           int    `toml:"write_timeout"`  // Write timeout in seconds
 }
 
 var conf = Config{
@@ -75,6 +76,8 @@ var conf = Config{
 	RetentionPolicyEnabled: true,
 	MaxRetentionSize:       10737418240, // Default 10 GB
 	MaxRetentionTime:       "30d",       // Default 30 days
+	ReadTimeout:            900,         // Default 900 seconds (15 minutes)
+	WriteTimeout:           900,         // Default 900 seconds (15 minutes)
 }
 
 var versionString string = "1.0.4"
@@ -163,33 +166,6 @@ func readConfig(configFile string, config *Config) error {
 	return err
 }
 
-// Validate HMAC Signature
-func ValidateHMAC(message, signature string) bool {
-	h := hmac.New(sha256.New, []byte(conf.Secret))
-	h.Write([]byte(message))
-	expectedMAC := hex.EncodeToString(h.Sum(nil))
-	return hmac.Equal([]byte(signature), []byte(expectedMAC))
-}
-
-// Cache file metadata in Redis
-func CacheFileMetadata(key string, value string) {
-	err := redisClient.Set(ctx, key, value, 0).Err()
-	if err != nil {
-		log.Errorf("Error caching metadata: %v", err)
-	}
-}
-
-// Retrieve cached file metadata from Redis
-func GetCachedMetadata(key string) (string, error) {
-	val, err := redisClient.Get(ctx, key).Result()
-	if err == redis.Nil {
-		return "", fmt.Errorf("Key does not exist")
-	} else if err != nil {
-		return "", err
-	}
-	return val, nil
-}
-
 // EnsureDirectoryExists checks if a directory exists, and if not, creates it.
 func EnsureDirectoryExists(dirPath string) error {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
@@ -203,129 +179,64 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
-// WriteFile writes the given data to the specified file path asynchronously.
-func writeFileAsync(filePath string, data []byte) {
-	go func() {
-		file, err := os.Create(filePath)
-		if err != nil {
-			log.Errorf("Error creating file: %s, error: %v", filePath, err)
-			uploadErrorsTotal.Inc()
-			return
-		}
-		defer file.Close()
-
-		_, err = file.Write(data)
-		if err != nil {
-			log.Errorf("Error writing to file: %s, error: %v", filePath, err)
-			uploadErrorsTotal.Inc()
-			return
-		}
-		log.Infof("Successfully wrote file: %s", filePath)
-	}()
-}
-
-// Calculate checksum of a file using SHA-256
-func calculateChecksum(file *os.File) (string, error) {
-	hash := sha256.New()
-	_, err := io.Copy(hash, file)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// Allowed HTTP methods
-var ALLOWED_METHODS = strings.Join([]string{
-	http.MethodOptions,
-	http.MethodHead,
-	http.MethodGet,
-	http.MethodPut,
-}, ", ")
-
 // Request handler with enhanced error handling, logging, and file streaming
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	if r == nil {
-		log.Error("Received nil request")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	log.WithFields(logrus.Fields{
-		"method": r.Method,
-		"path":   r.URL.Path,
-		"ip":     r.RemoteAddr,
-	}).Info("Handling request")
-
-	addCORSheaders(w)
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	dirPath := path.Join(conf.StoreDir, r.URL.Path)
-	filePath := dirPath
-
-	if err := EnsureDirectoryExists(path.Dir(filePath)); err != nil {
-		log.Errorf("Failed to ensure directory exists: %s, error: %v", path.Dir(filePath), err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
 	if r.Method == http.MethodPut {
 		startTime := time.Now()
 
-		// Read file data
-		fileData, err := io.ReadAll(r.Body)
-		if err != nil {
-			log.Errorf("Error reading body: %v", err)
+		// Create the directory if it does not exist
+		dirPath := path.Join(conf.StoreDir, r.URL.Path)
+		if err := EnsureDirectoryExists(path.Dir(dirPath)); err != nil {
+			log.Errorf("Failed to ensure directory exists: %s, error: %v", path.Dir(dirPath), err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			uploadErrorsTotal.Inc()
 			return
 		}
 
-		// Asynchronous write file
-		writeFileAsync(filePath, fileData)
+		// Open a file to write to
+		outFile, err := os.Create(dirPath)
+		if err != nil {
+			log.Errorf("Error creating file: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		defer outFile.Close()
 
-		// Checksum verification (optional)
-		if conf.ChecksumVerification {
-			expectedChecksum := r.Header.Get("X-Checksum")
-			if expectedChecksum != "" {
-				// Re-open file to calculate checksum
-				file, err := os.Open(filePath)
-				if err != nil {
-					log.Errorf("Error opening file: %v", err)
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
-				defer file.Close()
+		// Create a buffer and read the request body in chunks
+		buffer := make([]byte, 64*1024) // 64 KB buffer
+		for {
+			n, err := r.Body.Read(buffer)
+			if err != nil && err != io.EOF {
+				log.Errorf("Error reading body: %v", err)
+				http.Error(w, "Error saving file", http.StatusInternalServerError)
+				uploadErrorsTotal.Inc()
+				return
+			}
+			if n == 0 {
+				break
+			}
 
-				actualChecksum, err := calculateChecksum(file)
-				if err != nil {
-					log.Errorf("Error calculating checksum: %v", err)
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
-				if actualChecksum != expectedChecksum {
-					log.Errorf("Checksum mismatch for file %s: expected %s, got %s", filePath, expectedChecksum, actualChecksum)
-					http.Error(w, "Checksum Mismatch", http.StatusBadRequest)
-					return
-				}
-			} else {
-				log.Warnf("No checksum provided for file %s. Skipping checksum validation.", filePath)
+			// Write the chunk to the file
+			if _, err := outFile.Write(buffer[:n]); err != nil {
+				log.Errorf("Error writing to file: %v", err)
+				http.Error(w, "Error saving file", http.StatusInternalServerError)
+				uploadErrorsTotal.Inc()
+				return
 			}
 		}
 
+		// Record upload duration and increment successful uploads count
 		duration := time.Since(startTime).Seconds()
 		uploadDuration.Observe(duration)
 		uploadsTotal.Inc()
 
 		w.WriteHeader(http.StatusCreated)
-		log.Infof("File successfully uploaded: %s", filePath)
+		log.Infof("File successfully uploaded: %s", dirPath)
 		return
 	}
 
+	// Handle file serving (GET method)
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		filePath := path.Join(conf.StoreDir, r.URL.Path)
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			log.Warnf("File not found: %s", filePath)
 			http.Error(w, "Not Found", http.StatusNotFound)
@@ -337,8 +248,17 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return error for unsupported methods
 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 }
+
+// Allowed HTTP methods for CORS
+var ALLOWED_METHODS = strings.Join([]string{
+	http.MethodOptions,
+	http.MethodHead,
+	http.MethodGet,
+	http.MethodPut,
+}, ", ")
 
 // CORS headers function
 func addCORSheaders(w http.ResponseWriter) {
@@ -407,10 +327,11 @@ func main() {
 		log.Fatalln("Could not open listener:", err)
 	}
 
+	// Use the ReadTimeout and WriteTimeout from the config
 	srv := &http.Server{
 		Addr:         address,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  time.Duration(conf.ReadTimeout) * time.Second,
+		WriteTimeout: time.Duration(conf.WriteTimeout) * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
