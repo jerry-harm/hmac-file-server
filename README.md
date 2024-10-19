@@ -1,11 +1,12 @@
 
 # HMAC File Server - Version 1.0.4
 
-This version of the HMAC file server introduces several enhancements to improve performance, logging, error handling, and scalability without changing the HMAC validation logic or core functionality. Below are the key changes and improvements.
+This version of the HMAC file server introduces several enhancements to improve performance, logging, error handling, session management, and scalability without changing the HMAC validation logic or core functionality. Below are the key changes and improvements.
 
 ## Key Features
 
 - **HMAC Authentication**: Secure file uploads using HMAC (Hash-based Message Authentication Code).
+- **Session Handling**: Introduced session handling using cookies and in-memory session storage.
 - **CORS Support**: Allows cross-origin requests for specific methods.
 - **Prometheus Metrics**: Collects metrics like upload duration, total uploads, and errors.
 - **Graceful Shutdown**: The server now supports graceful shutdown with a timeout, ensuring active connections are not abruptly terminated.
@@ -16,7 +17,13 @@ This version of the HMAC file server introduces several enhancements to improve 
 
 ## Enhancements in Version 1.0.4
 
-### 1. Graceful Shutdown
+### 1. Session Handling
+Session management has been introduced to track user sessions during the request lifecycle:
+- **Session Creation**: A new session is created if none exists, and a session token is stored in a cookie.
+- **Session Expiration**: Sessions expire after 30 minutes of inactivity and are automatically renewed when expired.
+- **Session Middleware**: Middleware validates sessions for every incoming request and attaches session data to the request context.
+
+### 2. Graceful Shutdown
 The server now supports graceful shutdown. When a termination signal (SIGINT, SIGTERM) is received, the server waits for 10 seconds to allow active requests to complete before shutting down.
 
 **Key Changes:**
@@ -34,7 +41,7 @@ if err := srv.Shutdown(ctx); err != nil {
 log.Println("Server exiting")
 ```
 
-### 2. Request Timeouts
+### 3. Request Timeouts
 To improve server performance and avoid slow clients from hanging the server, we added read, write, and idle timeouts to the HTTP server configuration.
 
 **Key Changes:**
@@ -47,8 +54,8 @@ srv := &http.Server{
 }
 ```
 
-### 3. Enhanced Logging
-We now use structured logging with `logrus.WithFields` to add more context to each log entry. This helps in debugging by providing useful metadata such as the client IP address, HTTP method, and file path.
+### 4. Enhanced Logging
+We now use structured logging with `logrus.WithFields` to add more context to each log entry. This helps in debugging by providing useful metadata such as the client IP address, HTTP method, file path, and session ID.
 
 **Key Changes:**
 ```go
@@ -56,10 +63,11 @@ log.WithFields(logrus.Fields{
     "method": r.Method,
     "path":   r.URL.Path,
     "ip":     r.RemoteAddr,
+    "session": session.ID,
 }).Info("Handling request")
 ```
 
-### 4. Efficient File Upload Handling
+### 5. Efficient File Upload Handling
 The file upload mechanism was improved by replacing `ioutil.ReadAll` with `io.Copy`, which streams the file data directly into the target file. This reduces memory usage, especially for large file uploads.
 
 **Key Changes:**
@@ -81,14 +89,14 @@ if _, err := io.Copy(file, r.Body); err != nil {
 }
 ```
 
-### 5. Prometheus Metrics
+### 6. Prometheus Metrics
 The existing Prometheus metrics have been maintained and continue to monitor key aspects of the server’s performance, including:
 - Number of goroutines
 - File upload duration
 - Number of successful uploads
 - Number of upload errors
 
-### 6. Configuration Validation
+### 7. Configuration Validation
 Improved configuration validation to prevent the server from starting with invalid settings. This ensures a more robust startup process.
 
 **Key Changes:**
@@ -146,4 +154,4 @@ To start the server with the default configuration file:
 
 ## Conclusion
 
-This update brings significant improvements to the server's robustness, performance, and security, while keeping the core HMAC functionality unchanged. The enhancements ensure smoother operations, easier debugging, and better scalability for production environments.
+This update brings significant improvements to the server's robustness, performance, session handling, and security, while keeping the core HMAC functionality unchanged. The enhancements ensure smoother operations, easier debugging, and better scalability for production environments.
