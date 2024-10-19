@@ -13,9 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +21,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/go-redis/redis/v8"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
@@ -59,6 +58,9 @@ type Config struct {
 	RetentionPolicyEnabled bool
 	MaxRetentionSize       int64
 	MaxRetentionTime       string
+	RedisAddr              string // Redis server address (e.g., "localhost:6379")
+	RedisPassword          string // Redis password
+	RedisDB                int    // Redis database number
 }
 
 var conf = Config{
@@ -78,17 +80,12 @@ var conf = Config{
 var versionString string = "1.0.4"
 var log = logrus.New()
 
+// Redis client and context
+var redisClient *redis.Client
+var ctx = context.Background()
+
 // Initialize an in-memory cache with default expiration and cleanup interval.
 var fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)
-
-// Rate limiting and banning structures
-type RateLimit struct {
-	failedAttempts int
-	blockExpires   time.Time
-	banned         bool
-}
-
-var rateLimits sync.Map
 
 // Pool for reusable HMAC instances
 var hmacPool = sync.Pool{
@@ -130,18 +127,14 @@ func init() {
 	prometheus.MustRegister(goroutines, uploadDuration, uploadErrorsTotal, uploadsTotal)
 }
 
-// Allowed HTTP methods
-var ALLOWED_METHODS = strings.Join([]string{
-	http.MethodOptions,
-	http.MethodHead,
-	http.MethodGet,
-	http.MethodPut,
-}, ", ")
-
-// Reads the configuration file
-func readConfig(configFile string, config *Config) error {
-	_, err := toml.DecodeFile(configFile, config)
-	return err
+// Initialize Redis Client
+func InitRedisClient() *redis.Client {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     conf.RedisAddr,      // Redis server address
+		Password: conf.RedisPassword,  // Redis password, leave empty for no password
+		DB:       conf.RedisDB,        // Redis database number
+	})
+	return rdb
 }
 
 // Setup logging based on configuration
@@ -164,6 +157,39 @@ func setupLogging() {
 	log.SetLevel(level)
 }
 
+// Reads the configuration file
+func readConfig(configFile string, config *Config) error {
+	_, err := toml.DecodeFile(configFile, config)
+	return err
+}
+
+// Validate HMAC Signature
+func ValidateHMAC(message, signature string) bool {
+	h := hmac.New(sha256.New, []byte(conf.Secret))
+	h.Write([]byte(message))
+	expectedMAC := hex.EncodeToString(h.Sum(nil))
+	return hmac.Equal([]byte(signature), []byte(expectedMAC))
+}
+
+// Cache file metadata in Redis
+func CacheFileMetadata(key string, value string) {
+	err := redisClient.Set(ctx, key, value, 0).Err()
+	if err != nil {
+		log.Errorf("Error caching metadata: %v", err)
+	}
+}
+
+// Retrieve cached file metadata from Redis
+func GetCachedMetadata(key string) (string, error) {
+	val, err := redisClient.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return "", fmt.Errorf("Key does not exist")
+	} else if err != nil {
+		return "", err
+	}
+	return val, nil
+}
+
 // EnsureDirectoryExists checks if a directory exists, and if not, creates it.
 func EnsureDirectoryExists(dirPath string) error {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
@@ -177,22 +203,25 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
-// WriteFile writes the given data to the specified file path.
-func writeFile(filePath string, data []byte) error {
-	file, err := os.Create(filePath)
-	if err != nil {
-		log.Errorf("Error creating file: %s, error: %v", filePath, err)
-		return err
-	}
-	defer file.Close()
+// WriteFile writes the given data to the specified file path asynchronously.
+func writeFileAsync(filePath string, data []byte) {
+	go func() {
+		file, err := os.Create(filePath)
+		if err != nil {
+			log.Errorf("Error creating file: %s, error: %v", filePath, err)
+			uploadErrorsTotal.Inc()
+			return
+		}
+		defer file.Close()
 
-	_, err = file.Write(data)
-	if err != nil {
-		log.Errorf("Error writing to file: %s, error: %v", filePath, err)
-		return err
-	}
-	log.Infof("Successfully wrote file: %s", filePath)
-	return nil
+		_, err = file.Write(data)
+		if err != nil {
+			log.Errorf("Error writing to file: %s, error: %v", filePath, err)
+			uploadErrorsTotal.Inc()
+			return
+		}
+		log.Infof("Successfully wrote file: %s", filePath)
+	}()
 }
 
 // Calculate checksum of a file using SHA-256
@@ -204,6 +233,14 @@ func calculateChecksum(file *os.File) (string, error) {
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
+
+// Allowed HTTP methods
+var ALLOWED_METHODS = strings.Join([]string{
+	http.MethodOptions,
+	http.MethodHead,
+	http.MethodGet,
+	http.MethodPut,
+}, ", ")
 
 // Request handler with enhanced error handling, logging, and file streaming
 func handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -238,29 +275,31 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut {
 		startTime := time.Now()
 
-		file, err := os.Create(filePath)
+		// Read file data
+		fileData, err := io.ReadAll(r.Body)
 		if err != nil {
-			log.Errorf("Error creating file: %v", err)
+			log.Errorf("Error reading body: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			uploadErrorsTotal.Inc()
 			return
 		}
-		defer file.Close()
 
-		// Write file data to disk
-		if _, err := io.Copy(file, r.Body); err != nil {
-			log.Errorf("Error copying body to file: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			uploadErrorsTotal.Inc()
-			return
-		}
+		// Asynchronous write file
+		writeFileAsync(filePath, fileData)
 
 		// Checksum verification (optional)
 		if conf.ChecksumVerification {
 			expectedChecksum := r.Header.Get("X-Checksum")
 			if expectedChecksum != "" {
 				// Re-open file to calculate checksum
-				file.Seek(0, 0)
+				file, err := os.Open(filePath)
+				if err != nil {
+					log.Errorf("Error opening file: %v", err)
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					return
+				}
+				defer file.Close()
+
 				actualChecksum, err := calculateChecksum(file)
 				if err != nil {
 					log.Errorf("Error calculating checksum: %v", err)
@@ -310,143 +349,6 @@ func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-// Function to get total storage size of the files
-func getTotalStorageSize(dir string) (int64, error) {
-	var size int64
-	err := filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			size += info.Size()
-		}
-		return nil
-	})
-	return size, err
-}
-
-// Struct to hold file information for sorting
-type FileInfo struct {
-	Path string
-	Info os.FileInfo
-}
-
-// Function to get files sorted by modification time (oldest first)
-func getFilesSortedByAge(dir string) ([]FileInfo, error) {
-	var files []FileInfo
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			files = append(files, FileInfo{Path: path, Info: info})
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Sort files by modification time (oldest first)
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].Info.ModTime().Before(files[j].Info.ModTime())
-	})
-	return files, nil
-}
-
-// Function to delete oldest files until the size is under the limit
-func deleteOldestFiles(dir string, excessSize int64) {
-	files, err := getFilesSortedByAge(dir)
-	if err != nil {
-		log.Errorf("Error getting files by age: %v", err)
-		return
-	}
-	var deletedSize int64
-	for _, file := range files {
-		if deletedSize >= excessSize {
-			break
-		}
-		fileSize := file.Info.Size()
-		os.Remove(file.Path)
-		deletedSize += fileSize
-		log.Infof("Deleted file: %s (Size: %d bytes)", file.Path, fileSize)
-	}
-}
-
-// Function to delete files older than a specific duration
-func deleteFilesOlderThan(dir string, maxAge string) {
-	var cutoff time.Time
-
-	// Check for year (y) or day (d) units and handle them manually
-	if strings.HasSuffix(maxAge, "y") {
-		years, err := strconv.Atoi(strings.TrimSuffix(maxAge, "y"))
-		if err != nil {
-			log.Errorf("Invalid maxAge format: %v", err)
-			return
-		}
-		cutoff = time.Now().AddDate(-years, 0, 0)  // Subtract years from the current time
-	} else if strings.HasSuffix(maxAge, "d") {
-		days, err := strconv.Atoi(strings.TrimSuffix(maxAge, "d"))
-		if err != nil {
-			log.Errorf("Invalid maxAge format: %v", err)
-			return
-		}
-		cutoff = time.Now().AddDate(0, 0, -days)  // Subtract days from the current time
-	} else {
-		// Handle regular durations like "h", "m", "s"
-		duration, err := time.ParseDuration(maxAge)
-		if err != nil {
-			log.Errorf("Invalid maxAge format: %v", err)
-			return
-		}
-		cutoff = time.Now().Add(-duration)
-	}
-
-	log.Infof("Deleting files older than: %s (cutoff: %s)", maxAge, cutoff.Format(time.RFC3339))
-
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			log.Infof("Checking file: %s (modified: %s)", path, info.ModTime().Format(time.RFC3339))
-
-			// Only delete files older than the specified age
-			if info.ModTime().Before(cutoff) {
-				log.Infof("Deleting file due to age: %s", path)
-				os.Remove(path)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		log.Errorf("Error deleting old files: %v", err)
-	}
-}
-
-// Enforce retention policy based on size and age
-func enforceRetentionPolicy() {
-	if !conf.RetentionPolicyEnabled {
-		return
-	}
-
-	// Check total size of the storage directory
-	totalSize, err := getTotalStorageSize(conf.StoreDir)
-	if err != nil {
-		log.Errorf("Error calculating total storage size: %v", err)
-		return
-	}
-
-	// If size exceeds the maximum allowed, delete the oldest files
-	if totalSize > conf.MaxRetentionSize {
-		log.Infof("Total storage size exceeds limit: %d bytes. Starting cleanup...", totalSize)
-		deleteOldestFiles(conf.StoreDir, totalSize-conf.MaxRetentionSize)
-	}
-
-	// Delete files older than MaxRetentionTime
-	deleteFilesOlderThan(conf.StoreDir, conf.MaxRetentionTime)
-}
-
 // Main function with graceful shutdown, request timeout, and metrics
 func main() {
 	var configFile string
@@ -476,6 +378,9 @@ func main() {
 	}
 
 	setupLogging()
+
+	// Initialize Redis Client
+	redisClient = InitRedisClient()
 
 	if conf.NumCores == "auto" {
 		runtime.GOMAXPROCS(runtime.NumCPU())
@@ -508,14 +413,6 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-
-	// Launch retention policy checks in a separate goroutine
-	go func() {
-		for {
-			enforceRetentionPolicy()
-			time.Sleep(24 * time.Hour) // Run retention checks daily
-		}
-	}()
 
 	go func() {
 		log.Println("Starting hmac-file-server", versionString, "...")
