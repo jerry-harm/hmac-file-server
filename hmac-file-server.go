@@ -62,6 +62,7 @@ type Config struct {
 	RedisDB                int    // Redis database number
 	ReadTimeout            int    `toml:"read_timeout"`   // Read timeout in seconds
 	WriteTimeout           int    `toml:"write_timeout"`  // Write timeout in seconds
+	BufferSize             int    `toml:"buffer_size"`    // Buffer size for reading file chunks
 }
 
 var conf = Config{
@@ -78,6 +79,7 @@ var conf = Config{
 	MaxRetentionTime:       "30d",       // Default 30 days
 	ReadTimeout:            900,         // Default 900 seconds (15 minutes)
 	WriteTimeout:           900,         // Default 900 seconds (15 minutes)
+	BufferSize:             65536,       // Default 64 KB buffer size
 }
 
 var versionString string = "1.0.4"
@@ -202,15 +204,17 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		defer outFile.Close()
 
 		// Create a buffer and read the request body in chunks
-		buffer := make([]byte, 64*1024) // 64 KB buffer
+		buffer := make([]byte, conf.BufferSize) // Buffer size from config
+		var totalBytes int64
 		for {
 			n, err := r.Body.Read(buffer)
 			if err != nil && err != io.EOF {
 				log.Errorf("Error reading body: %v", err)
-				http.Error(w, "Error saving file", http.StatusInternalServerError)
+				http.Error(w, "Error reading file", http.StatusInternalServerError)
 				uploadErrorsTotal.Inc()
 				return
 			}
+
 			if n == 0 {
 				break
 			}
@@ -218,19 +222,22 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			// Write the chunk to the file
 			if _, err := outFile.Write(buffer[:n]); err != nil {
 				log.Errorf("Error writing to file: %v", err)
-				http.Error(w, "Error saving file", http.StatusInternalServerError)
+				http.Error(w, "Error writing file", http.StatusInternalServerError)
 				uploadErrorsTotal.Inc()
 				return
 			}
+			totalBytes += int64(n)
 		}
 
+		// Log successful upload and upload size
+		log.Infof("File successfully uploaded: %s, size: %d bytes", dirPath, totalBytes)
+		
 		// Record upload duration and increment successful uploads count
 		duration := time.Since(startTime).Seconds()
 		uploadDuration.Observe(duration)
 		uploadsTotal.Inc()
 
 		w.WriteHeader(http.StatusCreated)
-		log.Infof("File successfully uploaded: %s", dirPath)
 		return
 	}
 
@@ -327,12 +334,14 @@ func main() {
 		log.Fatalln("Could not open listener:", err)
 	}
 
-	// Use the ReadTimeout and WriteTimeout from the config
+	// Use the ReadTimeout and WriteTimeout from the config, and enable Keep-Alive
 	srv := &http.Server{
-		Addr:         address,
-		ReadTimeout:  time.Duration(conf.ReadTimeout) * time.Second,
-		WriteTimeout: time.Duration(conf.WriteTimeout) * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              address,
+		ReadTimeout:       time.Duration(conf.ReadTimeout) * time.Second,
+		WriteTimeout:      time.Duration(conf.WriteTimeout) * time.Second,
+		IdleTimeout:       120 * time.Second,       // Idle timeout for keep-alive
+		ReadHeaderTimeout: 60 * time.Second,        // Time to read headers, for keep-alive
+		MaxHeaderBytes:    1 << 20,                 // 1 MB max header size
 	}
 
 	go func() {
