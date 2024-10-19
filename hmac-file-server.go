@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -183,7 +184,7 @@ func writeFile(filePath string, data []byte) error {
 	return nil
 }
 
-// Request handler with simplified logic (no chunking)
+// Request handler with enhanced error handling, logging, and file streaming
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r == nil {
 		log.Error("Received nil request")
@@ -191,7 +192,12 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Infof("Handling %s request for path: %s", r.Method, r.URL.Path)
+	log.WithFields(logrus.Fields{
+		"method": r.Method,
+		"path":   r.URL.Path,
+		"ip":     r.RemoteAddr,
+	}).Info("Handling request")
+
 	addCORSheaders(w)
 
 	if r.Method == http.MethodOptions {
@@ -211,17 +217,17 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut {
 		startTime := time.Now()
 
-		data, err := ioutil.ReadAll(r.Body)
+		file, err := os.Create(filePath)
 		if err != nil {
-			log.Errorf("Error reading body: %v", err)
+			log.Errorf("Error creating file: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			uploadErrorsTotal.Inc()
 			return
 		}
-		log.Infof("Received %d bytes of data for path: %s", len(data), filePath)
+		defer file.Close()
 
-		if err := writeFile(filePath, data); err != nil {
-			log.Errorf("Failed to write file: %s, error: %v", filePath, err)
+		if _, err := io.Copy(file, r.Body); err != nil {
+			log.Errorf("Error copying body to file: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			uploadErrorsTotal.Inc()
 			return
@@ -260,7 +266,7 @@ func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-// Main function
+// Main function with graceful shutdown, request timeout, and metrics
 func main() {
 	var configFile string
 	var showHelp bool
@@ -316,7 +322,10 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr: address,
+		Addr:         address,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	go func() {
@@ -341,11 +350,16 @@ func main() {
 		}
 	}()
 
+	// Graceful shutdown handling
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
-	if err := srv.Shutdown(nil); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
+	log.Println("Server exiting")
 }
