@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -25,6 +27,15 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/patrickmn/go-cache"
 )
+
+type Session struct {
+	ID       string
+	Expires  time.Time
+	Data     map[string]interface{}
+}
+
+var sessions = sync.Map{}  // In-memory session store
+var sessionDuration = 30 * time.Minute  // Session expiration time
 
 // Configuration of this server
 type Config struct {
@@ -153,6 +164,75 @@ func setupLogging() {
 	log.SetLevel(level)
 }
 
+// GenerateSessionToken generates a unique session token
+func GenerateSessionToken() string {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		log.Fatalf("Error generating session token: %v", err)
+	}
+	return hex.EncodeToString(b)
+}
+
+// SessionMiddleware validates or creates a session
+func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("session_token")
+		var session *Session
+
+		if err != nil || cookie == nil {
+			// No valid session, create a new one
+			session = createSession()
+			http.SetCookie(w, &http.Cookie{
+				Name:    "session_token",
+				Value:   session.ID,
+				Expires: session.Expires,
+				Path:    "/",
+			})
+		} else {
+			// Check if session exists and is valid
+			if s, ok := sessions.Load(cookie.Value); ok {
+				session = s.(*Session)
+				if session.Expires.Before(time.Now()) {
+					// Session expired, remove it
+					sessions.Delete(cookie.Value)
+					session = createSession()
+					http.SetCookie(w, &http.Cookie{
+						Name:    "session_token",
+						Value:   session.ID,
+						Expires: session.Expires,
+						Path:    "/",
+					})
+				}
+			} else {
+				// Invalid session token, create new session
+				session = createSession()
+				http.SetCookie(w, &http.Cookie{
+					Name:    "session_token",
+					Value:   session.ID,
+					Expires: session.Expires,
+					Path:    "/",
+				})
+			}
+		}
+		// Attach session data to request context
+		ctx := context.WithValue(r.Context(), "session", session)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// createSession creates a new session
+func createSession() *Session {
+	sessionID := GenerateSessionToken()
+	session := &Session{
+		ID:      sessionID,
+		Expires: time.Now().Add(sessionDuration),
+		Data:    make(map[string]interface{}),
+	}
+	sessions.Store(sessionID, session)
+	return session
+}
+
 // EnsureDirectoryExists checks if a directory exists, and if not, creates it.
 func EnsureDirectoryExists(dirPath string) error {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
@@ -186,6 +266,9 @@ func writeFile(filePath string, data []byte) error {
 
 // Request handler with enhanced error handling, logging, and file streaming
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	// Retrieve session from context
+	session := r.Context().Value("session").(*Session)
+
 	if r == nil {
 		log.Error("Received nil request")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -193,9 +276,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.WithFields(logrus.Fields{
-		"method": r.Method,
-		"path":   r.URL.Path,
-		"ip":     r.RemoteAddr,
+		"method":  r.Method,
+		"path":    r.URL.Path,
+		"ip":      r.RemoteAddr,
+		"session": session.ID,
 	}).Info("Handling request")
 
 	addCORSheaders(w)
@@ -342,7 +426,7 @@ func main() {
 
 		subpath := path.Join("/", conf.UploadSubDir)
 		subpath = strings.TrimRight(subpath, "/") + "/"
-		http.HandleFunc(subpath, handleRequest)
+		http.HandleFunc(subpath, SessionMiddleware(handleRequest))  // Apply session middleware
 		log.Printf("Server started on %s. Waiting for requests.\n", address)
 
 		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
