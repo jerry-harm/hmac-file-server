@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -22,20 +20,12 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/go-redis/redis/v8"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/patrickmn/go-cache"
 )
-
-type Session struct {
-	ID       string
-	Expires  time.Time
-	Data     map[string]interface{}
-}
-
-var sessions = sync.Map{}  // In-memory session store
-var sessionDuration = 30 * time.Minute  // Session expiration time
 
 // Configuration of this server
 type Config struct {
@@ -63,6 +53,16 @@ type Config struct {
 	ReaskSecretInterval    string
 	MetricsEnabled         bool
 	MetricsPort            string
+	ChecksumVerification   bool
+	RetentionPolicyEnabled bool
+	MaxRetentionSize       int64
+	MaxRetentionTime       string
+	RedisAddr              string // Redis server address (e.g., "localhost:6379")
+	RedisPassword          string // Redis password
+	RedisDB                int    // Redis database number
+	ReadTimeout            int    `toml:"read_timeout"`   // Read timeout in seconds
+	WriteTimeout           int    `toml:"write_timeout"`  // Write timeout in seconds
+	BufferSize             int    `toml:"buffer_size"`    // Buffer size for reading file chunks
 }
 
 var conf = Config{
@@ -73,22 +73,24 @@ var conf = Config{
 	ReaskSecretInterval:    "24h",
 	MetricsEnabled:         true,
 	MetricsPort:            ":9090",
+	ChecksumVerification:   true,
+	RetentionPolicyEnabled: true,
+	MaxRetentionSize:       10737418240, // Default 10 GB
+	MaxRetentionTime:       "30d",       // Default 30 days
+	ReadTimeout:            1200,        // Increased timeout for Android clients (20 minutes)
+	WriteTimeout:           1200,        // Increased timeout for Android clients (20 minutes)
+	BufferSize:             65536,       // Default 64 KB buffer size
 }
 
-var versionString string = "1.0.3-final"
+var versionString string = "1.0.5"
 var log = logrus.New()
+
+// Redis client and context
+var redisClient *redis.Client
+var ctx = context.Background()
 
 // Initialize an in-memory cache with default expiration and cleanup interval.
 var fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)
-
-// Rate limiting and banning structures
-type RateLimit struct {
-	failedAttempts int
-	blockExpires   time.Time
-	banned         bool
-}
-
-var rateLimits sync.Map
 
 // Pool for reusable HMAC instances
 var hmacPool = sync.Pool{
@@ -130,18 +132,14 @@ func init() {
 	prometheus.MustRegister(goroutines, uploadDuration, uploadErrorsTotal, uploadsTotal)
 }
 
-// Allowed HTTP methods
-var ALLOWED_METHODS = strings.Join([]string{
-	http.MethodOptions,
-	http.MethodHead,
-	http.MethodGet,
-	http.MethodPut,
-}, ", ")
-
-// Reads the configuration file
-func readConfig(configFile string, config *Config) error {
-	_, err := toml.DecodeFile(configFile, config)
-	return err
+// Initialize Redis Client
+func InitRedisClient() *redis.Client {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     conf.RedisAddr,      // Redis server address
+		Password: conf.RedisPassword,  // Redis password, leave empty for no password
+		DB:       conf.RedisDB,        // Redis database number
+	})
+	return rdb
 }
 
 // Setup logging based on configuration
@@ -164,73 +162,10 @@ func setupLogging() {
 	log.SetLevel(level)
 }
 
-// GenerateSessionToken generates a unique session token
-func GenerateSessionToken() string {
-	b := make([]byte, 16)
-	_, err := rand.Read(b)
-	if err != nil {
-		log.Fatalf("Error generating session token: %v", err)
-	}
-	return hex.EncodeToString(b)
-}
-
-// SessionMiddleware validates or creates a session
-func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("session_token")
-		var session *Session
-
-		if err != nil || cookie == nil {
-			// No valid session, create a new one
-			session = createSession()
-			http.SetCookie(w, &http.Cookie{
-				Name:    "session_token",
-				Value:   session.ID,
-				Expires: session.Expires,
-				Path:    "/",
-			})
-		} else {
-			// Check if session exists and is valid
-			if s, ok := sessions.Load(cookie.Value); ok {
-				session = s.(*Session)
-				if session.Expires.Before(time.Now()) {
-					// Session expired, remove it
-					sessions.Delete(cookie.Value)
-					session = createSession()
-					http.SetCookie(w, &http.Cookie{
-						Name:    "session_token",
-						Value:   session.ID,
-						Expires: session.Expires,
-						Path:    "/",
-					})
-				}
-			} else {
-				// Invalid session token, create new session
-				session = createSession()
-				http.SetCookie(w, &http.Cookie{
-					Name:    "session_token",
-					Value:   session.ID,
-					Expires: session.Expires,
-					Path:    "/",
-				})
-			}
-		}
-		// Attach session data to request context
-		ctx := context.WithValue(r.Context(), "session", session)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
-}
-
-// createSession creates a new session
-func createSession() *Session {
-	sessionID := GenerateSessionToken()
-	session := &Session{
-		ID:      sessionID,
-		Expires: time.Now().Add(sessionDuration),
-		Data:    make(map[string]interface{}),
-	}
-	sessions.Store(sessionID, session)
-	return session
+// Reads the configuration file
+func readConfig(configFile string, config *Config) error {
+	_, err := toml.DecodeFile(configFile, config)
+	return err
 }
 
 // EnsureDirectoryExists checks if a directory exists, and if not, creates it.
@@ -246,87 +181,136 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
-// WriteFile writes the given data to the specified file path.
-func writeFile(filePath string, data []byte) error {
-	file, err := os.Create(filePath)
-	if err != nil {
-		log.Errorf("Error creating file: %s, error: %v", filePath, err)
-		return err
-	}
-	defer file.Close()
-
-	_, err = file.Write(data)
-	if err != nil {
-		log.Errorf("Error writing to file: %s, error: %v", filePath, err)
-		return err
-	}
-	log.Infof("Successfully wrote file: %s", filePath)
-	return nil
+// Generates a session token
+func generateSessionToken() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 10) // Simple session token based on timestamp
 }
 
-// Request handler with enhanced error handling, logging, and file streaming
+// Allowed HTTP methods for CORS
+var ALLOWED_METHODS = strings.Join([]string{
+	http.MethodOptions,
+	http.MethodHead,
+	http.MethodGet,
+	http.MethodPut,
+}, ", ")
+
+// CORS headers function
+func addCORSheaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With, X-Session-Token")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Max-Age", "7200")
+}
+
+// Request handler with session token management, enhanced error handling, and resumable upload support
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Retrieve session from context
-	session := r.Context().Value("session").(*Session)
-
-	if r == nil {
-		log.Error("Received nil request")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	log.WithFields(logrus.Fields{
-		"method":  r.Method,
-		"path":    r.URL.Path,
-		"ip":      r.RemoteAddr,
-		"session": session.ID,
-	}).Info("Handling request")
-
+	// Add CORS headers for all responses
 	addCORSheaders(w)
 
+	// Handle OPTIONS request for CORS preflight
 	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	dirPath := path.Join(conf.StoreDir, r.URL.Path)
-	filePath := dirPath
-
-	if err := EnsureDirectoryExists(path.Dir(filePath)); err != nil {
-		log.Errorf("Failed to ensure directory exists: %s, error: %v", path.Dir(filePath), err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
+	// Handle PUT (upload) requests
 	if r.Method == http.MethodPut {
 		startTime := time.Now()
 
-		file, err := os.Create(filePath)
+		// Get or generate a session token
+		sessionToken := r.Header.Get("X-Session-Token")
+		if sessionToken == "" {
+			sessionToken = generateSessionToken()  // Generate a new session token
+			w.Header().Set("X-Session-Token", sessionToken) // Send the token back to the client
+		}
+
+		// Redis key for tracking upload progress based on session token
+		uploadKey := fmt.Sprintf("upload_progress:%s", sessionToken)
+
+		// Check if there's already progress in Redis
+		progress, err := redisClient.Get(ctx, uploadKey).Int64()
+		if err != nil && err != redis.Nil {
+			log.Errorf("Error retrieving upload progress from Redis: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		// Create the directory if it does not exist
+		dirPath := path.Join(conf.StoreDir, r.URL.Path)
+		if err := EnsureDirectoryExists(path.Dir(dirPath)); err != nil {
+			log.Errorf("Failed to ensure directory exists: %s, error: %v", path.Dir(dirPath), err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		// Open a file to write to
+		outFile, err := os.OpenFile(dirPath, os.O_WRONLY|os.O_CREATE, 0644)
 		if err != nil {
-			log.Errorf("Error creating file: %v", err)
+			log.Errorf("Error opening file: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			uploadErrorsTotal.Inc()
 			return
 		}
-		defer file.Close()
+		defer outFile.Close()
 
-		if _, err := io.Copy(file, r.Body); err != nil {
-			log.Errorf("Error copying body to file: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			uploadErrorsTotal.Inc()
-			return
+		// Resume from the progress if any exists
+		if progress > 0 {
+			if _, err := outFile.Seek(progress, 0); err != nil {
+				log.Errorf("Error seeking file: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			log.Infof("Resuming upload for %s from byte %d", dirPath, progress)
 		}
 
+		// Create a buffer and read the request body in chunks
+		buffer := make([]byte, conf.BufferSize)
+		var totalBytes int64 = progress
+		for {
+			n, err := r.Body.Read(buffer)
+			if err != nil && err != io.EOF {
+				log.Errorf("Error reading body: %v", err)
+				http.Error(w, "Error reading file", http.StatusInternalServerError)
+				uploadErrorsTotal.Inc()
+				return
+			}
+
+			if n == 0 {
+				break
+			}
+
+			// Write the chunk to the file
+			if _, err := outFile.Write(buffer[:n]); err != nil {
+				log.Errorf("Error writing to file: %v", err)
+				http.Error(w, "Error writing file", http.StatusInternalServerError)
+				uploadErrorsTotal.Inc()
+				return
+			}
+			totalBytes += int64(n)
+
+			// Update the progress in Redis with a 10-minute expiration
+			if err := redisClient.Set(ctx, uploadKey, totalBytes, 10*time.Minute).Err(); err != nil {
+				log.Errorf("Error updating upload progress in Redis: %v", err)
+			}
+		}
+
+		// Log successful upload and upload size
+		log.Infof("File successfully uploaded: %s, size: %d bytes", dirPath, totalBytes)
+		redisClient.Del(ctx, uploadKey) // Remove the progress entry after successful upload
+
+		// Record upload duration and increment successful uploads count
 		duration := time.Since(startTime).Seconds()
 		uploadDuration.Observe(duration)
 		uploadsTotal.Inc()
 
+		// Return 201 Created as expected by XMPP clients
 		w.WriteHeader(http.StatusCreated)
-		log.Infof("File successfully uploaded: %s", filePath)
 		return
 	}
 
+	// Handle GET and HEAD methods for serving files
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		filePath := path.Join(conf.StoreDir, r.URL.Path)
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			log.Warnf("File not found: %s", filePath)
 			http.Error(w, "Not Found", http.StatusNotFound)
@@ -338,16 +322,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return error for unsupported methods
 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-}
-
-// CORS headers function
-func addCORSheaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
 // Main function with graceful shutdown, request timeout, and metrics
@@ -380,6 +356,9 @@ func main() {
 
 	setupLogging()
 
+	// Initialize Redis Client
+	redisClient = InitRedisClient()
+
 	if conf.NumCores == "auto" {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 		log.Infof("Using all available cores: %d", runtime.NumCPU())
@@ -405,11 +384,14 @@ func main() {
 		log.Fatalln("Could not open listener:", err)
 	}
 
+	// Use the ReadTimeout and WriteTimeout from the config, and enable Keep-Alive
 	srv := &http.Server{
-		Addr:         address,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              address,
+		ReadTimeout:       time.Duration(conf.ReadTimeout) * time.Second,
+		WriteTimeout:      time.Duration(conf.WriteTimeout) * time.Second,
+		IdleTimeout:       120 * time.Second,       // Idle timeout for keep-alive
+		ReadHeaderTimeout: 60 * time.Second,        // Time to read headers, for keep-alive
+		MaxHeaderBytes:    1 << 20,                 // 1 MB max header size
 	}
 
 	go func() {
@@ -426,7 +408,7 @@ func main() {
 
 		subpath := path.Join("/", conf.UploadSubDir)
 		subpath = strings.TrimRight(subpath, "/") + "/"
-		http.HandleFunc(subpath, SessionMiddleware(handleRequest))  // Apply session middleware
+		http.HandleFunc(subpath, handleRequest)
 		log.Printf("Server started on %s. Waiting for requests.\n", address)
 
 		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
