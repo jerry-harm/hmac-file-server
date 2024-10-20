@@ -60,6 +60,7 @@ type Config struct {
 	RedisAddr              string // Redis server address (e.g., "localhost:6379")
 	RedisPassword          string // Redis password
 	RedisDB                int    // Redis database number
+	RedisWorkers           int    // Number of Redis workers
 	ReadTimeout            int    `toml:"read_timeout"`   // Read timeout in seconds
 	WriteTimeout           int    `toml:"write_timeout"`  // Write timeout in seconds
 	BufferSize             int    `toml:"buffer_size"`    // Buffer size for reading file chunks
@@ -80,9 +81,10 @@ var conf = Config{
 	ReadTimeout:            900,         // Default 900 seconds (15 minutes)
 	WriteTimeout:           900,         // Default 900 seconds (15 minutes)
 	BufferSize:             65536,       // Default 64 KB buffer size
+	RedisWorkers:           10,          // Default 10 Redis workers
 }
 
-var versionString string = "1.0.4"
+var versionString string = "1.0.5"
 var log = logrus.New()
 
 // Redis client and context
@@ -142,6 +144,20 @@ func InitRedisClient() *redis.Client {
 	return rdb
 }
 
+// Initialize Redis workers based on configuration
+func InitRedisWorkers() {
+	for i := 0; i < conf.RedisWorkers; i++ {
+		go func(workerID int) {
+			// Example worker function that listens for Redis tasks
+			log.Infof("Starting Redis worker %d", workerID)
+			for {
+				// Fetch tasks from Redis and process them
+				// Example: Use redisClient to handle worker-specific tasks
+			}
+		}(i)
+	}
+}
+
 // Setup logging based on configuration
 func setupLogging() {
 	if conf.LogFile != "" {
@@ -181,8 +197,33 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
+// Allowed HTTP methods for CORS
+var ALLOWED_METHODS = strings.Join([]string{
+	http.MethodOptions,
+	http.MethodHead,
+	http.MethodGet,
+	http.MethodPut,
+}, ", ")
+
+// CORS headers function
+func addCORSheaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Max-Age", "7200")
+}
+
 // Request handler with enhanced error handling, logging, and file streaming
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	addCORSheaders(w)
+
+	// Handle OPTIONS request for CORS preflight
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	if r.Method == http.MethodPut {
 		startTime := time.Now()
 
@@ -231,12 +272,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Log successful upload and upload size
 		log.Infof("File successfully uploaded: %s, size: %d bytes", dirPath, totalBytes)
-		
+
 		// Record upload duration and increment successful uploads count
 		duration := time.Since(startTime).Seconds()
 		uploadDuration.Observe(duration)
 		uploadsTotal.Inc()
 
+		// Return 201 Created for successful uploads as expected by Conversations
 		w.WriteHeader(http.StatusCreated)
 		return
 	}
@@ -257,23 +299,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Return error for unsupported methods
 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-}
-
-// Allowed HTTP methods for CORS
-var ALLOWED_METHODS = strings.Join([]string{
-	http.MethodOptions,
-	http.MethodHead,
-	http.MethodGet,
-	http.MethodPut,
-}, ", ")
-
-// CORS headers function
-func addCORSheaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
 // Main function with graceful shutdown, request timeout, and metrics
@@ -308,6 +333,9 @@ func main() {
 
 	// Initialize Redis Client
 	redisClient = InitRedisClient()
+
+	// Initialize Redis workers based on config
+	InitRedisWorkers()
 
 	if conf.NumCores == "auto" {
 		runtime.GOMAXPROCS(runtime.NumCPU())
