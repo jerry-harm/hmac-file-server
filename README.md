@@ -202,6 +202,120 @@ WantedBy=multi-user.target
 
 This will ensure that the HMAC File Server starts automatically and runs as a system service.
 
+[Install]
+WantedBy=multi-user.target
+
+
+# NGINX and Apache2 as Reverse Proxy for HMAC File Server
+
+## NGINX Configuration
+
+To set up NGINX as a reverse proxy for HMAC File Server, follow the steps below:
+
+1. **Install NGINX** (if not installed):
+   ```bash
+   sudo apt update
+   sudo apt install nginx
+   ```
+
+2. **Edit the NGINX configuration**:
+   You can either edit the default server block or create a new configuration file in `/etc/nginx/sites-available/`.
+
+   Example configuration for reverse proxy:
+
+   ```nginx
+   server {
+       listen 80;
+       server_name hmac-file-server.example.com;
+
+       location / {
+           proxy_pass http://127.0.0.1:8080;  # Replace with the actual HMAC File Server address
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+
+           # WebSocket support (optional)
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+       }
+   }
+   ```
+
+3. **Enable the configuration**:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/hmac-file-server /etc/nginx/sites-enabled/
+   ```
+
+4. **Test the configuration**:
+   ```bash
+   sudo nginx -t
+   ```
+
+5. **Restart NGINX**:
+   ```bash
+   sudo systemctl restart nginx
+   ```
+
+## Apache2 Configuration
+
+To set up Apache2 as a reverse proxy for HMAC File Server, follow the steps below:
+
+1. **Install Apache2** (if not installed):
+   ```bash
+   sudo apt update
+   sudo apt install apache2
+   ```
+
+2. **Enable required Apache modules**:
+   ```bash
+   sudo a2enmod proxy
+   sudo a2enmod proxy_http
+   ```
+
+3. **Edit the Apache configuration**:
+   Add the following configuration to the Apache configuration file (`/etc/apache2/sites-available/000-default.conf` or a new file in `/etc/apache2/sites-available/`).
+
+   Example configuration for reverse proxy:
+
+   ```apache
+   <VirtualHost *:80>
+       ServerName hmac-file-server.example.com
+
+       ProxyPreserveHost On
+       ProxyPass / http://127.0.0.1:8080/  # Replace with the actual HMAC File Server address
+       ProxyPassReverse / http://127.0.0.1:8080/
+
+       # WebSocket support (optional)
+       RewriteEngine On
+       RewriteCond %{HTTP:Upgrade} =websocket [NC]
+       RewriteRule /(.*) ws://127.0.0.1:8080/$1 [P,L]
+   </VirtualHost>
+   ```
+
+4. **Enable the site configuration**:
+   ```bash
+   sudo a2ensite hmac-file-server
+   ```
+
+5. **Test the configuration**:
+   ```bash
+   sudo apache2ctl configtest
+   ```
+
+6. **Restart Apache**:
+   ```bash
+   sudo systemctl restart apache2
+   ```
+
+With this setup, both NGINX and Apache2 can act as reverse proxies for the HMAC File Server, handling incoming requests and forwarding them to the HMAC File Server backend.
+
+
+## Comparison of Leister's Prosody Filer and HMAC File Server: Features, Performance, and Scalability
+
+"Contributions to Thomas Leister's work on Prosody Filer are highly appreciated—many thanks for laying the foundation for secure and efficient file uploads!"
+
 | Aspect                | Leister Script (Prosody Filer)                                                         | HMAC File Server                                                                                 |
 |:----------------------|:---------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------|
 | Configuration         | Uses a config.toml file for basic settings like listen port, secret, store directory.  | Uses a config.toml file with more settings (retry, cores, retention, Redis).                     |
@@ -216,9 +330,6 @@ This will ensure that the HMAC File Server starts automatically and runs as a sy
 | Metrics               | No metrics support.                                                                    | Prometheus metrics exposed for upload duration, errors, and total uploads.                       |
 | CORS Handling         | Basic CORS handling for allowed methods and headers.                                   | CORS handling with additional custom headers (like session tokens).                              |
 | Compatibility         | Compatible with ejabberd, Prosody, and Metronome using the external upload protocol.   | Designed for more general use cases with multiple clients, but also compatible with XMPP upload. |
-
-[Install]
-WantedBy=multi-user.target
 
 ### **Download:**
 
