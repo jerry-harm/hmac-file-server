@@ -1,54 +1,63 @@
 
-# HMAC File Server
+# HMAC File Server Documentation
 
-## Overview
-HMAC File Server is a lightweight, secure file upload server that uses HMAC-based authentication for file handling and checksum verification for data integrity. It supports versioning, auto-deletion based on storage and age, and Prometheus metrics for monitoring.
+## Key Features
+1. **Session Token Management**: Each client uses a session token (`X-Session-Token`) to track its progress during file uploads. If no token is provided by the client, the server generates one and sends it back in the response header.
 
-## Features
-- **HMAC Authentication**: Secure file uploads using HMAC-based authorization.
-- **Checksum Verification**: Ensure file integrity using customizable checksum headers and algorithms.
-- **File Versioning**: Keep multiple versions of uploaded files with customizable versioning strategies.
-- **Auto-deletion**: Automatically delete files based on storage size limits or age.
-- **Prometheus Metrics**: Monitor server performance and file operations using Prometheus.
+2. **Resumable Upload Support**: If an upload is interrupted, the progress is stored in Redis using the session token. When the client reconnects with the same session token, the upload is resumed from where it left off.
 
-## Configuration
-The server can be configured via a `config.toml` file. Key options include:
+3. **CORS Handling for Cross-Origin Requests**: The server adds CORS headers to handle cross-origin requests. This includes the ability for clients like Conversations or Dino to send custom headers (like the session token).
 
-- **Server Settings**: Configure the port, HMAC secret, and storage directories.
-- **Checksum Verification**: Enable or disable checksum verification, and configure headers and algorithms.
-- **Auto-Deletion and Retention**: Set limits for file retention based on storage size and file age.
-- **Versioning**: Enable file versioning and configure the number of versions to retain.
-- **Metrics**: Enable Prometheus metrics and set the metrics server port.
+4. **Redis Integration for Upload Progress**: The upload progress is stored in Redis, which allows for resumable uploads across network interruptions.
 
-## Usage
-To start the HMAC File Server:
-```bash
-./hmac-file-server -config ./config.toml
-```
+5. **File Upload and Resumption**: The core functionality is reading file chunks from the client, saving them to disk, and resuming uploads if the session is interrupted.
 
-## Example Configuration (`config.toml`)
+6. **Logging Configuration**: The server logs to a file (if specified in `config.toml`) or to standard output. The log level can also be configured.
+
+7. **Metrics via Prometheus**: The server exposes Prometheus metrics related to file uploads and server performance.
+
+8. **File Retention and Cleanup Policies**: The server has a retention policy that controls how long files are kept or based on size limits.
+
+## Configuration (`config.toml`)
+The configuration file defines various settings that control the server's behavior:
+
 ```toml
-ListenPort = ":8080"
-UnixSocket = false
-Secret = "your-hmac-secret"
-StoreDir = "/mnt/storage/hmac-file-server/"
-UploadSubDir = "upload"
-
-ChecksumVerification = true
-ChecksumHeader = "X-Checksum"
-ChecksumAlgorithm = "sha256"
-
-MaxRetentionSize = 10737418240  # 10 GB
-MaxRetentionTime = "30d"
-
-EnableVersioning = true
-VersioningDirectory = "/mnt/storage/hmac-file-server/versions/"
-MaxVersions = 5
-VersioningStrategy = "timestamp"
-
-MetricsEnabled = true
-MetricsPort = ":9090"
+ListenPort = ":8080"  # Port to listen on
+UnixSocket = false  # Whether to use Unix socket instead of TCP
+Secret = "mysecret"  # Secret for HMAC generation
+StoreDir = "/data/uploads"  # Directory to store uploaded files
+UploadSubDir = "uploads"  # Subdirectory for uploads
+LogLevel = "info"  # Logging level
+LogFile = "/var/log/hmac-file-server.log"  # Path to the log file
+MaxRetries = 5  # Maximum number of upload retries
+RetryDelay = 2  # Delay between retries
+EnableGetRetries = true  # Allow retries for GET requests
+BlockAfterFails = 3  # Block IP after this many failed attempts
+BlockDuration = 300  # Block duration in seconds
+AutoUnban = true  # Automatically unban IP after a certain time
+AutoBanTime = 600  # Time before an IP is automatically unbanned
+DeleteFiles = true  # Enable file deletion after a certain period
+DeleteFilesAfterPeriod = "30d"  # Delete files older than 30 days
+NumCores = "auto"  # Use all available CPU cores
+ReaskSecretEnabled = true  # Re-ask for HMAC secret periodically
+ReaskSecretInterval = "24h"  # Interval to re-ask for HMAC secret
+MetricsEnabled = true  # Enable Prometheus metrics
+MetricsPort = ":9090"  # Port for Prometheus metrics
+ChecksumVerification = true  # Enable checksum verification for uploads
+RetentionPolicyEnabled = true  # Enable file retention policies
+MaxRetentionSize = 10737418240  # Maximum retention size in bytes (10 GB)
+MaxRetentionTime = "30d"  # Maximum retention time in days
+RedisAddr = "localhost:6379"  # Redis server address
+RedisPassword = ""  # Redis server password
+RedisDB = 0  # Redis database number
+ReadTimeout = 900  # Read timeout in seconds
+WriteTimeout = 900  # Write timeout in seconds
+BufferSize = 65536  # Buffer size for file uploads in bytes
 ```
 
-## License
-MIT License
+## Metrics Exposed
+
+1. `file_server_goroutines`: Number of goroutines currently running in the file server.
+2. `file_server_upload_duration_seconds`: Duration histogram of file uploads.
+3. `file_server_upload_errors_total`: Total count of errors during uploads.
+4. `file_server_uploads_total`: Total number of successful file uploads.
