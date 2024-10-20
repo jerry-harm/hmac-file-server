@@ -1,5 +1,3 @@
-
-<<<<<<< HEAD
 # HMAC File Server Documentation
 
 ## Key Features
