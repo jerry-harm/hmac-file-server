@@ -77,8 +77,8 @@ var conf = Config{
 	RetentionPolicyEnabled: true,
 	MaxRetentionSize:       10737418240, // Default 10 GB
 	MaxRetentionTime:       "30d",       // Default 30 days
-	ReadTimeout:            900,         // Default 900 seconds (15 minutes)
-	WriteTimeout:           900,         // Default 900 seconds (15 minutes)
+	ReadTimeout:            1200,        // Increased timeout for Android clients (20 minutes)
+	WriteTimeout:           1200,        // Increased timeout for Android clients (20 minutes)
 	BufferSize:             65536,       // Default 64 KB buffer size
 }
 
@@ -181,6 +181,11 @@ func EnsureDirectoryExists(dirPath string) error {
 	return nil
 }
 
+// Generates a session token
+func generateSessionToken() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 10) // Simple session token based on timestamp
+}
+
 // Allowed HTTP methods for CORS
 var ALLOWED_METHODS = strings.Join([]string{
 	http.MethodOptions,
@@ -193,12 +198,12 @@ var ALLOWED_METHODS = strings.Join([]string{
 func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With, X-Session-Token")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-// Request handler with enhanced error handling, logging, and file streaming
+// Request handler with session token management, enhanced error handling, and resumable upload support
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Add CORS headers for all responses
 	addCORSheaders(w)
@@ -209,8 +214,27 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle PUT (upload) requests
 	if r.Method == http.MethodPut {
 		startTime := time.Now()
+
+		// Get or generate a session token
+		sessionToken := r.Header.Get("X-Session-Token")
+		if sessionToken == "" {
+			sessionToken = generateSessionToken()  // Generate a new session token
+			w.Header().Set("X-Session-Token", sessionToken) // Send the token back to the client
+		}
+
+		// Redis key for tracking upload progress based on session token
+		uploadKey := fmt.Sprintf("upload_progress:%s", sessionToken)
+
+		// Check if there's already progress in Redis
+		progress, err := redisClient.Get(ctx, uploadKey).Int64()
+		if err != nil && err != redis.Nil {
+			log.Errorf("Error retrieving upload progress from Redis: %v", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 
 		// Create the directory if it does not exist
 		dirPath := path.Join(conf.StoreDir, r.URL.Path)
@@ -221,17 +245,27 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Open a file to write to
-		outFile, err := os.Create(dirPath)
+		outFile, err := os.OpenFile(dirPath, os.O_WRONLY|os.O_CREATE, 0644)
 		if err != nil {
-			log.Errorf("Error creating file: %v", err)
+			log.Errorf("Error opening file: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 		defer outFile.Close()
 
+		// Resume from the progress if any exists
+		if progress > 0 {
+			if _, err := outFile.Seek(progress, 0); err != nil {
+				log.Errorf("Error seeking file: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			log.Infof("Resuming upload for %s from byte %d", dirPath, progress)
+		}
+
 		// Create a buffer and read the request body in chunks
-		buffer := make([]byte, conf.BufferSize) // Buffer size from config
-		var totalBytes int64
+		buffer := make([]byte, conf.BufferSize)
+		var totalBytes int64 = progress
 		for {
 			n, err := r.Body.Read(buffer)
 			if err != nil && err != io.EOF {
@@ -253,11 +287,17 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			totalBytes += int64(n)
+
+			// Update the progress in Redis with a 10-minute expiration
+			if err := redisClient.Set(ctx, uploadKey, totalBytes, 10*time.Minute).Err(); err != nil {
+				log.Errorf("Error updating upload progress in Redis: %v", err)
+			}
 		}
 
 		// Log successful upload and upload size
 		log.Infof("File successfully uploaded: %s, size: %d bytes", dirPath, totalBytes)
-		
+		redisClient.Del(ctx, uploadKey) // Remove the progress entry after successful upload
+
 		// Record upload duration and increment successful uploads count
 		duration := time.Since(startTime).Seconds()
 		uploadDuration.Observe(duration)
@@ -268,7 +308,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle file serving (GET method)
+	// Handle GET and HEAD methods for serving files
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		filePath := path.Join(conf.StoreDir, r.URL.Path)
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
