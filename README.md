@@ -58,10 +58,13 @@ BufferSize = 65536  # Buffer size for file uploads in bytes
 
 ## Metrics Exposed
 
-1. `file_server_goroutines`: Number of goroutines currently running in the file server.
-2. `file_server_upload_duration_seconds`: Duration histogram of file uploads.
-3. `file_server_upload_errors_total`: Total count of errors during uploads.
-4. `file_server_uploads_total`: Total number of successful file uploads.
+```toml
+hmac_file_server_goroutines: The current number of goroutines running in the HMAC file server.
+hmac_file_server_upload_duration_seconds: A histogram measuring the duration of file uploads in seconds for the HMAC file server.
+hmac_file_server_upload_errors_total: The total count of errors encountered during file uploads in the HMAC file server.
+hmac_file_server_uploads_total: The total number of successfully completed file uploads in the HMAC file server.
+```
+
 =======
 # HMAC File Server v1.0.5 - Release Notes
 
