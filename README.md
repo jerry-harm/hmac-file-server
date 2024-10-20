@@ -124,5 +124,89 @@ These configurations allow seamless integration with a reverse proxy setup and s
 
 ---
 
+| Setting                             | Description                                                                                | Mapped to Functionality                                                                |
+|:------------------------------------|:-------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------|
+| ListenPort                          | The port the server listens on.                                                            | Used in net.Listen(proto, address) in the main function.                               |
+| UnixSocket, UnixSocketPath          | If true, the server will use a Unix socket.                                                | Used to determine whether the server listens on a Unix socket or TCP in net.Listen.    |
+| Secret                              | The secret key used for HMAC generation (security feature).                                | Used to initialize the HMAC pool.                                                      |
+| StoreDir, UploadSubDir              | Where uploaded files are stored.                                                           | Used to save uploaded files to the correct directory.                                  |
+| LogLevel, LogFile                   | Controls the logging level and output destination.                                         | Configures log output and verbosity.                                                   |
+| MaxRetries, RetryDelay              | Controls the retry behavior when handling uploads.                                         | Would be used in retry logic (if implemented for retries on failure).                  |
+| AutoUnban, AutoBanTime              | Controls IP blocking/unblocking if the server uses a banning mechanism.                    | No direct use of banning/unbanning is shown in the provided code.                      |
+| DeleteFilesAfterPeriod, DeleteFiles | If true, old files are deleted after the specified period.                                 | Settings for retention policies (the logic isn't fully implemented in the code).       |
+| NumCores                            | Determines how many CPU cores the server uses.                                             | Passed to runtime.GOMAXPROCS() to control parallelism.                                 |
+| MetricsEnabled, MetricsPort         | Enables Prometheus metrics and sets the port for the metrics server.                       | Used to expose /metrics endpoint with Prometheus metrics.                              |
+| ChecksumVerification                | Ensures files have checksums (not implemented in the code).                                | This setting is present but the functionality is not implemented in the provided code. |
+| MaxRetentionSize, MaxRetentionTime  | Sets file retention policies, either based on file size or the age of the files.           | This setting is present but the actual cleanup logic is not implemented in the code.   |
+| RedisAddr, RedisPassword, RedisDB   | Connection details for Redis, which tracks upload progress and supports resumable uploads. | Used in InitRedisClient() to initialize the Redis client.                              |
+
+
+# HMAC File Server Systemd Service Example
+
+## systemd Service File Example
+
+```ini
+[Unit]
+Description=HMAC File Server
+After=network.target
+
+[Service]
+Type=simple
+User=your_user  # Replace with the user you want to run the server as
+Group=your_group  # Replace with the group you want to run the server as
+WorkingDirectory=/path/to/your/hmac-file-server  # Replace with the directory where the binary or script resides
+ExecStart=/path/to/your/hmac-file-server/hmac-file-server -config /path/to/your/config.toml
+Restart=on-failure
+
+# Optional: set up resource limits
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## Steps to Install and Enable the Service
+
+1. **Create the systemd service file**:
+   ```bash
+   sudo nano /etc/systemd/system/hmac-file-server.service
+   ```
+
+2. **Copy and paste the above content** and update:
+   - `User`: the user that will run the service.
+   - `Group`: the group that will run the service.
+   - `WorkingDirectory`: the directory where the HMAC File Server binary/script is located.
+   - `ExecStart`: the command to start the file server (update the paths to your binary and `config.toml`).
+
+3. **Save and exit** the file.
+
+4. **Reload systemd to recognize the new service**:
+   ```bash
+   sudo systemctl daemon-reload
+   ```
+
+5. **Start the service**:
+   ```bash
+   sudo systemctl start hmac-file-server
+   ```
+
+6. **Enable the service to start on boot**:
+   ```bash
+   sudo systemctl enable hmac-file-server
+   ```
+
+7. **Check the status** of the service to ensure it's running:
+   ```bash
+   sudo systemctl status hmac-file-server
+   ```
+
+This will ensure that the HMAC File Server starts automatically and runs as a system service.
+
+
+[Install]
+WantedBy=multi-user.target
+
+
 ### **Download:**
-[Download HMAC File Server v1.0.5](https://fileserver.example.com/download/hmac-file-server-v1.0.5.tar.gz)
+[Download HMAC File Server v1.0.5 amd64](https://github.com/PlusOne/hmac-file-server/releases/download/1.0.5/hmac-file-server-v1.0.5-linux-amd64) 
+[Download HMAC File Server v1.0.5 arm64](https://github.com/PlusOne/hmac-file-server/releases/download/1.0.5/hmac-file-server-v1.0.5-linux-arm64) 
