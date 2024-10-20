@@ -202,11 +202,27 @@ WantedBy=multi-user.target
 
 This will ensure that the HMAC File Server starts automatically and runs as a system service.
 
+| Aspect                | Leister Script (Prosody Filer)                                                         | HMAC File Server                                                                                 |
+|:----------------------|:---------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------|
+| Configuration         | Uses a config.toml file for basic settings like listen port, secret, store directory.  | Uses a config.toml file with more settings (retry, cores, retention, Redis).                     |
+| HMAC Handling         | Implements HMAC for verifying uploads using different protocols (v, v2, token).        | HMAC is used for secure file uploads and file path verification.                                 |
+| Upload Handling       | Simple file upload handling with HMAC verification but no resumable upload support.    | Supports resumable file uploads with state stored in Redis.                                      |
+| Resumable Uploads     | No support for resumable uploads, each upload must be completed in a single session.   | Fully supports resumable uploads using session tokens and Redis for tracking progress.           |
+| File Storage          | Stores uploaded files in a specified directory with basic path handling.               | Stores files in a specified directory with additional retention policies for cleanup.            |
+| Error Handling        | Basic error handling, returns HTTP error codes for invalid HMAC, internal errors, etc. | Detailed error handling, including support for resumable uploads, timeouts, and retries.         |
+| Logging               | Uses logrus for logging, includes options for log levels (info, warn, error).          | Uses logrus for logging but with more customizable options for log files and levels.             |
+| Redis Integration     | No Redis integration, doesn't store upload state for resumable uploads.                | Integrated with Redis for tracking upload progress and resumable uploads.                        |
+| Checksum Verification | Supports basic HMAC verification but no checksum verification of file content.         | Includes checksum verification and validation (based on configuration).                          |
+| Metrics               | No metrics support.                                                                    | Prometheus metrics exposed for upload duration, errors, and total uploads.                       |
+| CORS Handling         | Basic CORS handling for allowed methods and headers.                                   | CORS handling with additional custom headers (like session tokens).                              |
+| Compatibility         | Compatible with ejabberd, Prosody, and Metronome using the external upload protocol.   | Designed for more general use cases with multiple clients, but also compatible with XMPP upload. |
 
 [Install]
 WantedBy=multi-user.target
 
-
 ### **Download:**
+
 [Download HMAC File Server v1.0.5 amd64](https://github.com/PlusOne/hmac-file-server/releases/download/1.0.5/hmac-file-server-v1.0.5-linux-amd64) 
+
 [Download HMAC File Server v1.0.5 arm64](https://github.com/PlusOne/hmac-file-server/releases/download/1.0.5/hmac-file-server-v1.0.5-linux-arm64) 
+
