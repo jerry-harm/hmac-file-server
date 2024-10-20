@@ -60,7 +60,6 @@ type Config struct {
 	RedisAddr              string // Redis server address (e.g., "localhost:6379")
 	RedisPassword          string // Redis password
 	RedisDB                int    // Redis database number
-	RedisWorkers           int    // Number of Redis workers
 	ReadTimeout            int    `toml:"read_timeout"`   // Read timeout in seconds
 	WriteTimeout           int    `toml:"write_timeout"`  // Write timeout in seconds
 	BufferSize             int    `toml:"buffer_size"`    // Buffer size for reading file chunks
@@ -81,7 +80,6 @@ var conf = Config{
 	ReadTimeout:            900,         // Default 900 seconds (15 minutes)
 	WriteTimeout:           900,         // Default 900 seconds (15 minutes)
 	BufferSize:             65536,       // Default 64 KB buffer size
-	RedisWorkers:           10,          // Default 10 Redis workers
 }
 
 var versionString string = "1.0.5"
@@ -144,20 +142,6 @@ func InitRedisClient() *redis.Client {
 	return rdb
 }
 
-// Initialize Redis workers based on configuration
-func InitRedisWorkers() {
-	for i := 0; i < conf.RedisWorkers; i++ {
-		go func(workerID int) {
-			// Example worker function that listens for Redis tasks
-			log.Infof("Starting Redis worker %d", workerID)
-			for {
-				// Fetch tasks from Redis and process them
-				// Example: Use redisClient to handle worker-specific tasks
-			}
-		}(i)
-	}
-}
-
 // Setup logging based on configuration
 func setupLogging() {
 	if conf.LogFile != "" {
@@ -216,6 +200,7 @@ func addCORSheaders(w http.ResponseWriter) {
 
 // Request handler with enhanced error handling, logging, and file streaming
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers for all responses
 	addCORSheaders(w)
 
 	// Handle OPTIONS request for CORS preflight
@@ -272,13 +257,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Log successful upload and upload size
 		log.Infof("File successfully uploaded: %s, size: %d bytes", dirPath, totalBytes)
-
+		
 		// Record upload duration and increment successful uploads count
 		duration := time.Since(startTime).Seconds()
 		uploadDuration.Observe(duration)
 		uploadsTotal.Inc()
 
-		// Return 201 Created for successful uploads as expected by Conversations
+		// Return 201 Created as expected by XMPP clients
 		w.WriteHeader(http.StatusCreated)
 		return
 	}
@@ -333,9 +318,6 @@ func main() {
 
 	// Initialize Redis Client
 	redisClient = InitRedisClient()
-
-	// Initialize Redis workers based on config
-	InitRedisWorkers()
 
 	if conf.NumCores == "auto" {
 		runtime.GOMAXPROCS(runtime.NumCPU())
