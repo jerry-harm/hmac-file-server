@@ -40,10 +40,6 @@ type Config struct {
     MaxRetries             int
     RetryDelay             int
     EnableGetRetries       bool
-    BlockAfterFails        int
-    BlockDuration          int
-    AutoUnban              bool
-    AutoBanTime            int
     DeleteFiles            bool
     DeleteFilesAfterPeriod string
     WriteReport            bool
@@ -63,6 +59,10 @@ type Config struct {
     ReadTimeout            int    `toml:"read_timeout"`  // Read timeout in seconds
     WriteTimeout           int    `toml:"write_timeout"` // Write timeout in seconds
     BufferSize             int    `toml:"buffer_size"`   // Buffer size for reading file chunks
+
+    // New settings for chunked uploads
+    ChunkSize       int `toml:"chunk_size"`       // Size of each chunk in bytes
+    ChunkMaxRetries int `toml:"chunk_max_retries"` // Maximum number of retries for failed chunks
 }
 
 var conf = Config{
@@ -80,6 +80,10 @@ var conf = Config{
     ReadTimeout:            1200,        // Increased timeout for Android clients (20 minutes)
     WriteTimeout:           1200,        // Increased timeout for Android clients (20 minutes)
     BufferSize:             65536,       // Default 64 KB buffer size
+
+    // Default settings for chunked uploads
+    ChunkSize:       1024 * 1024, // Default 1 MB chunk size
+    ChunkMaxRetries: 3,           // Default 3 retries for failed chunks
 }
 
 var versionString string = "1.0.5"
@@ -210,6 +214,29 @@ func addCORSheaders(w http.ResponseWriter) {
     w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
+// Lightweight session management using Redis or in-memory cache
+func manageSession(r *http.Request) (string, error) {
+    // Get or generate a session token
+    sessionToken := r.Header.Get("X-Session-Token")
+    if sessionToken == "" {
+        sessionToken = generateSessionToken() // Generate a new session token
+    }
+
+    // If Redis is available, store the session in Redis
+    if redisClient != nil {
+        err := redisClient.Set(ctx, fmt.Sprintf("session:%s", sessionToken), sessionToken, 24*time.Hour).Err()
+        if err != nil {
+            log.Warnf("Error storing session in Redis: %v", err)
+            return "", err
+        }
+    } else {
+        // Fall back to in-memory cache
+        fileMetadataCache.Set(fmt.Sprintf("session:%s", sessionToken), sessionToken, cache.DefaultExpiration)
+    }
+
+    return sessionToken, nil
+}
+
 // Request handler with session token management, enhanced error handling, and resumable upload support
 func handleRequest(w http.ResponseWriter, r *http.Request) {
     // Add CORS headers for all responses
@@ -221,16 +248,16 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Manage session token for all requests
+    sessionToken, err := manageSession(r)
+    if err != nil {
+        http.Error(w, "Session Error", http.StatusInternalServerError)
+        return
+    }
+
     // Handle PUT (upload) requests
     if r.Method == http.MethodPut {
         startTime := time.Now()
-
-        // Get or generate a session token
-        sessionToken := r.Header.Get("X-Session-Token")
-        if sessionToken == "" {
-            sessionToken = generateSessionToken()           // Generate a new session token
-            w.Header().Set("X-Session-Token", sessionToken) // Send the token back to the client
-        }
 
         // Redis key for tracking upload progress based on session token
         uploadKey := fmt.Sprintf("upload_progress:%s", sessionToken)
@@ -271,7 +298,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
         }
 
         // Create a buffer and read the request body in chunks
-        buffer := make([]byte, conf.BufferSize)
+        buffer := make([]byte, conf.ChunkSize)
         var totalBytes int64 = progress
         for {
             n, err := r.Body.Read(buffer)
@@ -299,6 +326,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
             if err := redisClient.Set(ctx, uploadKey, totalBytes, 10*time.Minute).Err(); err != nil {
                 log.Errorf("Error updating upload progress in Redis: %v", err)
             }
+
+            // Log progress
+            log.Infof("Uploaded %d bytes for %s", totalBytes, dirPath)
         }
 
         // Log successful upload and upload size
