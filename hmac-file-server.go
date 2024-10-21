@@ -133,13 +133,20 @@ func init() {
 }
 
 // Initialize Redis Client
-func InitRedisClient() *redis.Client {
+func InitRedisClient() (*redis.Client, error) {
     rdb := redis.NewClient(&redis.Options{
         Addr:     conf.RedisAddr,     // Redis server address
         Password: conf.RedisPassword, // Redis password, leave empty for no password
         DB:       conf.RedisDB,       // Redis database number
     })
-    return rdb
+
+    // Test the connection
+    _, err := rdb.Ping(ctx).Result()
+    if err != nil {
+        return nil, err
+    }
+
+    return rdb, nil
 }
 
 // Setup logging based on configuration
@@ -327,17 +334,15 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteOldFiles deletes files older than the retention period specified in the configuration
-func deleteOldFiles() {
+func deleteOldFiles() error {
     retentionDuration, err := parseCustomDuration(conf.MaxRetentionTime)
     if err != nil {
-        log.Errorf("Error parsing retention duration: %v", err)
-        return
+        return fmt.Errorf("error parsing retention duration: %v", err)
     }
 
     err = filepath.Walk(conf.StoreDir, func(filePath string, info os.FileInfo, err error) error {
         if err != nil {
-            log.Errorf("Error accessing file %s: %v", filePath, err)
-            return err
+            return fmt.Errorf("error accessing file %s: %v", filePath, err)
         }
 
         if !info.IsDir() {
@@ -345,7 +350,7 @@ func deleteOldFiles() {
             if fileAge > retentionDuration {
                 log.Infof("Deleting file %s, age: %v", filePath, fileAge)
                 if err := os.Remove(filePath); err != nil {
-                    log.Errorf("Error deleting file %s: %v", filePath, err)
+                    return fmt.Errorf("error deleting file %s: %v", filePath, err)
                 }
             }
         }
@@ -353,8 +358,9 @@ func deleteOldFiles() {
     })
 
     if err != nil {
-        log.Errorf("Error walking through files: %v", err)
+        return fmt.Errorf("error walking through files: %v", err)
     }
+    return nil
 }
 
 // Custom duration parser to handle "y" and "d" units.
@@ -406,7 +412,11 @@ func main() {
     setupLogging()
 
     // Initialize Redis Client
-    redisClient = InitRedisClient()
+    redisClient, err = InitRedisClient()
+    if err != nil {
+        log.Warnf("Redis not reachable: %v. Falling back to in-memory cache.", err)
+        redisClient = nil
+    }
 
     if conf.NumCores == "auto" {
         runtime.GOMAXPROCS(runtime.NumCPU())
@@ -443,21 +453,21 @@ func main() {
         MaxHeaderBytes:    1 << 20,           // 1 MB max header size
     }
 
-    go func() {
-        log.Println("Starting hmac-file-server", versionString, "...")
-    	if conf.MetricsEnabled {
+    // Start metrics server if enabled
+    if conf.MetricsEnabled {
+        go func() {
             http.Handle("/metrics", promhttp.Handler())
-            go func() {
-                log.Println("Starting metrics server on port", conf.MetricsPort)
-                if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
-                    log.Fatalf("Metrics server failed: %s\n", err)
-                }
-            }()
-        }
+            log.Printf("Metrics server listening on %s", conf.MetricsPort)
+            if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
+                log.Fatalf("Metrics server failed: %v", err)
+            }
+        }()
+    }
 
+    // Start the main server
+    go func() {
         http.HandleFunc("/", handleRequest)
         log.Printf("Server started on %s. Waiting for requests.\n", address)
-
         if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
             log.Fatalf("Server error: %s\n", err)
         }
@@ -466,7 +476,9 @@ func main() {
     if conf.RetentionPolicyEnabled {
         go func() {
             for {
-                deleteOldFiles()
+                if err := deleteOldFiles(); err != nil {
+                    log.Errorf("Error deleting old files: %v", err)
+                }
                 time.Sleep(24 * time.Hour)
             }
         }()
