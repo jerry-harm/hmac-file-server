@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -19,6 +20,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	_ "net/http/pprof" // pprof for profiling
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-redis/redis/v8"
@@ -136,12 +139,14 @@ func init() {
 	prometheus.MustRegister(goroutines, uploadDuration, uploadErrorsTotal, uploadsTotal)
 }
 
-// Initialize Redis Client
+// Optimized Redis Client Initialization
 func InitRedisClient() (*redis.Client, error) {
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     conf.RedisAddr,     // Redis server address
-		Password: conf.RedisPassword, // Redis password, leave empty for no password
-		DB:       conf.RedisDB,       // Redis database number
+		Addr:         conf.RedisAddr,     // Redis server address
+		Password:     conf.RedisPassword, // Redis password, leave empty for no password
+		DB:           conf.RedisDB,       // Redis database number
+		PoolSize:     20,                 // Optimized connection pool size
+		MinIdleConns: 10,                 // Minimum idle connections
 	})
 
 	// Test the connection
@@ -153,16 +158,17 @@ func InitRedisClient() (*redis.Client, error) {
 	return rdb, nil
 }
 
-// Setup logging based on configuration
+// Optimized Logging Setup (Buffered Logging)
 func setupLogging() {
 	if conf.LogFile != "" {
 		file, err := os.OpenFile(conf.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			log.Fatalf("Failed to open log file: %v", err)
 		}
-		log.Out = file
+		writer := bufio.NewWriter(file)
+		log.SetOutput(writer)
 	} else {
-		log.Out = os.Stdout
+		log.SetOutput(os.Stdout)
 	}
 	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
 	level, err := logrus.ParseLevel(conf.LogLevel)
@@ -214,9 +220,12 @@ func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-// Lightweight session management using Redis or in-memory cache
+// Optimized Redis Session Management with Context
 func manageSession(r *http.Request) (string, error) {
 	// Get or generate a session token
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	sessionToken := r.Header.Get("X-Session-Token")
 	if sessionToken == "" {
 		sessionToken = generateSessionToken() // Generate a new session token
@@ -508,6 +517,9 @@ func main() {
 		IdleTimeout:       120 * time.Second, // Idle timeout for keep-alive
 		ReadHeaderTimeout: 60 * time.Second,  // Time to read headers, for keep-alive
 		MaxHeaderBytes:    1 << 20,           // 1 MB max header size
+		ConnState: func(conn net.Conn, state http.ConnState) {
+			log.Infof("Connection state changed: %v", state)
+		},
 	}
 
 	// Start metrics server if enabled
