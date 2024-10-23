@@ -62,7 +62,7 @@ Below is a detailed explanation of each configuration option in the `config.toml
 # Server settings
 ListenPort = ":8080"
 UnixSocket = false
-Secret = "stellar-wisdom-orbit-echo"
+Secret = "horse-fish-brain-secret"
 StoreDir = "/mnt/storage/hmac-file-server/"
 UploadSubDir = "upload"
 LogLevel = "info"
