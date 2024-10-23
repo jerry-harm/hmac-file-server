@@ -107,7 +107,7 @@
             "uid": "bduehd5vqv1moa"
           },
           "editorMode": "code",
-          "expr": "hmac_file_server_downloads_total",
+          "expr": "hmac_file_server_uploads_total",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -394,6 +394,6 @@
   "timezone": "",
   "title": "HMAC File Server Dashboard",
   "uid": "de0ye5t0hzq4ge",
-  "version": 22,
+  "version": 25,
   "weekStart": ""
 }
