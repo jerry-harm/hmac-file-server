@@ -18,6 +18,7 @@ import (
     "strconv"
     "strings"
     "syscall"
+    "time"
 
     "github.com/BurntSushi/toml"
     "github.com/prometheus/client_golang/prometheus"
@@ -81,6 +82,13 @@ func setupLogging() {
         }
         writer := bufio.NewWriter(file)
         log.SetOutput(writer)
+
+        // Flush periodically to avoid losing log entries
+        go func() {
+            for range time.Tick(5 * time.Second) {
+                writer.Flush()
+            }
+        }()
     } else {
         log.SetOutput(os.Stdout)
     }
