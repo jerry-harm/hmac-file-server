@@ -33,6 +33,7 @@ import (
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
 	_ "github.com/go-sql-driver/mysql"
+	"golang.org/x/time/rate" // <-- Add this import
 	_ "net/http/pprof"
 )
 
@@ -200,6 +201,20 @@ func initMySQL() error {
 	return nil
 }
 
+// Rate limiter
+var limiter = rate.NewLimiter(1, 5) // 1 request per second, burst of 5 requests
+
+// Middleware to apply rate limiting
+func rateLimited(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Handle request for uploads and downloads without reconnecting to Redis
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	log.Info("Incoming request: ", r.Method, r.URL.String())
@@ -247,12 +262,11 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
 	macString := hex.EncodeToString(mac.Sum(nil))
 
 	if hmac.Equal([]byte(macString), []byte(a["v"][0])) {
-		// Check for chunked upload via headers
+		// Throttling - Read in chunks with delay
 		if chunkID := r.Header.Get("X-Chunk-ID"); chunkID != "" {
 			handleChunkedUpload(absFilename, w, r, chunkID)
 		} else {
-			// Handle normal upload
-			createFile(absFilename, w, r)
+			throttleUpload(w, r, absFilename)
 		}
 	} else {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -273,6 +287,42 @@ func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// Throttling logic for normal upload
+func throttleUpload(w http.ResponseWriter, r *http.Request, absFilename string) {
+	const maxBytesPerSecond = 1024 * 10  // 10 KB/s
+	const bufferSize = 1024               // 1 KB buffer size
+
+	file, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		http.Error(w, "Conflict", http.StatusConflict)
+		return
+	}
+	defer file.Close()
+
+	buf := make([]byte, bufferSize)
+	for {
+		n, err := r.Body.Read(buf)
+		if n > 0 {
+			if _, err := file.Write(buf[:n]); err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			// Sleep for throttling
+			time.Sleep(time.Second * time.Duration(n) / maxBytesPerSecond)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	uploadsTotal.Inc()
+	w.WriteHeader(http.StatusCreated)
+}
+
 // Append chunk to the file
 func appendToFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	// Open file in append mode
@@ -290,31 +340,6 @@ func appendToFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-// Create a new file during normal upload
-func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
-	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		http.Error(w, "Conflict", http.StatusConflict)
-		return
-	}
-	defer targetFile.Close()
-
-	_, err = io.Copy(targetFile, r.Body)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	uploadsTotal.Inc()
-	w.WriteHeader(http.StatusCreated)
 }
 
 // Serve file for GET or HEAD requests with caching
