@@ -1,107 +1,138 @@
 
-# HMAC File Server Documentation
+# HMAC File Server
 
-## Key Features
-1. **Session Token Management**: Each client uses a session token (`X-Session-Token`) to track its progress during file uploads. If no token is provided by the client, the server generates one and sends it back in the response header.
-2. **Resumable Upload Support**: If an upload is interrupted, the progress is stored in Redis using the session token. When the client reconnects with the same session token, the upload is resumed from where it left off.
-3. **CORS Handling for Cross-Origin Requests**: The server adds CORS headers to handle cross-origin requests. This includes the ability for clients like Conversations or Dino to send custom headers (like the session token).
-4. **Redis Integration for Upload Progress**: The upload progress is stored in Redis, which allows for resumable uploads across network interruptions.
-5. **File Upload and Resumption**: The core functionality is reading file chunks from the client, saving them to disk, and resuming uploads if the session is interrupted.
-6. **Logging Configuration**: The server logs to a file (if specified in `config.toml`) or to standard output. The log level can also be configured.
-7. **Metrics via Prometheus**: The server exposes Prometheus metrics related to file uploads and server performance.
-8. **File Retention and Cleanup Policies**: The server has a retention policy that controls how long files are kept or based on size limits.
+The HMAC File Server is designed to securely handle file uploads and downloads using HMAC (Hash-based Message Authentication Code) for verification. This server also includes support for retrying failed uploads, logging, and Prometheus metrics.
 
-## Configuration (`config.toml`)
-The configuration file defines various settings that control the server's behavior:
+## Features
+- **HMAC authentication** for secure file uploads.
+- **Retry mechanism** for uploads with configurable retries and delays.
+- **Prometheus metrics** for monitoring the server's performance.
+- **Configurable** upload chunk size and server settings.
+- **Optional Redis integration** for session management (can be disabled).
 
-```toml
-ListenPort = ":8080"  # Port to listen on
-UnixSocket = false  # Whether to use Unix socket instead of TCP
-Secret = "mysecret"  # Secret for HMAC generation
-StoreDir = "/data/uploads"  # Directory to store uploaded files
-UploadSubDir = "uploads"  # Subdirectory for uploads
-LogLevel = "info"  # Logging level
-LogFile = "/var/log/hmac-file-server.log"  # Path to the log file
-MaxRetries = 5  # Maximum number of upload retries
-RetryDelay = 2  # Delay between retries
-EnableGetRetries = true  # Allow retries for GET requests
-BlockAfterFails = 3  # Block IP after this many failed attempts
-BlockDuration = 300  # Block duration in seconds
-AutoUnban = true  # Automatically unban IP after a certain time
-AutoBanTime = 600  # Time before an IP is automatically unbanned
-DeleteFiles = true  # Enable file deletion after a certain period
-DeleteFilesAfterPeriod = "30d"  # Delete files older than 30 days
-NumCores = "auto"  # Use all available CPU cores
-ReaskSecretEnabled = true  # Re-ask for HMAC secret periodically
-ReaskSecretInterval = "24h"  # Interval to re-ask for HMAC secret
-MetricsEnabled = true  # Enable Prometheus metrics
-MetricsPort = ":9090"  # Port for Prometheus metrics
-ChecksumVerification = true  # Enable checksum verification for uploads
-RetentionPolicyEnabled = true  # Enable file retention policies
-MaxRetentionSize = 10737418240  # Maximum retention size in bytes (10 GB)
-MaxRetentionTime = "30d"  # Maximum retention time in days
-RedisAddr = "localhost:6379"  # Redis server address
-RedisPassword = ""  # Redis server password
-RedisDB = 0  # Redis database number
-ReadTimeout = 900  # Read timeout in seconds
-WriteTimeout = 900  # Write timeout in seconds
-BufferSize = 65536  # Buffer size for file uploads in bytes
-```
+## Installation
 
-## Metrics Exposed
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/your-repo/hmac-file-server.git
+   cd hmac-file-server
+   ```
+
+2. **Build the server**:
+   Make sure you have [Go](https://golang.org/) installed.
+   ```bash
+   go build -o hmac-file-server hmac-file-server.go
+   ```
+
+3. **Create the configuration file**:
+   The server requires a `config.toml` file for its configuration. See the example below.
+
+## Configuration
+
+Create a `config.toml` file in the same directory as the server or specify a custom path using the `--config` flag. Here is an example configuration:
 
 ```toml
-hmac_file_server_goroutines: The current number of goroutines running in the HMAC file server.
-hmac_file_server_upload_duration_seconds: A histogram measuring the duration of file uploads in seconds for the HMAC file server.
-hmac_file_server_upload_errors_total: The total count of errors encountered during file uploads in the HMAC file server.
-hmac_file_server_uploads_total: The total number of successfully completed file uploads in the HMAC file server.
+# Configuration for the HMAC File Server
+
+# The port the server will listen on, e.g., ":8080"
+ListenPort = ":8080"
+
+# Set to true if using a Unix socket, otherwise false
+UnixSocket = false
+
+# The secret used to generate HMAC for uploads
+Secret = "your_hmac_secret"
+
+# The directory where files will be stored
+StoreDir = "/path/to/storage/directory"
+
+# The subdirectory for uploads, relative to the StoreDir
+UploadSubDir = "upload"
+
+# Logging settings
+LogLevel = "info"        # Log level (info, warn, error, etc.)
+LogFile = "/var/log/hmac-file-server.log" # Path to the log file
+
+# Retry settings for uploads
+MaxRetries = 5          # Maximum number of retry attempts for failed uploads
+RetryDelay = 2          # Delay in seconds between retries
+
+# Redis configuration (if Redis is used; otherwise, leave these blank)
+RedisAddr = "localhost:6379"
+RedisPassword = ""
+RedisDB = 0
+
+# Metrics settings for Prometheus
+MetricsEnabled = true
+MetricsPort = ":9090"    # Port for Prometheus metrics, e.g., ":9090"
+
+# Chunk size for uploads (in bytes)
+ChunkSize = 1048576     # 1 MB chunk size
 ```
 
-## HMAC File Server v1.0.5 - Release Notes
+## Usage
 
-## **Core Features:**
-1. **HMAC-Based Upload Authentication:**
-   - Uses HMAC signatures to authenticate and verify uploads.
-   - Configurable `Secret` for HMAC validation via a pool for efficient reuse.
+Run the server with the following command:
 
-2. **File Upload & Download Support:**
-   - Supports PUT (file upload) and GET (file retrieval).
-   - CORS headers for cross-origin file uploads compatible with XMPP clients.
-   - Support for large files with configurable buffer size.
-   - Chunked file upload processing.
+```bash
+./hmac-file-server --config ./config.toml
+```
 
-3. **Cross-Origin Resource Sharing (CORS):**
-   - Full CORS support for `OPTIONS`, `GET`, and `PUT` requests.
-   - `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods`, and proper preflight handling for XEP-0363 compliance.
+### Command-line Flags
 
-4. **Prometheus Metrics:**
-   - Integrated metrics for monitoring:
-     - `file_server_goroutines`: Active goroutines.
-     - `file_server_upload_duration_seconds`: Upload duration histogram.
-     - `file_server_upload_errors_total`: Total upload errors.
-     - `file_server_uploads_total`: Total successful uploads.
-   - Available via `/metrics` endpoint for Prometheus scraping.
+- `--config`: Path to the configuration file (default: `./config.toml`).
 
-5. **Checksum Verification:**
-   - Supports optional checksum verification for uploads with SHA-256.
+## HMAC File Upload Process
 
-6. **Concurrency and Performance:**
-   - Automatic or manually configured CPU core allocation (`NumCores`).
-   - Redis client initialization for potential distributed systems.
-   - In-memory caching with eviction policies using go-cache.
+When uploading files, the URL must contain the HMAC signature as a query parameter. The server checks this signature to ensure that the upload request is valid.
 
-7. **Retention and File Cleanup Policies:**
-   - Automatic file deletion after a specified retention period (`DeleteFilesAfterPeriod`).
-   - Configurable maximum retention size (`MaxRetentionSize`) and time (`MaxRetentionTime`).
+### Example:
 
-8. **Logging & Reports:**
-   - Detailed logging for errors and operations.
-   - File deletion reports are written to a specified file path.
-   - Log levels configurable (`info`, `warn`, `debug`).
+If the file is stored at `/upload/testfile.txt`, the client must calculate the HMAC using the file path and size, and include it in the URL like this:
 
-## **System Integration:**
+```http
+PUT /upload/testfile.txt?v=your_hmac_signature
+```
 
-### **Systemd Service Example:**
+The server will verify the HMAC signature before accepting the upload.
+
+### HMAC Calculation
+
+For HMAC generation, the following inputs are used:
+
+1. **File Path**: The relative path where the file will be uploaded.
+2. **Content Length**: The size of the file being uploaded.
+3. **Secret**: The shared secret key from the configuration.
+
+The client must concatenate these values (with a space or null byte depending on protocol) and calculate the HMAC using the secret.
+
+## Prometheus Metrics
+
+If metrics are enabled in the configuration (`MetricsEnabled = true`), the server will expose Prometheus metrics at the specified port (`MetricsPort`).
+
+Metrics include:
+- **Upload duration** (`hmac_file_server_upload_duration_seconds`): Time taken for file uploads.
+- **Total uploads** (`hmac_file_server_uploads_total`): The number of successful uploads.
+- **Upload errors** (`hmac_file_server_upload_errors_total`): The number of failed uploads.
+
+Access the metrics at:
+
+```http
+http://localhost:9090/metrics
+```
+
+## Logging
+
+- Logs are written to the specified log file (`LogFile` in the config) or `stdout` if no file is specified.
+- The logging level can be set via the `LogLevel` configuration option (`info`, `warn`, `error`).
+
+## Redis Integration (Optional)
+
+Redis can be used for session management if enabled in the configuration. To disable Redis, leave the `RedisAddr`, `RedisPassword`, and `RedisDB` fields blank in the config.
+
+## Example Systemd Service
+
+Here is an example of how you can set up the HMAC file server as a systemd service:
 
 ```ini
 [Unit]
@@ -109,49 +140,14 @@ Description=HMAC File Server
 After=network.target
 
 [Service]
-Type=simple
-ExecStart=/usr/local/bin/hmac-file-server -config /etc/hmac-file-server/config.toml
-Restart=always
-User=hmac-file-server
-Group=hmac
-WorkingDirectory=/var/hmac-file-server
-LimitNOFILE=65535
+ExecStart=/path/to/hmac-file-server --config /path/to/config.toml
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-## **NGINX Reverse Proxy Example:**
+## License
 
-```nginx
-server {
-    listen 80;
-    server_name fileserver.example.com;
+This project is licensed under the MIT License.
 
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    client_max_body_size 1G;  # Adjust as per requirements
-}
-```
-
-## **Generated URL for Download:**
-For each file uploaded to the HMAC File Server, a generated URL follows the pattern:
-```
-https://fileserver.example.com/upload/{generated-file-path}
-```
-Where `{generated-file-path}` will be the path stored in your configured `StoreDir`. Each file will have a unique hash path.
-
----
-
-## **Conclusion:**
-This final release integrates XEP-0363 file upload support for XMPP clients such as **Conversations**, **Dino**, **Gajim**, and more, ensuring compatibility with existing chat infrastructures such as ejabberd and Prosody. The server efficiently handles large file uploads, retains security via HMAC-based authentication, and offers a fully monitorable solution with Prometheus metrics.
-
-These configurations allow seamless integration with a reverse proxy setup and systemd services for production environments.
-
----
