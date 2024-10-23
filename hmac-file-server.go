@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
@@ -59,11 +60,10 @@ type Config struct {
 	MetricsEnabled         bool
 	MetricsPort            string
 	ChunkSize              int
-<<<<<<< HEAD
-=======
 	UploadMaxSize          int64  // Maximum upload size
 	MaxBytesPerSecond      int    // Rate limiting in bytes per second
->>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
+	MaxWorkers             int    // Number of worker goroutines
+	MaxMemoryMB            int    // Maximum memory in MB
 }
 
 var conf Config
@@ -239,11 +239,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-<<<<<<< HEAD
-// Handle uploads with HMAC validation
-=======
 // Handle uploads with HMAC validation and chunking support
->>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fileStorePath string) {
 	a, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -251,38 +247,59 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
 		return
 	}
 
-<<<<<<< HEAD
-=======
 	// Enforce maximum upload size
 	if r.ContentLength > conf.UploadMaxSize {
 		http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 
->>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
-	mac := hmac.New(sha256.New, []byte(conf.Secret))
-	mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
-	macString := hex.EncodeToString(mac.Sum(nil))
+	// Determine protocol version and initialize HMAC
+	var protocolVersion string
+	if a["v2"] != nil {
+		protocolVersion = "v2"
+	} else if a["token"] != nil {
+		protocolVersion = "token"
+	} else if a["v"] != nil {
+		protocolVersion = "v"
+	} else {
+		log.Warn("No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC")
+		http.Error(w, "No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC", http.StatusForbidden)
+		return
+	}
 
-	if hmac.Equal([]byte(macString), []byte(a["v"][0])) {
-<<<<<<< HEAD
-		createFile(absFilename, w, r)
-=======
-		// Check for chunked upload via headers
+	// Initialize HMAC
+	mac := hmac.New(sha256.New, []byte(conf.Secret))
+	macString := ""
+
+	// Calculate MAC based on protocol version
+	if protocolVersion == "v" {
+		// For "v" use a space character (0x20) between components of MAC
+		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+		macString = hex.EncodeToString(mac.Sum(nil))
+	} else if protocolVersion == "v2" || protocolVersion == "token" {
+		// For "v2" and "token" use a null byte (0x00) between components of MAC
+		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+		macString = hex.EncodeToString(mac.Sum(nil))
+	}
+
+	// Check if calculated MAC matches the one provided by the client
+	if hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
+		// Proceed with upload
 		if chunkID := r.Header.Get("X-Chunk-ID"); chunkID != "" {
 			handleChunkedUpload(absFilename, w, r, chunkID)
 		} else {
 			// Handle normal upload
 			createFile(absFilename, w, r)
 		}
->>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 	} else {
-		http.Error(w, "Forbidden", http.StatusForbidden)
+		http.Error(w, "Invalid MAC", http.StatusForbidden)
 	}
 }
 
-<<<<<<< HEAD
-=======
 // Handle chunked upload logic
 func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request, chunkID string) {
 	totalChunks := r.Header.Get("X-Total-Chunks")
@@ -360,7 +377,6 @@ func (t *throttler) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
->>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 // Serve file for GET or HEAD requests with caching
 func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	fileInfo, err := os.Stat(absFilename)
@@ -373,11 +389,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	}
 
 	// Set Cache-Control header for caching
-<<<<<<< HEAD
-	w.Header().Set("Cache-Control", "public, max-age=3600")  // Cache for 1 hour
-=======
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
->>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 	w.Header().Set("Last-Modified", fileInfo.ModTime().UTC().Format(http.TimeFormat))
 
 	// Optionally add ETag for client-side cache validation
@@ -413,34 +425,6 @@ func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	}
 }
 
-<<<<<<< HEAD
-// Create a new file during upload
-func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
-	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		http.Error(w, "Conflict", http.StatusConflict)
-		return
-	}
-	defer targetFile.Close()
-
-	_, err = io.Copy(targetFile, r.Body)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	uploadsTotal.Inc()
-	w.WriteHeader(http.StatusCreated)
-}
-
-=======
->>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 // Set CORS headers
 func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -498,6 +482,9 @@ func main() {
 		fmt.Println("Error reading config:", err)
 		log.Fatalln("Error reading config:", err)
 	}
+
+	// Set dynamic configurations
+	setDynamicConfig()
 
 	fmt.Println("Configuration loaded successfully.")
 
@@ -589,4 +576,24 @@ func main() {
 func readConfig(configFile string, config *Config) error {
 	_, err := toml.DecodeFile(configFile, config)
 	return err
+}
+
+// Set dynamic configurations based on system resources
+func setDynamicConfig() {
+	// Set MaxWorkers based on CPU count
+	cpuCount, err := cpu.Counts(false)
+	if err != nil {
+		log.Warn("Could not get CPU count, defaulting MaxWorkers to 4")
+		conf.MaxWorkers = 4 // Fallback value
+	} else {
+		conf.MaxWorkers = cpuCount // Set MaxWorkers based on CPU count
+	}
+
+	// Set MaxMemoryMB based on available memory
+	v, _ := mem.VirtualMemory()
+	conf.MaxMemoryMB = int(v.Total / (1024 * 1024)) // Total RAM in MB
+
+	// Log dynamic configurations
+	log.Infof("Max Workers set to: %d", conf.MaxWorkers)
+	log.Infof("Max Memory set to: %d MB", conf.MaxMemoryMB)
 }
