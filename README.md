@@ -152,3 +152,5 @@ This version marks the final release of version 1.0.6 of the HMAC File Server.
 ## License
 
 This project is licensed under the MIT License.
+
+Mit ❤️ codiert – während um uns die Welt im Chaos versinkt!
