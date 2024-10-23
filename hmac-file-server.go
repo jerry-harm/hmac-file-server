@@ -19,7 +19,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"strconv"
+	"strconv"  // <-- Add this import
 	"strings"
 	"syscall"
 	"time"
@@ -234,7 +234,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Handle uploads with HMAC validation
+// Handle uploads with HMAC validation and chunking support
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fileStorePath string) {
 	a, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -247,10 +247,74 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
 	macString := hex.EncodeToString(mac.Sum(nil))
 
 	if hmac.Equal([]byte(macString), []byte(a["v"][0])) {
-		createFile(absFilename, w, r)
+		// Check for chunked upload via headers
+		if chunkID := r.Header.Get("X-Chunk-ID"); chunkID != "" {
+			handleChunkedUpload(absFilename, w, r, chunkID)
+		} else {
+			// Handle normal upload
+			createFile(absFilename, w, r)
+		}
 	} else {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 	}
+}
+
+// Handle chunked upload logic
+func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request, chunkID string) {
+	totalChunks := r.Header.Get("X-Total-Chunks")
+
+	// Append chunk to file
+	appendToFile(absFilename, w, r)
+
+	// If it's the last chunk, complete the upload process
+	if chunkID == totalChunks {
+		log.Infof("All chunks received for file: %s", absFilename)
+		uploadsTotal.Inc()
+	}
+}
+
+// Append chunk to the file
+func appendToFile(absFilename string, w http.ResponseWriter, r *http.Request) {
+	// Open file in append mode
+	targetFile, err := os.OpenFile(absFilename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		http.Error(w, "Conflict", http.StatusConflict)
+		return
+	}
+	defer targetFile.Close()
+
+	_, err = io.Copy(targetFile, r.Body)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// Create a new file during normal upload
+func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
+	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		http.Error(w, "Conflict", http.StatusConflict)
+		return
+	}
+	defer targetFile.Close()
+
+	_, err = io.Copy(targetFile, r.Body)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	uploadsTotal.Inc()
+	w.WriteHeader(http.StatusCreated)
 }
 
 // Serve file for GET or HEAD requests with caching
@@ -265,7 +329,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	}
 
 	// Set Cache-Control header for caching
-	w.Header().Set("Cache-Control", "public, max-age=3600")  // Cache for 1 hour
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
 	w.Header().Set("Last-Modified", fileInfo.ModTime().UTC().Format(http.TimeFormat))
 
 	// Optionally add ETag for client-side cache validation
@@ -299,31 +363,6 @@ func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	} else {
 		http.ServeFile(w, r, absFilename)
 	}
-}
-
-// Create a new file during upload
-func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
-	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		http.Error(w, "Conflict", http.StatusConflict)
-		return
-	}
-	defer targetFile.Close()
-
-	_, err = io.Copy(targetFile, r.Body)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	uploadsTotal.Inc()
-	w.WriteHeader(http.StatusCreated)
 }
 
 // Set CORS headers
