@@ -2,81 +2,89 @@
 # HMAC File Server
 
 ## Overview
-The HMAC File Server is a secure file handling server that uses HMAC authentication for uploads. It supports Redis caching and can fall back to a PostgreSQL or MySQL database.
+This is a secure file server that uses HMAC-based authentication for secure file handling. The server supports multiple protocols (`v`, `v2`, `token`) and integrates features like chunked uploads, rate limiting, Redis, PostgreSQL, and MySQL fallback support. Prometheus metrics are available to monitor server performance.
 
-## Configuration (config.toml)
-Below is a detailed explanation of each configuration option in the `config.toml` file.
+## Features
+- **HMAC Authentication**: Supports multiple versions of HMAC-based authentication (`v`, `v2`, `token`).
+- **Chunked Uploads**: Handles large file uploads through chunking.
+- **Rate Limiting**: Supports configurable upload rate limiting.
+- **Fallback Databases**: Supports Redis as the primary store and fallback options for PostgreSQL or MySQL.
+- **Prometheus Metrics**: Exposes Prometheus metrics for monitoring upload durations and errors.
+- **CORS Support**: Adds CORS headers for cross-origin support.
 
-### Server Settings
-- **ListenPort**: The port on which the server will listen. (Example: `:8080`)
-- **UnixSocket**: Whether to use a Unix socket instead of a TCP socket. (Set to `true` or `false`)
-- **Secret**: The HMAC secret key used to sign uploads.
-- **StoreDir**: The directory where uploaded files will be stored.
-- **UploadSubDir**: The subdirectory under `StoreDir` where uploads will be saved.
-- **LogLevel**: The logging level for the server (`info`, `warn`, `error`).
-- **LogFile**: Path to the log file. Leave empty to log to `stdout`.
-- **MaxRetries**: Maximum number of retries for failed uploads.
-- **RetryDelay**: Delay (in seconds) between retries.
-- **MetricsEnabled**: Enable Prometheus metrics. (Set to `true` or `false`)
-- **MetricsPort**: Port for Prometheus metrics server.
-- **ChunkSize**: Size of each chunk during a chunked upload, in bytes.
-- **UploadMaxSize**: Maximum size of uploads allowed, in bytes.
-- **MaxBytesPerSecond**: Maximum upload rate in bytes per second (for throttling uploads).
+## Installation
 
-### Redis Configuration
-- **RedisAddr**: Address of the Redis server (leave blank if not using Redis).
-- **RedisPassword**: Password for Redis (leave blank if no password is required).
-- **RedisDB**: Redis database number.
+### Prerequisites
+- Go 1.16 or later
+- Redis (optional)
+- PostgreSQL or MySQL (optional)
+- Prometheus (optional, for metrics)
 
-### Fallback Configuration
-- **FallbackEnabled**: Enable fallback to a database if Redis is unavailable.
-- **FallbackDBType**: Type of the fallback database (`postgres` or `mysql`).
-- **FallbackDBHost**: Hostname of the fallback database.
-- **FallbackDBUser**: Username for the fallback database.
-- **FallbackDBPassword**: Password for the fallback database.
-- **FallbackDBName**: Name of the fallback database.
+### Clone Repository
+```bash
+git clone https://github.com/your-repo/hmac-file-server.git
+cd hmac-file-server
+```
 
-### Example Configuration
+### Build
+To build the server:
+```bash
+go build -o hmac-file-server main.go
+```
+
+### Configuration
+Create a `config.toml` file with the following structure:
 ```toml
-# Example of config.toml
 ListenPort = ":8080"
 UnixSocket = false
-Secret = "your_secret_here"
-StoreDir = "/path/to/store/files"
+Secret = "your-hmac-secret"
+StoreDir = "/path/to/store"
 UploadSubDir = "upload"
 LogLevel = "info"
-LogFile = "/var/log/hmac-file-server.log"
-MaxRetries = 5
-RetryDelay = 2
-MetricsEnabled = true
-MetricsPort = ":9090"
-ChunkSize = 65536
-UploadMaxSize = 1073741824  # 1 GB
-MaxBytesPerSecond = 1048576  # 1 MB/s
+LogFile = "/path/to/log/file.log"
 
-# Redis Configuration
+# Redis configuration (optional)
 RedisAddr = "localhost:6379"
 RedisPassword = ""
 RedisDB = 0
 
-# Fallback Configuration
-FallbackEnabled = false
-FallbackDBType = "postgres"
+# Fallback Database (optional)
+FallbackEnabled = true
+FallbackDBType = "postgres" # or "mysql"
 FallbackDBHost = "localhost"
-FallbackDBUser = "your_db_user"
-FallbackDBPassword = "your_db_password"
-FallbackDBName = "your_db_name"
+FallbackDBUser = "dbuser"
+FallbackDBPassword = "dbpassword"
+FallbackDBName = "dbname"
+
+# Metrics (optional)
+MetricsEnabled = true
+MetricsPort = ":9090"
+
+# Upload settings
+ChunkSize = 1048576  # 1 MB
+UploadMaxSize = 1073741824  # 1 GB
+MaxBytesPerSecond = 524288  # 512 KB/s
 ```
 
-## Features
-- Secure file handling with HMAC authentication
-- Support for Redis caching
-- Fallback to PostgreSQL or MySQL database
-- Prometheus metrics for monitoring
+### Running the Server
+Start the server by providing the path to your `config.toml`:
+```bash
+./hmac-file-server -config ./config.toml
+```
 
-## Getting Started
-1. Configure the `config.toml` file according to your setup.
-2. Start the server and begin uploading files.
+### Prometheus Metrics
+If enabled, you can access metrics at `/metrics` on the configured `MetricsPort`.
 
-## License
+### Example of HMAC Authentication
+For `v` protocol:
+```bash
+hmac-sha256("file/path 1024")
+```
+
+For `v2` or `token` protocol:
+```bash
+hmac-sha256("file/path\x00content-length\x00content-type")
+```
+
+### License
 This project is licensed under the MIT License.
