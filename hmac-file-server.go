@@ -59,6 +59,11 @@ type Config struct {
 	MetricsEnabled         bool
 	MetricsPort            string
 	ChunkSize              int
+<<<<<<< HEAD
+=======
+	UploadMaxSize          int64  // Maximum upload size
+	MaxBytesPerSecond      int    // Rate limiting in bytes per second
+>>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 }
 
 var conf Config
@@ -234,7 +239,11 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+<<<<<<< HEAD
 // Handle uploads with HMAC validation
+=======
+// Handle uploads with HMAC validation and chunking support
+>>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fileStorePath string) {
 	a, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
@@ -242,17 +251,116 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
 		return
 	}
 
+<<<<<<< HEAD
+=======
+	// Enforce maximum upload size
+	if r.ContentLength > conf.UploadMaxSize {
+		http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+>>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 	mac := hmac.New(sha256.New, []byte(conf.Secret))
 	mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
 	macString := hex.EncodeToString(mac.Sum(nil))
 
 	if hmac.Equal([]byte(macString), []byte(a["v"][0])) {
+<<<<<<< HEAD
 		createFile(absFilename, w, r)
+=======
+		// Check for chunked upload via headers
+		if chunkID := r.Header.Get("X-Chunk-ID"); chunkID != "" {
+			handleChunkedUpload(absFilename, w, r, chunkID)
+		} else {
+			// Handle normal upload
+			createFile(absFilename, w, r)
+		}
+>>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 	} else {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 	}
 }
 
+<<<<<<< HEAD
+=======
+// Handle chunked upload logic
+func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request, chunkID string) {
+	totalChunks := r.Header.Get("X-Total-Chunks")
+
+	// Append chunk to file
+	appendToFile(absFilename, w, r)
+
+	// If it's the last chunk, complete the upload process
+	if chunkID == totalChunks {
+		log.Infof("All chunks received for file: %s", absFilename)
+		uploadsTotal.Inc()
+	}
+}
+
+// Append chunk to the file
+func appendToFile(absFilename string, w http.ResponseWriter, r *http.Request) {
+	// Open file in append mode
+	targetFile, err := os.OpenFile(absFilename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		http.Error(w, "Conflict", http.StatusConflict)
+		return
+	}
+	defer targetFile.Close()
+
+	_, err = io.Copy(targetFile, throttleUpload(r.Body, conf.MaxBytesPerSecond))
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// Create a new file during normal upload
+func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
+	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		http.Error(w, "Conflict", http.StatusConflict)
+		return
+	}
+	defer targetFile.Close()
+
+	_, err = io.Copy(targetFile, throttleUpload(r.Body, conf.MaxBytesPerSecond))
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	uploadsTotal.Inc()
+	w.WriteHeader(http.StatusCreated)
+}
+
+// Throttle upload speed based on maxBytesPerSecond setting
+func throttleUpload(reader io.Reader, maxBytesPerSecond int) io.Reader {
+	return io.TeeReader(reader, &throttler{maxBytesPerSecond: maxBytesPerSecond})
+}
+
+// Define the throttler struct
+type throttler struct {
+	maxBytesPerSecond int
+}
+
+// Write method to throttle uploads
+func (t *throttler) Write(p []byte) (n int, err error) {
+	n = len(p)
+
+	// Sleep to enforce rate limit
+	time.Sleep(time.Second * time.Duration(n) / time.Duration(t.maxBytesPerSecond))
+	return n, nil
+}
+
+>>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 // Serve file for GET or HEAD requests with caching
 func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	fileInfo, err := os.Stat(absFilename)
@@ -265,7 +373,11 @@ func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	}
 
 	// Set Cache-Control header for caching
+<<<<<<< HEAD
 	w.Header().Set("Cache-Control", "public, max-age=3600")  // Cache for 1 hour
+=======
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+>>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 	w.Header().Set("Last-Modified", fileInfo.ModTime().UTC().Format(http.TimeFormat))
 
 	// Optionally add ETag for client-side cache validation
@@ -301,6 +413,7 @@ func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
 	}
 }
 
+<<<<<<< HEAD
 // Create a new file during upload
 func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
@@ -326,6 +439,8 @@ func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
+=======
+>>>>>>> 0a79fbfc254529c32bdd8b1110deaf0e4f61dc6f
 // Set CORS headers
 func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
