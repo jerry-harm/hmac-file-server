@@ -36,7 +36,7 @@ Create a `config.toml` file in the same directory as the server or specify a cus
 ListenPort = "[::1]:8080"
 
 # Secret used for HMAC (must match the one in prosody.conf.lua)
-Secret = "stellar-wisdom-orbit-echo"
+Secret = "orbit7-shadow23-breeze91-echo17"
 
 # Directory where files will be stored
 StoreDir = "/mnt/storage/hmac-file-server"
