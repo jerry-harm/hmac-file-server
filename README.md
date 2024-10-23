@@ -32,42 +32,37 @@ The HMAC File Server is designed to securely handle file uploads and downloads u
 Create a `config.toml` file in the same directory as the server or specify a custom path using the `--config` flag. Here is an example configuration:
 
 ```toml
-# Configuration for the HMAC File Server
+# IP address and port to listen on (e.g. "[::1]:8080" for localhost IPv6)
+ListenPort = "[::1]:8080"
 
-# The port the server will listen on, e.g., ":8080"
-ListenPort = ":8080"
+# Secret used for HMAC (must match the one in prosody.conf.lua)
+Secret = "stellar-wisdom-orbit-echo"
 
-# Set to true if using a Unix socket, otherwise false
-UnixSocket = false
+# Directory where files will be stored
+StoreDir = "/mnt/storage/hmac-file-server"
 
-# The secret used to generate HMAC for uploads
-Secret = "your_hmac_secret"
-
-# The directory where files will be stored
-StoreDir = "/path/to/storage/directory"
-
-# The subdirectory for uploads, relative to the StoreDir
-UploadSubDir = "upload"
+# Subdirectory for HTTP upload/download requests
+UploadSubDir = "upload/"
 
 # Logging settings
-LogLevel = "info"        # Log level (info, warn, error, etc.)
-LogFile = "/var/log/hmac-file-server.log" # Path to the log file
+LogLevel = "info"   # Log level (info, warn, error)
+LogFile = "/var/log/hmac-file-server.log"   # Path to log file
 
 # Retry settings for uploads
-MaxRetries = 5          # Maximum number of retry attempts for failed uploads
-RetryDelay = 2          # Delay in seconds between retries
+MaxRetries = 5    # Maximum number of retries for failed uploads
+RetryDelay = 2    # Delay in seconds between retries
 
-# Redis configuration (if Redis is used; otherwise, leave these blank)
-RedisAddr = "localhost:6379"
+# Redis configuration (optional, leave blank if not used)
+RedisAddr = ""   # e.g., "localhost:6379" if using Redis
 RedisPassword = ""
 RedisDB = 0
 
-# Metrics settings for Prometheus
+# Metrics settings for Prometheus (optional)
 MetricsEnabled = true
 MetricsPort = ":9090"    # Port for Prometheus metrics, e.g., ":9090"
 
 # Chunk size for uploads (in bytes)
-ChunkSize = 1048576     # 1 MB chunk size
+ChunkSize = 1048576  # Default chunk size of 1MB
 ```
 
 ## Usage
@@ -142,12 +137,18 @@ After=network.target
 [Service]
 ExecStart=/path/to/hmac-file-server --config /path/to/config.toml
 Restart=on-failure
+User=hmac-file-server
+Group=hmac-file-server
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+## Version 1.0.6 (Final)
+
+This version marks the final release of version 1.0.6 of the HMAC File Server.
+
 ## License
 
 This project is licensed under the MIT License.
-
