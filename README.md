@@ -1,156 +1,222 @@
 
-# HMAC File Server
+# HMAC File Server - Version 2.0
 
-The HMAC File Server is designed to securely handle file uploads and downloads using HMAC (Hash-based Message Authentication Code) for verification. This server also includes support for retrying failed uploads, logging, and Prometheus metrics.
+**HMAC File Server** is a secure file handling server that uses HMAC (Hash-based Message Authentication Code) for authentication, offering a secure way to upload and retrieve files. It supports Redis for caching, PostgreSQL/MySQL for fallback database functionality, and Prometheus for metrics collection. This release focuses on improved performance, stability, and flexibility.
 
 ## Features
-- **HMAC authentication** for secure file uploads.
-- **Retry mechanism** for uploads with configurable retries and delays.
-- **Prometheus metrics** for monitoring the server's performance.
-- **Configurable** upload chunk size and server settings.
-- **Optional Redis integration** for session management (can be disabled).
+
+- **HMAC-based Authentication**: Secure file uploads and downloads with HMAC validation.
+- **Redis Integration**: For fast lookups and session handling (optional).
+- **Fallback to Databases**: Support for both PostgreSQL and MySQL as fallback storage (optional).
+- **Basic HTTP Caching**: Implements `Cache-Control`, `Last-Modified`, and `ETag` headers for optimized file serving.
+- **Prometheus Metrics**: Collects metrics for file uploads, errors, and server performance.
+- **CORS Support**: Allows cross-origin file uploads.
+- **Graceful Shutdown**: Supports graceful shutdowns to safely handle ongoing operations.
+
+---
+
+## Table of Contents
+
+1. [Installation](#installation)
+2. [Configuration](#configuration)
+3. [Usage](#usage)
+4. [API Endpoints](#api-endpoints)
+5. [Metrics](#metrics)
+6. [Logging](#logging)
+7. [Contributing](#contributing)
+8. [License](#license)
+
+---
 
 ## Installation
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-repo/hmac-file-server.git
-   cd hmac-file-server
-   ```
+### Requirements
 
-2. **Build the server**:
-   Make sure you have [Go](https://golang.org/) installed.
-   ```bash
-   go build -o hmac-file-server hmac-file-server.go
-   ```
+- **Go** (version 1.20 or higher)
+- **Redis** (optional)
+- **PostgreSQL** or **MySQL** (optional, for fallback database)
+- **Prometheus** (for monitoring)
 
-3. **Create the configuration file**:
-   The server requires a `config.toml` file for its configuration. See the example below.
-
-## Configuration
-
-Create a `config.toml` file in the same directory as the server or specify a custom path using the `--config` flag. Here is an example configuration:
-
-```toml
-# IP address and port to listen on (e.g. "[::1]:8080" for localhost IPv6)
-ListenPort = "[::1]:8080"
-
-# Secret used for HMAC (must match the one in prosody.conf.lua)
-Secret = "orbit7-shadow23-breeze91-echo17"
-
-# Directory where files will be stored
-StoreDir = "/mnt/storage/hmac-file-server"
-
-# Subdirectory for HTTP upload/download requests
-UploadSubDir = "upload/"
-
-# Logging settings
-LogLevel = "info"   # Log level (info, warn, error)
-LogFile = "/var/log/hmac-file-server.log"   # Path to log file
-
-# Retry settings for uploads
-MaxRetries = 5    # Maximum number of retries for failed uploads
-RetryDelay = 2    # Delay in seconds between retries
-
-# Redis configuration (optional, leave blank if not used)
-RedisAddr = ""   # e.g., "localhost:6379" if using Redis
-RedisPassword = ""
-RedisDB = 0
-
-# Metrics settings for Prometheus (optional)
-MetricsEnabled = true
-MetricsPort = ":9090"    # Port for Prometheus metrics, e.g., ":9090"
-
-# Chunk size for uploads (in bytes)
-ChunkSize = 1048576  # Default chunk size of 1MB
-```
-
-## Usage
-
-Run the server with the following command:
+### Clone and Build
 
 ```bash
-./hmac-file-server --config ./config.toml
+git clone https://github.com/yourusername/hmac-file-server.git
+cd hmac-file-server
+go build -o hmac-file-server
 ```
 
-### Command-line Flags
+### Systemd Service (Optional)
 
-- `--config`: Path to the configuration file (default: `./config.toml`).
-
-## HMAC File Upload Process
-
-When uploading files, the URL must contain the HMAC signature as a query parameter. The server checks this signature to ensure that the upload request is valid.
-
-### Example:
-
-If the file is stored at `/upload/testfile.txt`, the client must calculate the HMAC using the file path and size, and include it in the URL like this:
-
-```http
-PUT /upload/testfile.txt?v=your_hmac_signature
-```
-
-The server will verify the HMAC signature before accepting the upload.
-
-### HMAC Calculation
-
-For HMAC generation, the following inputs are used:
-
-1. **File Path**: The relative path where the file will be uploaded.
-2. **Content Length**: The size of the file being uploaded.
-3. **Secret**: The shared secret key from the configuration.
-
-The client must concatenate these values (with a space or null byte depending on protocol) and calculate the HMAC using the secret.
-
-## Prometheus Metrics
-
-If metrics are enabled in the configuration (`MetricsEnabled = true`), the server will expose Prometheus metrics at the specified port (`MetricsPort`).
-
-Metrics include:
-- **Upload duration** (`hmac_file_server_upload_duration_seconds`): Time taken for file uploads.
-- **Total uploads** (`hmac_file_server_uploads_total`): The number of successful uploads.
-- **Upload errors** (`hmac_file_server_upload_errors_total`): The number of failed uploads.
-
-Access the metrics at:
-
-```http
-http://localhost:9090/metrics
-```
-
-## Logging
-
-- Logs are written to the specified log file (`LogFile` in the config) or `stdout` if no file is specified.
-- The logging level can be set via the `LogLevel` configuration option (`info`, `warn`, `error`).
-
-## Redis Integration (Optional)
-
-Redis can be used for session management if enabled in the configuration. To disable Redis, leave the `RedisAddr`, `RedisPassword`, and `RedisDB` fields blank in the config.
-
-## Example Systemd Service
-
-Here is an example of how you can set up the HMAC file server as a systemd service:
+You can configure the server as a systemd service. Example `hmac-file-server.service`:
 
 ```ini
 [Unit]
-Description=HMAC File Server
+Description=HMAC File Server - Secure File Handling Server
 After=network.target
 
 [Service]
 ExecStart=/path/to/hmac-file-server --config /path/to/config.toml
 Restart=on-failure
-User=hmac-file-server
-Group=hmac-file-server
-LimitNOFILE=4096
+User=hmac-server
+Group=hmac-server
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-## Version 1.0.6 (Final)
+Place this file in `/etc/systemd/system/hmac-file-server.service`, then enable and start the service:
 
-This version marks the final release of version 1.0.6 of the HMAC File Server.
+```bash
+sudo systemctl enable hmac-file-server
+sudo systemctl start hmac-file-server
+```
+
+---
+
+## Configuration
+
+All configuration settings are managed through a `config.toml` file. Below is an example configuration:
+
+```toml
+# Server settings
+ListenPort = ":8080"
+UnixSocket = false
+AuthenticationKey = "secure-wisdom-orbit-echo"  # Authentication key for secure communication
+StoreDir = "/mnt/storage/hmac-file-server/"
+UploadSubDir = "upload"
+LogLevel = "info"
+LogFile = "/var/log/hmac-file-server.log"
+MaxRetries = 5
+RetryDelay = 2
+MetricsEnabled = true
+MetricsPort = ":9090"
+ChunkSize = 65536
+
+# Redis configuration (optional)
+RedisAddr = "localhost:6379"
+RedisPassword = ""
+RedisDB = 0
+
+# Fallback database (optional)
+FallbackEnabled = true
+FallbackDBType = "postgres"  # "postgres" or "mysql"
+FallbackDBHost = "localhost"
+FallbackDBUser = "your_db_user"
+FallbackDBPassword = "your_db_password"
+FallbackDBName = "your_db_name"
+```
+
+---
+
+## Usage
+
+To start the server:
+
+```bash
+./hmac-file-server --config /path/to/config.toml
+```
+
+### Uploading a File
+
+To upload a file using the authentication key, you must provide a valid signature in the URL.
+
+**PUT** `/upload/<path>/<filename>?v=<auth-signature>`
+
+- The authentication signature is calculated as:
+  
+  ```
+  Signature = HMAC_SHA256(auth_key, <filename> + " " + <file_size>)
+  ```
+
+Example using `curl`:
+
+```bash
+curl -X PUT --data-binary @file.jpg "http://localhost:8080/upload/folder/file.jpg?v=<auth-signature>"
+```
+
+### Downloading a File
+
+**GET** `/upload/<path>/<filename>`
+
+Example:
+
+```bash
+curl -X GET "http://localhost:8080/upload/folder/file.jpg"
+```
+
+---
+
+## API Endpoints
+
+| Method | Endpoint                                   | Description                         |
+|--------|--------------------------------------------|-------------------------------------|
+| `PUT`  | `/upload/<path>/<filename>?v=<auth-signature>`  | Upload a file with signature       |
+| `GET`  | `/upload/<path>/<filename>`                | Download a file                    |
+| `OPTIONS` | `/upload/<path>/<filename>`             | Preflight request (CORS support)   |
+| `HEAD` | `/upload/<path>/<filename>`                | Get file metadata without the body |
+
+---
+
+## Metrics
+
+The HMAC File Server supports Prometheus metrics. Metrics are served on a dedicated endpoint when enabled:
+
+**Metrics Endpoint**: `/metrics`
+
+Sample Prometheus metrics:
+
+- `file_server_upload_duration_seconds`: Histogram for file upload duration.
+- `file_server_upload_errors_total`: Counter for total upload errors.
+- `file_server_uploads_total`: Counter for successful uploads.
+
+Enable metrics by setting `MetricsEnabled = true` and configuring `MetricsPort`.
+
+---
+
+## Logging
+
+The server logs system information at startup, including:
+
+- Operating System
+- Architecture
+- Number of CPUs
+- Go version
+- Total, free, and used memory
+- Hostname and uptime
+
+Logs are stored in the file specified by `LogFile` in the `config.toml`.
+
+### Example Log Output:
+
+```bash
+2024-10-23T08:12:35Z [INFO] Starting HMAC File Server - v2.0
+2024-10-23T08:12:35Z [INFO] Operating System: linux
+2024-10-23T08:12:35Z [INFO] Architecture: amd64
+2024-10-23T08:12:35Z [INFO] Number of CPUs: 4
+2024-10-23T08:12:35Z [INFO] Go Version: go1.20
+2024-10-23T08:12:35Z [INFO] Total Memory: 8192 MB
+2024-10-23T08:12:35Z [INFO] Free Memory: 5120 MB
+2024-10-23T08:12:35Z [INFO] Hostname: server.local
+2024-10-23T08:12:35Z [INFO] Connected to Redis.
+```
+
+---
+
+## Contributing
+
+We welcome contributions! Please follow these steps:
+
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/my-new-feature`.
+3. Commit your changes: `git commit -am 'Add some feature'`.
+4. Push to the branch: `git push origin feature/my-new-feature`.
+5. Submit a pull request.
+
+---
 
 ## License
 
-This project is licensed under the MIT License.
+HMAC File Server is open-source software licensed under the [MIT License](LICENSE).
 
 Mit ❤️ codiert – während um uns die Welt im Chaos versinkt!
