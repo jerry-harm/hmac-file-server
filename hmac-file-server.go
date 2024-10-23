@@ -40,7 +40,7 @@ import (
 type Config struct {
     ListenPort             string
     UnixSocket             bool
-    Secret                 string
+    AuthenticationKey      string // Updated from Secret
     StoreDir               string
     UploadSubDir           string
     LogLevel               string
@@ -96,7 +96,7 @@ func init() {
 // Log system information with a banner
 func logSystemInfo() {
     log.Info("========================================")
-    log.Info("       HMAC File Server - v1.0.6        ")
+    log.Info("       HMAC File Server - v2.0          ")
     log.Info("  Secure File Handling with HMAC Auth   ")
     log.Info("========================================")
     
@@ -242,7 +242,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
         return
     }
 
-    mac := hmac.New(sha256.New, []byte(conf.Secret))
+    mac := hmac.New(sha256.New, []byte(conf.AuthenticationKey)) // Updated to AuthenticationKey
     mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
     macString := hex.EncodeToString(mac.Sum(nil))
 
@@ -372,7 +372,7 @@ func main() {
     var configFile string
     var proto string
 
-    fmt.Println("Starting HMAC File Server...")
+    fmt.Println("Starting HMAC File Server - v2.0...")
 
     flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file.")
     flag.Parse()
