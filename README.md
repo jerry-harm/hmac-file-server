@@ -215,6 +215,20 @@ We welcome contributions! Please follow these steps:
 
 ---
 
+## Con's & Pro's
+
+| Pros                                                             | Cons                                                            |
+|:-----------------------------------------------------------------|:----------------------------------------------------------------|
+| HMAC authentication ensures secure uploads                       | Long timeout values could lead to high resource usage           |
+| Supports both chunked and normal uploads                         | No detailed rate limiting or upload throttling                  |
+| Prometheus metrics allow detailed monitoring                     | Chunked upload requires proper client implementation            |
+| Fallback mechanism ensures availability with PostgreSQL or MySQL | No built-in SSL certificate renewal                             |
+| CORS headers are set for cross-origin access                     | Requires external configuration for Redis, PostgreSQL, or MySQL |
+| Timeout settings are customizable for large uploads              | Custom CORS headers may need adjustment for complex cases       |
+| Graceful error handling with custom error pages                  | Debug logging can be verbose without careful management         |
+| Supports multiple HMAC protocols (v, v2/token)                   | Limited content-type detection for encrypted files (OMEMO)      |
+| Logging level is configurable via configuration file             | High resource usage if Redis/PostgreSQL are unavailable         |
+
 ## License
 
 HMAC File Server is open-source software licensed under the [MIT License](LICENSE).
