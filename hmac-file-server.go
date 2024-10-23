@@ -1,16 +1,19 @@
 package main
 
 import (
-<<<<<<< HEAD
 	"bufio"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path"
@@ -18,198 +21,114 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	_ "net/http/pprof" // pprof for profiling
-
 	"github.com/BurntSushi/toml"
 	"github.com/go-redis/redis/v8"
-	"github.com/patrickmn/go-cache"
+	"github.com/jackc/pgx/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
-=======
-    "context"
-    "crypto/hmac"
-    "crypto/sha256"
-    "flag"
-    "fmt"
-    "net"
-    "net/http"
-    "os"
-    "os/signal"
-    "runtime"
-    "strconv"
-    "sync"
-    "syscall"
-    "time"
-
-    "github.com/BurntSushi/toml"
-    "github.com/go-redis/redis/v8"
-    "github.com/patrickmn/go-cache"
-    "github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promhttp"
-    "github.com/sirupsen/logrus"
->>>>>>> origin/main
+	_ "github.com/go-sql-driver/mysql"
+	_ "net/http/pprof"
 )
 
-// Configuration of this server
+// Configuration struct with fallback options
 type Config struct {
-    ListenPort             string
-    UnixSocket             bool
-    UnixSocketPath         string
-    Secret                 string
-    StoreDir               string
-    LogLevel               string
-    LogFile                string
-    MaxRetries             int
-    RetryDelay             int
-    EnableGetRetries       bool
-    DeleteFiles            bool
-    DeleteFilesAfterPeriod string
-    WriteReport            bool
-    ReportPath             string
-    NumCores               string
-    ReaskSecretEnabled     bool
-    ReaskSecretInterval    string
-    MetricsEnabled         bool
-    MetricsPort            string
-    ChecksumVerification   bool
-    RetentionPolicyEnabled bool
-    MaxRetentionSize       int64
-    MaxRetentionTime       string
-    RedisEnabled           bool   // New field to enable Redis check
-    RedisAddr              string // Redis server address (e.g., "localhost:6379")
-    RedisPassword          string // Redis password
-    RedisDB                int    // Redis database number
-    ReadTimeout            int    `toml:"read_timeout"`  // Read timeout in seconds
-    WriteTimeout           int    `toml:"write_timeout"` // Write timeout in seconds
-    BufferSize             int    `toml:"buffer_size"`   // Buffer size for reading file chunks
-
-    // New settings for chunked uploads
-    ChunkSize       int `toml:"chunk_size"`       // Size of each chunk in bytes
-    ChunkMaxRetries int `toml:"chunk_max_retries"` // Maximum number of retries for failed chunks
+	ListenPort             string
+	UnixSocket             bool
+	Secret                 string
+	StoreDir               string
+	UploadSubDir           string
+	LogLevel               string
+	LogFile                string
+	MaxRetries             int
+	RetryDelay             int
+	RedisAddr              string // Empty if Redis is not enabled
+	RedisPassword          string
+	RedisDB                int
+	FallbackEnabled        bool   // Use fallback database (MariaDB/PostgreSQL) if true
+	FallbackDBType         string // "postgres" or "mysql"
+	FallbackDBHost         string
+	FallbackDBUser         string
+	FallbackDBPassword     string
+	FallbackDBName         string
+	MetricsEnabled         bool
+	MetricsPort            string
+	ChunkSize              int
 }
 
-var conf = Config{
-    ListenPort:             ":8080",
-    MaxRetries:             5,
-    RetryDelay:             2,
-    ReaskSecretEnabled:     true,
-    ReaskSecretInterval:    "24h",
-    MetricsEnabled:         true,
-    MetricsPort:            ":9090",
-    ChecksumVerification:   true,
-    RetentionPolicyEnabled: true,
-    MaxRetentionSize:       10737418240, // Default 10 GB
-    MaxRetentionTime:       "30d",       // Default 30 days
-    ReadTimeout:            1200,        // Increased timeout for Android clients (20 minutes)
-    WriteTimeout:           1200,        // Increased timeout for Android clients (20 minutes)
-    BufferSize:             65536,       // Default 64 KB buffer size
-    RedisEnabled:           true,        // Default is true for Redis, can be disabled in config.toml
-
-    // Default settings for chunked uploads
-    ChunkSize:       1024 * 1024, // Default 1 MB chunk size
-    ChunkMaxRetries: 3,           // Default 3 retries for failed chunks
-}
-
-var versionString string = "1.0.5"
+var conf Config
 var log = logrus.New()
 
-// Redis client and context
+// Redis client
 var redisClient *redis.Client
-var ctx = context.Background()
+var postgresConn *pgx.Conn
+var mysqlConn *sql.DB
 
-// Initialize an in-memory cache with default expiration and cleanup interval.
-var fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)
-
-// Pool for reusable HMAC instances
-var hmacPool = sync.Pool{
-    New: func() interface{} {
-        return hmac.New(sha256.New, []byte(conf.Secret))
-    },
-}
-
-// Prometheus metrics with "hmac_" prefix
+// Prometheus metrics
 var (
-    goroutines = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "file_server_goroutines",
-        Help:      "Number of goroutines that currently exist in the HMAC File Server.",
-    })
-
-    uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-        Namespace: "hmac",
-        Name:      "file_server_upload_duration_seconds",
-        Help:      "Histogram of file upload duration in seconds.",
-        Buckets:   prometheus.DefBuckets,
-    })
-
-    uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_upload_errors_total",
-        Help:      "Total number of file upload errors.",
-    })
-
-    uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_uploads_total",
-        Help:      "Total number of successful file uploads.",
-    })
+	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac",
+		Name:      "file_server_upload_duration_seconds",
+		Help:      "Histogram of file upload duration in seconds.",
+		Buckets:   prometheus.DefBuckets,
+	})
+	uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_upload_errors_total",
+		Help:      "Total number of file upload errors.",
+	})
+	uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_uploads_total",
+		Help:      "Total number of successful file uploads.",
+	})
 )
 
 func init() {
-    // Register metrics
-    prometheus.MustRegister(goroutines, uploadDuration, uploadErrorsTotal, uploadsTotal)
+	prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
 }
 
-// Optimized Redis Client Initialization
-func InitRedisClient() (*redis.Client, error) {
-<<<<<<< HEAD
-	rdb := redis.NewClient(&redis.Options{
-		Addr:         conf.RedisAddr,     // Redis server address
-		Password:     conf.RedisPassword, // Redis password, leave empty for no password
-		DB:           conf.RedisDB,       // Redis database number
-		PoolSize:     20,                 // Optimized connection pool size
-		MinIdleConns: 10,                 // Minimum idle connections
-	})
-=======
-    rdb := redis.NewClient(&redis.Options{
-        Addr:     conf.RedisAddr,     // Redis server address
-        Password: conf.RedisPassword, // Redis password, leave empty for no password
-        DB:       conf.RedisDB,       // Redis database number
-    })
->>>>>>> origin/main
+// Log system information with a banner
+func logSystemInfo() {
+	log.Info("========================================")
+	log.Info("       HMAC File Server - v2.0          ")
+	log.Info("  Secure File Handling with HMAC Auth   ")
+	log.Info("========================================")
 
-    // Test the connection
-    _, err := rdb.Ping(ctx).Result()
-    if err != nil {
-        return nil, err
-    }
+	log.Info("Features: Redis, Fallback Database (PostgreSQL/MySQL), Prometheus Metrics")
+	log.Info("Build Date: 2024-10-23")  // Add your build date dynamically if needed
+	log.Info("========================================")
 
-    return rdb, nil
+	// Log basic system info
+	log.Infof("Operating System: %s", runtime.GOOS)
+	log.Infof("Architecture: %s", runtime.GOARCH)
+	log.Infof("Number of CPUs: %d", runtime.NumCPU())
+	log.Infof("Go Version: %s", runtime.Version())
+
+	// Get memory information
+	v, _ := mem.VirtualMemory()
+	log.Infof("Total Memory: %v MB", v.Total/1024/1024)
+	log.Infof("Free Memory: %v MB", v.Free/1024/1024)
+	log.Infof("Used Memory: %v MB", v.Used/1024/1024)
+
+	// Get host information
+	hInfo, _ := host.Info()
+	log.Infof("Hostname: %s", hInfo.Hostname)
+	log.Infof("Uptime: %v seconds", hInfo.Uptime)
+	log.Infof("Boot Time: %v", time.Unix(int64(hInfo.BootTime), 0))
+	log.Infof("Platform: %s", hInfo.Platform)
+	log.Infof("Platform Family: %s", hInfo.PlatformFamily)
+	log.Infof("Platform Version: %s", hInfo.PlatformVersion)
+	log.Infof("Kernel Version: %s", hInfo.KernelVersion)
 }
 
-// Check Redis connection and log the result
-func checkRedisConnection() {
-    if conf.RedisEnabled {
-        log.Info("Checking Redis connection...")
-        _, err := redisClient.Ping(ctx).Result()
-        if err != nil {
-            log.Warnf("Failed to connect to Redis at %s: %v", conf.RedisAddr, err)
-        } else {
-            log.Infof("Successfully connected to Redis at %s", conf.RedisAddr)
-        }
-    } else {
-        log.Info("Redis is disabled in the configuration.")
-    }
-}
-
-// Optimized Logging Setup (Buffered Logging)
+// Setup logging
 func setupLogging() {
-<<<<<<< HEAD
 	if conf.LogFile != "" {
 		file, err := os.OpenFile(conf.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
@@ -217,275 +136,342 @@ func setupLogging() {
 		}
 		writer := bufio.NewWriter(file)
 		log.SetOutput(writer)
+
+		go func() {
+			for range time.Tick(5 * time.Second) {
+				writer.Flush()
+			}
+		}()
 	} else {
 		log.SetOutput(os.Stdout)
 	}
 	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-	level, err := logrus.ParseLevel(conf.LogLevel)
-	if err != nil {
-		log.Warnf("Invalid log level: %s. Defaulting to 'info'.", conf.LogLevel)
-		level = logrus.InfoLevel
-	}
-	log.SetLevel(level)
-=======
-    if conf.LogFile != "" {
-        file, err := os.OpenFile(conf.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-        if err != nil {
-            log.Fatalf("Failed to open log file: %v", err)
-        }
-        log.Out = file
-    } else {
-        log.Out = os.Stdout
-    }
-    log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-    level, err := logrus.ParseLevel(conf.LogLevel)
-    if err != nil {
-        log.Warnf("Invalid log level: %s. Defaulting to 'info'.", conf.LogLevel)
-        level = logrus.InfoLevel
-    }
-    log.SetLevel(level)
->>>>>>> origin/main
+	logSystemInfo()
 }
 
-// Reads the configuration file
-func readConfig(configFile string, config *Config) error {
-    _, err := toml.DecodeFile(configFile, config)
-    return err
-}
+// Initialize Redis client only once at startup
+func initRedis() error {
+	if conf.RedisAddr != "" {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     conf.RedisAddr,
+			Password: conf.RedisPassword,
+			DB:       conf.RedisDB,
+		})
 
-<<<<<<< HEAD
-// EnsureDirectoryExists checks if a directory exists, and if not, creates it.
-func EnsureDirectoryExists(dirPath string) error {
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		log.Infof("Directory does not exist, creating: %s", dirPath)
-		err := os.MkdirAll(dirPath, 0755)
+		_, err := redisClient.Ping(context.Background()).Result()
 		if err != nil {
-			log.Errorf("Error creating directory: %s, error: %v", dirPath, err)
+			log.Warn("Redis unavailable, switching to fallback.")
 			return err
 		}
+		log.Info("Connected to Redis.")
+	} else {
+		log.Info("Redis not enabled, skipping Redis initialization.")
 	}
 	return nil
 }
 
-// Generates a session token
-func generateSessionToken() string {
-	return strconv.FormatInt(time.Now().UnixNano(), 10) // Simple session token based on timestamp
+// Initialize PostgreSQL connection
+func initPostgres() error {
+	if conf.FallbackEnabled && conf.FallbackDBType == "postgres" {
+		conn, err := pgx.Connect(context.Background(), fmt.Sprintf("postgresql://%s:%s@%s/%s",
+			conf.FallbackDBUser, conf.FallbackDBPassword, conf.FallbackDBHost, conf.FallbackDBName))
+		if err != nil {
+			log.Warn("Failed to connect to PostgreSQL.")
+			return err
+		}
+		log.Info("Connected to PostgreSQL fallback.")
+		postgresConn = conn
+	}
+	return nil
 }
 
-// Allowed HTTP methods for CORS
-var ALLOWED_METHODS = strings.Join([]string{
-	http.MethodOptions,
-	http.MethodHead,
-	http.MethodGet,
-	http.MethodPut,
-}, ", ")
+// Initialize MySQL connection
+func initMySQL() error {
+	if conf.FallbackEnabled && conf.FallbackDBType == "mysql" {
+		dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s", conf.FallbackDBUser, conf.FallbackDBPassword, conf.FallbackDBHost, conf.FallbackDBName)
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			log.Warn("Failed to connect to MySQL.")
+			return err
+		}
+		log.Info("Connected to MySQL fallback.")
+		mysqlConn = db
+	}
+	return nil
+}
 
-// CORS headers function
+// Handle request for uploads and downloads without reconnecting to Redis
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+	log.Info("Incoming request: ", r.Method, r.URL.String())
+	addCORSheaders(w)
+
+	// Ensure Redis is initialized only once (at startup)
+	if redisClient == nil {
+		log.Warn("Redis client not initialized. Redis might be down.")
+		handleFallback(w, r)
+		return
+	}
+
+	subDir := path.Join("/", conf.UploadSubDir)
+	fileStorePath := strings.TrimPrefix(r.URL.Path, subDir)
+	if fileStorePath == "" || fileStorePath == "/" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if fileStorePath[0] == '/' {
+		fileStorePath = fileStorePath[1:]
+	}
+
+	absFilename := filepath.Join(conf.StoreDir, fileStorePath)
+
+	if r.Method == http.MethodPut {
+		handleUpload(w, r, absFilename, fileStorePath)
+	} else if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		serveFile(w, r, absFilename)
+	} else if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "GET, PUT, OPTIONS")
+	} else {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// Handle uploads with HMAC validation
+func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fileStorePath string) {
+	a, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	mac := hmac.New(sha256.New, []byte(conf.Secret))
+	mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+	macString := hex.EncodeToString(mac.Sum(nil))
+
+	if hmac.Equal([]byte(macString), []byte(a["v"][0])) {
+		createFile(absFilename, w, r)
+	} else {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+	}
+}
+
+// Serve file for GET or HEAD requests with caching
+func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
+	fileInfo, err := os.Stat(absFilename)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	} else if fileInfo.IsDir() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Set Cache-Control header for caching
+	w.Header().Set("Cache-Control", "public, max-age=3600")  // Cache for 1 hour
+	w.Header().Set("Last-Modified", fileInfo.ModTime().UTC().Format(http.TimeFormat))
+
+	// Optionally add ETag for client-side cache validation
+	etag := fmt.Sprintf("%x", fileInfo.ModTime().UnixNano())
+	w.Header().Set("ETag", etag)
+
+	// Handle If-Modified-Since header to avoid serving the file if it's not changed
+	if since := r.Header.Get("If-Modified-Since"); since != "" {
+		t, err := time.Parse(http.TimeFormat, since)
+		if err == nil && fileInfo.ModTime().Before(t.Add(1*time.Second)) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+
+	// Handle If-None-Match (ETag validation)
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Set Content-Type header based on file extension
+	contentType := mime.TypeByExtension(filepath.Ext(absFilename))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+	} else {
+		http.ServeFile(w, r, absFilename)
+	}
+}
+
+// Create a new file during upload
+func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
+	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		http.Error(w, "Conflict", http.StatusConflict)
+		return
+	}
+	defer targetFile.Close()
+
+	_, err = io.Copy(targetFile, r.Body)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	uploadsTotal.Inc()
+	w.WriteHeader(http.StatusCreated)
+}
+
+// Set CORS headers
 func addCORSheaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", ALLOWED_METHODS)
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With, X-Session-Token")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-// Optimized Redis Session Management with Context
-func manageSession(r *http.Request) (string, error) {
-	// Get or generate a session token
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	sessionToken := r.Header.Get("X-Session-Token")
-	if sessionToken == "" {
-		sessionToken = generateSessionToken() // Generate a new session token
-	}
-
-	// If Redis is available, store the session in Redis
-	if redisClient != nil {
-		err := redisClient.Set(ctx, fmt.Sprintf("session:%s", sessionToken), sessionToken, 24*time.Hour).Err()
-		if err != nil {
-			log.Warnf("Error storing session in Redis: %v", err)
-			return "", err
+// Fallback logic when Redis is unavailable
+func handleFallback(w http.ResponseWriter, r *http.Request) {
+	if conf.FallbackEnabled {
+		if conf.FallbackDBType == "postgres" {
+			log.Info("Using PostgreSQL fallback database...")
+			query := `INSERT INTO uploads (file_name, timestamp) VALUES ($1, $2)`
+			_, err := postgresConn.Exec(context.Background(), query, "example.txt", time.Now())
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+		} else if conf.FallbackDBType == "mysql" {
+			log.Info("Using MySQL fallback database...")
+			query := `INSERT INTO uploads (file_name, timestamp) VALUES (?, ?)`
+			stmt, err := mysqlConn.Prepare(query)
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			_, err = stmt.Exec("example.txt", time.Now())
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
 		}
 	} else {
-		// Fall back to in-memory cache
-		fileMetadataCache.Set(fmt.Sprintf("session:%s", sessionToken), sessionToken, cache.DefaultExpiration)
-	}
-
-	return sessionToken, nil
-}
-
-// Retry function to restart failed subroutines with exponential backoff
-func retryUpload(ctx context.Context, maxRetries int, retryDelay int, uploadFunc func() error) error {
-	var attempt int
-	for {
-		err := uploadFunc()
-		if err == nil {
-			return nil
-		}
-
-		attempt++
-		if attempt >= maxRetries {
-			log.Errorf("Upload failed after %d attempts: %v", attempt, err)
-			return err
-		}
-
-		// Exponential backoff for retry delay
-		delay := time.Duration(retryDelay*(1<<attempt)) * time.Second
-		log.Warnf("Upload failed, retrying in %v (attempt %d/%d)", delay, attempt, maxRetries)
-		time.Sleep(delay)
+		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 	}
 }
 
-// Request handler with self-healing function for upload retries
-=======
-// Handler function for HTTP requests
->>>>>>> origin/main
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-    // Placeholder logic for handling HTTP requests
-    w.WriteHeader(http.StatusOK)
-    w.Write([]byte("Request handled successfully!"))
-}
-
-// Deletes old files based on retention policy
-func deleteOldFiles() error {
-    // Placeholder logic for deleting old files
-    log.Info("Deleting old files based on retention policy...")
-    return nil
-}
-
-// Main function with Redis check, graceful shutdown, request timeout, and metrics
+// Main function
 func main() {
-    var configFile string
-    var showHelp bool
-    var showVersion bool
-    var proto string
+	var configFile string
+	var proto string
 
-    flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
-    flag.BoolVar(&showHelp, "help", false, "Display this help message")
-    flag.BoolVar(&showVersion, "version", false, "Show the version of the program")
+	fmt.Println("Starting HMAC File Server - v2.0...")
 
-    flag.Parse()
+	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file.")
+	flag.Parse()
 
-    if showHelp {
-        fmt.Println("Usage: hmac-file-server [options]")
-        os.Exit(0)
-    }
+	fmt.Println("Reading configuration from:", configFile)
 
-    if showVersion {
-        fmt.Println("hmac-file-server version", versionString)
-        os.Exit(0)
-    }
-
-    err := readConfig(configFile, &conf)
-    if err != nil {
-        log.Fatalln("Error reading configuration file:", err)
-    }
-
-    setupLogging()
-
-    // Initialize Redis Client if enabled in config
-    if conf.RedisEnabled {
-        redisClient, err = InitRedisClient()
-        if err != nil {
-            log.Warnf("Redis not reachable: %v. Falling back to in-memory cache.", err)
-            redisClient = nil
-        } else {
-            checkRedisConnection() // Log the connection status
-        }
-    }
-
-    if conf.NumCores == "auto" {
-        runtime.GOMAXPROCS(runtime.NumCPU())
-        log.Infof("Using all available cores: %d", runtime.NumCPU())
-    } else {
-        numCores, err := strconv.Atoi(conf.NumCores)
-        if err != nil || numCores < 1 {
-            log.Warn("Invalid NumCores value. Defaulting to 1 core.")
-            numCores = 1
-        }
-        runtime.GOMAXPROCS(numCores)
-        log.Infof("Using %d cores", numCores)
-    }
-
-    if conf.UnixSocket {
-        proto = "unix"
-    } else {
-        proto = "tcp"
-    }
-
-    address := conf.ListenPort
-    listener, err := net.Listen(proto, address)
-    if err != nil {
-        log.Fatalln("Could not open listener:", err)
-    }
-
-<<<<<<< HEAD
-	// Use the ReadTimeout and WriteTimeout from the config, and enable Keep-Alive
-	srv := &http.Server{
-		Addr:              address,
-		ReadTimeout:       time.Duration(conf.ReadTimeout) * time.Second,
-		WriteTimeout:      time.Duration(conf.WriteTimeout) * time.Second,
-		IdleTimeout:       120 * time.Second, // Idle timeout for keep-alive
-		ReadHeaderTimeout: 60 * time.Second,  // Time to read headers, for keep-alive
-		MaxHeaderBytes:    1 << 20,           // 1 MB max header size
-		ConnState: func(conn net.Conn, state http.ConnState) {
-			log.Infof("Connection state changed: %v", state)
-		},
+	if err := readConfig(configFile, &conf); err != nil {
+		fmt.Println("Error reading config:", err)
+		log.Fatalln("Error reading config:", err)
 	}
-=======
-    // Use the ReadTimeout and WriteTimeout from the config, and enable Keep-Alive
-    srv := &http.Server{
-        Addr:              address,
-        ReadTimeout:       time.Duration(conf.ReadTimeout) * time.Second,
-        WriteTimeout:      time.Duration(conf.WriteTimeout) * time.Second,
-        IdleTimeout:       120 * time.Second, // Idle timeout for keep-alive
-        ReadHeaderTimeout: 60 * time.Second,  // Time to read headers, for keep-alive
-        MaxHeaderBytes:    1 << 20,           // 1 MB max header size
-    }
->>>>>>> origin/main
 
-    // Start metrics server if enabled
-    if conf.MetricsEnabled {
-        go func() {
-            http.Handle("/metrics", promhttp.Handler())
-            log.Printf("Metrics server listening on %s", conf.MetricsPort)
-            if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
-                log.Fatalf("Metrics server failed: %v", err)
-            }
-        }()
-    }
+	fmt.Println("Configuration loaded successfully.")
 
-    // Start the main server
-    go func() {
-        http.HandleFunc("/", handleRequest)
-        log.Printf("Server started on %s. Waiting for requests.\n", address)
-        if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("Server error: %s\n", err)
-        }
-    }()
+	// Setup logging
+	setupLogging()
+	fmt.Println("Logging setup completed.")
 
-    if conf.RetentionPolicyEnabled {
-        go func() {
-            for {
-                if err := deleteOldFiles(); err != nil {
-                    log.Errorf("Error deleting old files: %v", err)
-                }
-                time.Sleep(24 * time.Hour)
-            }
-        }()
-    }
+	// Initialize Redis if configured
+	if conf.RedisAddr != "" {
+		fmt.Println("Initializing Redis...")
+		if err := initRedis(); err != nil {
+			fmt.Println("Failed to initialize Redis:", err)
+		} else {
+			fmt.Println("Redis initialized successfully.")
+		}
+	}
 
-    // Graceful shutdown handling
-    quit := make(chan os.Signal, 1)
-    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-    <-quit
-    log.Println("Shutting down server...")
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
+	// Initialize fallback database if enabled
+	if conf.FallbackEnabled {
+		fmt.Println("Initializing fallback database...")
+		if conf.FallbackDBType == "postgres" {
+			if err := initPostgres(); err != nil {
+				fmt.Println("Failed to initialize PostgreSQL:", err)
+				log.Fatalln("Could not connect to PostgreSQL fallback database:", err)
+			} else {
+				fmt.Println("PostgreSQL initialized successfully.")
+			}
+		} else if conf.FallbackDBType == "mysql" {
+			if err := initMySQL(); err != nil {
+				fmt.Println("Failed to initialize MySQL:", err)
+				log.Fatalln("Could not connect to MySQL fallback database:", err)
+			} else {
+				fmt.Println("MySQL initialized successfully.")
+			}
+		}
+	}
 
-    if err := srv.Shutdown(ctx); err != nil {
-        log.Fatal("Server forced to shutdown:", err)
-    }
-    log.Println("Server exiting")
+	// Check network listener initialization
+	if conf.UnixSocket {
+		proto = "unix"
+	} else {
+		proto = "tcp"
+	}
+
+	fmt.Println("Attempting to open listener on:", conf.ListenPort)
+	listener, err := net.Listen(proto, conf.ListenPort)
+	if err != nil {
+		fmt.Println("Error opening listener:", err)
+		log.Fatalln("Could not open listener:", err)
+	}
+
+	fmt.Println("Listener opened successfully on:", conf.ListenPort)
+
+	// Start the metrics server if enabled
+	if conf.MetricsEnabled {
+		go func() {
+			fmt.Println("Starting metrics server on:", conf.MetricsPort)
+			http.Handle("/metrics", promhttp.Handler())
+			log.Printf("Metrics server listening on %s", conf.MetricsPort)
+			if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
+				fmt.Println("Metrics server failed:", err)
+				log.Fatalf("Metrics server failed: %v", err)
+			}
+		}()
+	}
+
+	subpath := path.Join("/", conf.UploadSubDir)
+	subpath = strings.TrimRight(subpath, "/") + "/"
+	http.HandleFunc(subpath, handleRequest)
+
+	// Graceful shutdown handling
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-quit
+		fmt.Println("Shutting down server...")
+		listener.Close()
+		fmt.Println("Server stopped.")
+	}()
+
+	fmt.Printf("Server started on %s. Waiting for requests.\n", conf.ListenPort)
+	err = http.Serve(listener, nil)
+	if err != nil {
+		fmt.Println("HTTP server error:", err)
+	}
+}
+
+// Read config from TOML
+func readConfig(configFile string, config *Config) error {
+	_, err := toml.DecodeFile(configFile, config)
+	return err
 }
