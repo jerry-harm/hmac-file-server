@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -31,6 +33,7 @@ type Config struct {
 	StoreDir     string
 	UploadSubDir string
 	LogLevel     string
+	MetricsPort  string
 }
 
 var conf Config
@@ -53,6 +56,30 @@ var ALLOWED_METHODS string = strings.Join(
 	", ",
 )
 
+// Prometheus metrics
+var (
+	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac",
+		Name:      "file_server_upload_duration_seconds",
+		Help:      "Histogram of file upload duration in seconds.",
+		Buckets:   prometheus.DefBuckets,
+	})
+	uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_upload_errors_total",
+		Help:      "Total number of file upload errors.",
+	})
+	uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_uploads_total",
+		Help:      "Total number of successful file uploads.",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
+}
+
 /*
  * Sets CORS headers
  */
@@ -66,7 +93,7 @@ func addCORSheaders(w http.ResponseWriter) {
 
 /*
  * Request handler
- * Is activated when a clients requests the file, file information or an upload
+ * Is activated when a client requests a file, file information, or an upload
  */
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	log.Info("Incoming request: ", r.Method, r.URL.String())
@@ -228,6 +255,7 @@ func createFile(absFilename string, fileStorePath string, w http.ResponseWriter,
 		return fmt.Errorf("failed to copy file contents to %s: %s", absFilename, err)
 	}
 
+	uploadsTotal.Inc()
 	w.WriteHeader(http.StatusCreated)
 	return nil
 }
@@ -268,6 +296,19 @@ func setLogLevel() {
 }
 
 /*
+ * Starts the metrics server in a separate goroutine
+ */
+func startMetricsServer() {
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		log.Printf("Metrics server listening on %s", conf.MetricsPort)
+		if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
+			log.Fatalf("Metrics server failed: %v", err)
+		}
+	}()
+}
+
+/*
  * Main function
  */
 func main() {
@@ -299,10 +340,15 @@ func main() {
 		proto = "tcp"
 	}
 
+	// Start the metrics server in a separate process
+	if conf.MetricsPort != "" {
+		startMetricsServer()
+	}
+
 	/*
 	 * Start HTTP server
 	 */
-	log.Println("Starting prosody-filer", versionString, "...")
+	log.Println("Starting HMAC file server", versionString, "...")
 	listener, err := net.Listen(proto, conf.ListenPort)
 	if err != nil {
 		log.Fatalln("Could not open listening socket:", err)
