@@ -154,6 +154,44 @@ func setupLogging() {
 	logSystemInfo()
 }
 
+// Periodically log the status of goroutines, memory, and CPU usage
+func monitorSystemStatus() {
+    ticker := time.NewTicker(10 * time.Second) // Adjust the interval as needed
+    defer ticker.Stop()
+
+    for range ticker.C {
+        // Log the number of active goroutines
+        numGoroutines := runtime.NumGoroutine()
+        log.Infof("Active goroutines: %d", numGoroutines)
+
+        // Log memory usage
+        var memStats runtime.MemStats
+        runtime.ReadMemStats(&memStats)
+        log.Infof("Memory usage - Alloc: %v MB, TotalAlloc: %v MB, Sys: %v MB, NumGC: %v",
+            memStats.Alloc/1024/1024, memStats.TotalAlloc/1024/1024, memStats.Sys/1024/1024, memStats.NumGC)
+
+        // Log CPU usage
+        cpuPercent, err := cpu.Percent(0, false)
+        if err == nil && len(cpuPercent) > 0 {
+            log.Infof("CPU usage: %.2f%%", cpuPercent[0])
+        } else {
+            log.Warn("Could not retrieve CPU usage information.")
+        }
+    }
+}
+
+// Periodically trigger garbage collection
+func startPeriodicGarbageCollection() {
+    ticker := time.NewTicker(30 * time.Second) // Adjust the interval as needed
+    defer ticker.Stop()
+
+    for range ticker.C {
+        log.Info("Running manual garbage collection...")
+        runtime.GC()
+        log.Info("Garbage collection completed.")
+    }
+}
+
 // Initialize Redis client only once at startup
 func initRedis() error {
 	if conf.RedisAddr != "" {
@@ -491,6 +529,12 @@ func main() {
 	// Setup logging
 	setupLogging()
 	fmt.Println("Logging setup completed.")
+
+	// Start monitoring system status (goroutines, memory, CPU)
+	go monitorSystemStatus()
+
+	// Start periodic garbage collection
+	go startPeriodicGarbageCollection()
 
 	// Initialize Redis if configured
 	if conf.RedisAddr != "" {
