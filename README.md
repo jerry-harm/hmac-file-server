@@ -15,6 +15,8 @@ This server ensures secure file transfers using a configurable HMAC key and offe
 - **Graceful Shutdown** to ensure no data loss during termination
 - **PostgreSQL/MySQL Fallback** for Redis session handling
 
+![image](https://github.com/user-attachments/assets/2c32528d-2169-47c9-9d5b-bd3f77f26c53)
+
 ## Configuration
 
 The configuration for the HMAC File Server is managed through a TOML file. Below is an example configuration:
