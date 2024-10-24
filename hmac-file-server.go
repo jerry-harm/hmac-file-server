@@ -48,11 +48,11 @@ type Config struct {
 	LogFile                string
 	MaxRetries             int
 	RetryDelay             int
-	RedisAddr              string // Empty if Redis is not enabled
+	RedisAddr              string
 	RedisPassword          string
 	RedisDB                int
-	FallbackEnabled        bool   // Use fallback database (MariaDB/PostgreSQL) if true
-	FallbackDBType         string // "postgres" or "mysql"
+	FallbackEnabled        bool
+	FallbackDBType         string
 	FallbackDBHost         string
 	FallbackDBUser         string
 	FallbackDBPassword     string
@@ -60,10 +60,11 @@ type Config struct {
 	MetricsEnabled         bool
 	MetricsPort            string
 	ChunkSize              int
-	UploadMaxSize          int64  // Maximum upload size
-	MaxBytesPerSecond      int    // Rate limiting in bytes per second
-	MaxWorkers             string // "auto" or specific number of worker goroutines
-	MaxMemoryMB            int    // Maximum memory in MB
+	UploadMaxSize          int64
+	MaxBytesPerSecond      int
+	MaxWorkers             string
+	MaxMemoryMB            int
+	HMACValidationEnabled   bool // New field to enable/disable HMAC validation
 }
 
 var conf Config
@@ -386,31 +387,15 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
 		return
 	}
 
-	// Determine protocol version and initialize HMAC
-	var protocolVersion string
-	if a["v2"] != nil {
-		protocolVersion = "v2"
-	} else if a["token"] != nil {
-		protocolVersion = "token"
-	} else if a["v"] != nil {
-		protocolVersion = "v"
-	} else {
-		log.Warn("No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC")
-		http.Error(w, "No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC", http.StatusForbidden)
-		return
-	}
-
 	// Initialize HMAC
 	mac := hmac.New(sha256.New, []byte(conf.Secret))
 	macString := ""
 
+	// Determine protocol version
+	protocolVersion := a.Get("v2") // Assuming you are using v2
+
 	// Calculate MAC based on protocol version
-	if protocolVersion == "v" {
-		// For "v" use a space character (0x20) between components of MAC
-		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
-		macString = hex.EncodeToString(mac.Sum(nil))
-	} else if protocolVersion == "v2" || protocolVersion == "token" {
-		// For "v2" and "token" use a null byte (0x00) between components of MAC
+	if protocolVersion == "v2" {
 		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
 		if contentType == "" {
 			contentType = "application/octet-stream"
@@ -419,17 +404,21 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
 		macString = hex.EncodeToString(mac.Sum(nil))
 	}
 
-	// Check if calculated MAC matches the one provided by the client
-	if hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
-		// Proceed with upload
-		if chunkID := r.Header.Get("X-Chunk-ID"); chunkID != "" {
-			handleChunkedUpload(absFilename, w, r, chunkID)
-		} else {
-			// Handle normal upload
-			createFile(absFilename, w, r)
+	// HMAC Validation Logic
+	if conf.HMACValidationEnabled {
+		if !hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
+			http.Error(w, "Invalid MAC", http.StatusForbidden)
+			log.Warn("MAC validation failed for upload.")
+			return
 		}
+	}
+
+	// Proceed with upload
+	if chunkID := r.Header.Get("X-Chunk-ID"); chunkID != "" {
+		handleChunkedUpload(absFilename, w, r, chunkID)
 	} else {
-		http.Error(w, "Invalid MAC", http.StatusForbidden)
+		// Handle normal upload
+		createFile(absFilename, w, r)
 	}
 }
 
