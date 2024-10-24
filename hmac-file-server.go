@@ -48,23 +48,22 @@ type Config struct {
 	LogFile                string
 	MaxRetries             int
 	RetryDelay             int
-	RedisAddr              string
+	RedisAddr              string // Empty if Redis is not enabled
 	RedisPassword          string
 	RedisDB                int
-	FallbackEnabled        bool
-	FallbackDBType         string
+	FallbackEnabled        bool   // Use fallback database (MariaDB/PostgreSQL) if true
+	FallbackDBType         string // "postgres" or "mysql"
 	FallbackDBHost         string
 	FallbackDBUser         string
 	FallbackDBPassword     string
 	FallbackDBName         string
 	MetricsEnabled         bool
 	MetricsPort            string
-	ChunkSize              string  // Now a human-readable string like "64KB"
-	UploadMaxSize          string  // Human-readable string like "1GB"
-	MaxBytesPerSecond      string  // Human-readable string like "1MB/s"
-	MaxWorkers             string  // Auto or a specific number
-	MaxMemoryMB            string  // Human-readable like "4GB"
-	GarbageCollectionInterval string // Interval for garbage collection in human-readable form like "30s"
+	ChunkSize              int
+	UploadMaxSize          int64  // Maximum upload size
+	MaxBytesPerSecond      int    // Rate limiting in bytes per second
+	MaxWorkers             string // "auto" or specific number of worker goroutines
+	MaxMemoryMB            int    // Maximum memory in MB
 }
 
 var conf Config
@@ -145,37 +144,6 @@ func init() {
 	prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
 }
 
-// Helper function to convert human-readable sizes to bytes
-func humanReadableToBytes(value string) (int64, error) {
-	var multiplier int64 = 1
-	value = strings.ToUpper(value)
-
-	if strings.HasSuffix(value, "KB") {
-		multiplier = 1024
-		value = strings.TrimSuffix(value, "KB")
-	} else if strings.HasSuffix(value, "MB") {
-		multiplier = 1024 * 1024
-		value = strings.TrimSuffix(value, "MB")
-	} else if strings.HasSuffix(value, "GB") {
-		multiplier = 1024 * 1024 * 1024
-		value = strings.TrimSuffix(value, "GB")
-	} else if strings.HasSuffix(value, "B") {
-		value = strings.TrimSuffix(value, "B")
-	}
-
-	parsedValue, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return parsedValue * multiplier, nil
-}
-
-// Helper function to convert human-readable durations to time.Duration
-func humanReadableToDuration(value string) (time.Duration, error) {
-	return time.ParseDuration(value)
-}
-
 // Log system information with a banner
 func logSystemInfo() {
 	log.Info("========================================")
@@ -252,7 +220,7 @@ func monitorSystemStatus() {
 
 // Periodically trigger garbage collection
 func startPeriodicGarbageCollection() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(600 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -413,8 +381,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fi
 	}
 
 	// Enforce maximum upload size
-	uploadMaxSize, _ := humanReadableToBytes(conf.UploadMaxSize)
-	if r.ContentLength > uploadMaxSize {
+	if r.ContentLength > conf.UploadMaxSize {
 		http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
 		return
 	}
@@ -490,8 +457,7 @@ func appendToFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	}
 	defer targetFile.Close()
 
-	maxBytesPerSecond, _ := humanReadableToBytes(conf.MaxBytesPerSecond)
-	_, err = io.Copy(targetFile, throttleUpload(r.Body, int(maxBytesPerSecond)))
+	_, err = io.Copy(targetFile, throttleUpload(r.Body, conf.MaxBytesPerSecond))
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -515,8 +481,7 @@ func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	}
 	defer targetFile.Close()
 
-	maxBytesPerSecond, _ := humanReadableToBytes(conf.MaxBytesPerSecond)
-	_, err = io.Copy(targetFile, throttleUpload(r.Body, int(maxBytesPerSecond)))
+	_, err = io.Copy(targetFile, throttleUpload(r.Body, conf.MaxBytesPerSecond))
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -680,9 +645,9 @@ func setDynamicConfig() {
 
 	// Set MaxMemoryMB based on available memory
 	v, _ := mem.VirtualMemory()
-	conf.MaxMemoryMB = fmt.Sprintf("%dMB", v.Total/(1024*1024)) // Total RAM in MB
+	conf.MaxMemoryMB = int(v.Total / (1024 * 1024)) // Total RAM in MB
 
 	// Log dynamic configurations
 	log.Infof("Max Workers set to: %s", conf.MaxWorkers)
-	log.Infof("Max Memory set to: %s", conf.MaxMemoryMB)
+	log.Infof("Max Memory set to: %d MB", conf.MaxMemoryMB)
 }
