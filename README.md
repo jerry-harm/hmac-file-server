@@ -75,6 +75,8 @@ Start the server by providing the path to your `config.toml`:
 ### Prometheus Metrics
 If enabled, you can access metrics at `/metrics` on the configured `MetricsPort`.
 
+![image](https://github.com/user-attachments/assets/36b42cc0-62c0-4d15-97f2-08091db23c8a)
+
 ### Example of HMAC Authentication
 For `v` protocol:
 ```bash
