@@ -92,10 +92,56 @@ var (
 		Name:      "file_server_uploads_total",
 		Help:      "Total number of successful file uploads.",
 	})
+	downloadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac",
+		Name:      "file_server_download_duration_seconds",
+		Help:      "Histogram of file download duration in seconds.",
+		Buckets:   prometheus.DefBuckets,
+	})
+	downloadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_downloads_total",
+		Help:      "Total number of successful file downloads.",
+	})
+	downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_download_errors_total",
+		Help:      "Total number of file download errors.",
+	})
+	memoryUsage = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "hmac",
+		Name:      "memory_usage_bytes",
+		Help:      "Current memory usage in bytes.",
+	})
+	cpuUsage = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "hmac",
+		Name:      "cpu_usage_percent",
+		Help:      "Current CPU usage as a percentage.",
+	})
+	activeConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "hmac",
+		Name:      "active_connections_total",
+		Help:      "Total number of active connections.",
+	})
+	requestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "hmac",
+			Name:      "http_requests_total",
+			Help:      "Total number of HTTP requests received, labeled by method and path.",
+		},
+		[]string{"method", "path"},
+	)
+	goroutines = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "hmac",
+		Name:      "goroutines_count",
+		Help:      "Current number of goroutines.",
+	})
 )
 
 func init() {
 	prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
+	prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
+	prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
 }
 
 // Log system information with a banner
@@ -106,8 +152,7 @@ func logSystemInfo() {
 	log.Info("========================================")
 
 	log.Info("Features: Redis, Fallback Database (PostgreSQL/MySQL), Prometheus Metrics")
-	log.Info("Build Date: 2024-10-23")  // Add your build date dynamically if needed
-	log.Info("========================================")
+	log.Info("Build Date: 2024-10-23")
 
 	// Log basic system info
 	log.Infof("Operating System: %s", runtime.GOOS)
@@ -154,42 +199,35 @@ func setupLogging() {
 	logSystemInfo()
 }
 
-// Periodically log the status of goroutines, memory, and CPU usage
+// Monitor system status, including memory and CPU
 func monitorSystemStatus() {
-    ticker := time.NewTicker(10 * time.Second) // Adjust the interval as needed
-    defer ticker.Stop()
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 
-    for range ticker.C {
-        // Log the number of active goroutines
-        numGoroutines := runtime.NumGoroutine()
-        log.Infof("Active goroutines: %d", numGoroutines)
+	for range ticker.C {
+		goroutines.Set(float64(runtime.NumGoroutine()))
 
-        // Log memory usage
-        var memStats runtime.MemStats
-        runtime.ReadMemStats(&memStats)
-        log.Infof("Memory usage - Alloc: %v MB, TotalAlloc: %v MB, Sys: %v MB, NumGC: %v",
-            memStats.Alloc/1024/1024, memStats.TotalAlloc/1024/1024, memStats.Sys/1024/1024, memStats.NumGC)
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		memoryUsage.Set(float64(memStats.Alloc))
 
-        // Log CPU usage
-        cpuPercent, err := cpu.Percent(0, false)
-        if err == nil && len(cpuPercent) > 0 {
-            log.Infof("CPU usage: %.2f%%", cpuPercent[0])
-        } else {
-            log.Warn("Could not retrieve CPU usage information.")
-        }
-    }
+		cpuPercent, err := cpu.Percent(0, false)
+		if err == nil && len(cpuPercent) > 0 {
+			cpuUsage.Set(cpuPercent[0])
+		}
+	}
 }
 
 // Periodically trigger garbage collection
 func startPeriodicGarbageCollection() {
-    ticker := time.NewTicker(30 * time.Second) // Adjust the interval as needed
-    defer ticker.Stop()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
-    for range ticker.C {
-        log.Info("Running manual garbage collection...")
-        runtime.GC()
-        log.Info("Garbage collection completed.")
-    }
+	for range ticker.C {
+		log.Info("Running manual garbage collection...")
+		runtime.GC()
+		log.Info("Garbage collection completed.")
+	}
 }
 
 // Initialize Redis client only once at startup
@@ -243,17 +281,10 @@ func initMySQL() error {
 	return nil
 }
 
-// Handle request for uploads and downloads without reconnecting to Redis
+// Handle requests
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	log.Info("Incoming request: ", r.Method, r.URL.String())
 	addCORSheaders(w)
-
-	// Ensure Redis is initialized only once (at startup)
-	if redisClient == nil {
-		log.Warn("Redis client not initialized. Redis might be down.")
-		handleFallback(w, r)
-		return
-	}
 
 	subDir := path.Join("/", conf.UploadSubDir)
 	fileStorePath := strings.TrimPrefix(r.URL.Path, subDir)
@@ -275,6 +306,70 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	} else {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// Serve file for GET or HEAD requests with caching and download tracking
+func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
+	startTime := time.Now() // Track start time for download duration
+
+	fileInfo, err := os.Stat(absFilename)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		downloadErrorsTotal.Inc() // Increment download error counter
+		return
+	} else if fileInfo.IsDir() {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		downloadErrorsTotal.Inc() // Increment download error counter
+		return
+	}
+
+	// Set headers for caching and file serving
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Last-Modified", fileInfo.ModTime().UTC().Format(http.TimeFormat))
+
+	// Optionally add ETag
+	etag := fmt.Sprintf("%x", fileInfo.ModTime().UnixNano())
+	w.Header().Set("ETag", etag)
+
+	// Handle If-Modified-Since and If-None-Match
+	if since := r.Header.Get("If-Modified-Since"); since != "" {
+		t, err := time.Parse(http.TimeFormat, since)
+		if err == nil && fileInfo.ModTime().Before(t.Add(1*time.Second)) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	// Set Content-Type header
+	contentType := mime.TypeByExtension(filepath.Ext(absFilename))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+
+	// Serve the file
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+	} else {
+		http.ServeFile(w, r, absFilename)
+	}
+
+	// Track download duration and increment total downloads
+	downloadsTotal.Inc()
+	downloadDuration.Observe(time.Since(startTime).Seconds())
+}
+
+// Add CORS headers
+func addCORSheaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
 // Handle uploads with HMAC validation and chunking support
@@ -415,99 +510,9 @@ func (t *throttler) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
-// Serve file for GET or HEAD requests with caching
-func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
-	fileInfo, err := os.Stat(absFilename)
-	if err != nil {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
-	} else if fileInfo.IsDir() {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Set Cache-Control header for caching
-	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
-	w.Header().Set("Last-Modified", fileInfo.ModTime().UTC().Format(http.TimeFormat))
-
-	// Optionally add ETag for client-side cache validation
-	etag := fmt.Sprintf("%x", fileInfo.ModTime().UnixNano())
-	w.Header().Set("ETag", etag)
-
-	// Handle If-Modified-Since header to avoid serving the file if it's not changed
-	if since := r.Header.Get("If-Modified-Since"); since != "" {
-		t, err := time.Parse(http.TimeFormat, since)
-		if err == nil && fileInfo.ModTime().Before(t.Add(1*time.Second)) {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-	}
-
-	// Handle If-None-Match (ETag validation)
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-
-	// Set Content-Type header based on file extension
-	contentType := mime.TypeByExtension(filepath.Ext(absFilename))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", contentType)
-
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
-	} else {
-		http.ServeFile(w, r, absFilename)
-	}
-}
-
-// Set CORS headers
-func addCORSheaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Max-Age", "7200")
-}
-
-// Fallback logic when Redis is unavailable
-func handleFallback(w http.ResponseWriter, r *http.Request) {
-	if conf.FallbackEnabled {
-		if conf.FallbackDBType == "postgres" {
-			log.Info("Using PostgreSQL fallback database...")
-			query := `INSERT INTO uploads (file_name, timestamp) VALUES ($1, $2)`
-			_, err := postgresConn.Exec(context.Background(), query, "example.txt", time.Now())
-			if err != nil {
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
-		} else if conf.FallbackDBType == "mysql" {
-			log.Info("Using MySQL fallback database...")
-			query := `INSERT INTO uploads (file_name, timestamp) VALUES (?, ?)`
-			stmt, err := mysqlConn.Prepare(query)
-			if err != nil {
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return
-			}
-			_, err = stmt.Exec("example.txt", time.Now())
-			if err != nil {
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
-		}
-	} else {
-		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-	}
-}
-
 // Main function
 func main() {
 	var configFile string
-	var proto string
 
 	fmt.Println("Starting HMAC File Server - v2.0...")
 
@@ -567,6 +572,7 @@ func main() {
 	}
 
 	// Check network listener initialization
+	var proto string
 	if conf.UnixSocket {
 		proto = "unix"
 	} else {
