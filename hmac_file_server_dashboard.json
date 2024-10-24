@@ -324,7 +324,7 @@
           },
           "mappings": [],
           "thresholds": {
-            "mode": "absolute",
+            "mode": "percentage",
             "steps": [
               {
                 "color": "semi-dark-blue",
@@ -658,6 +658,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 60,
+  "version": 61,
   "weekStart": ""
 }
