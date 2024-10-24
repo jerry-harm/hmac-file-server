@@ -33,7 +33,6 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
-	"github.com/juju/ratelimit" // Added for rate limiting
 	_ "github.com/go-sql-driver/mysql"
 	_ "net/http/pprof"
 )
@@ -49,11 +48,11 @@ type Config struct {
 	LogFile                string
 	MaxRetries             int
 	RetryDelay             int
-	RedisAddr              string
+	RedisAddr              string // Empty if Redis is not enabled
 	RedisPassword          string
 	RedisDB                int
-	FallbackEnabled        bool
-	FallbackDBType         string
+	FallbackEnabled        bool   // Use fallback database (MariaDB/PostgreSQL) if true
+	FallbackDBType         string // "postgres" or "mysql"
 	FallbackDBHost         string
 	FallbackDBUser         string
 	FallbackDBPassword     string
@@ -61,10 +60,10 @@ type Config struct {
 	MetricsEnabled         bool
 	MetricsPort            string
 	ChunkSize              int
-	UploadMaxSize          int64
-	MaxBytesPerSecond      int
-	MaxWorkers             int
-	MaxMemoryMB            int
+	UploadMaxSize          int64  // Maximum upload size
+	MaxBytesPerSecond      int    // Rate limiting in bytes per second
+	MaxWorkers             int    // Number of worker goroutines
+	MaxMemoryMB            int    // Maximum memory in MB
 }
 
 var conf Config
@@ -107,7 +106,8 @@ func logSystemInfo() {
 	log.Info("========================================")
 
 	log.Info("Features: Redis, Fallback Database (PostgreSQL/MySQL), Prometheus Metrics")
-	log.Info("Build Date: 2024-10-23")
+	log.Info("Build Date: 2024-10-23")  // Add your build date dynamically if needed
+	log.Info("========================================")
 
 	// Log basic system info
 	log.Infof("Operating System: %s", runtime.GOOS)
@@ -154,61 +154,42 @@ func setupLogging() {
 	logSystemInfo()
 }
 
-// Initialize rate limiter for API requests (1 request/second with burst of 5)
-var apiRateLimiter = ratelimit.NewBucketWithRate(1, 5)
-
-// Rate limiting middleware for API requests
-func rateLimiter(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if apiRateLimiter.TakeAvailable(1) == 0 {
-			http.Error(w, "Too many requests", http.StatusTooManyRequests)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// Initialize upload rate limiter (1 MB/s with burst up to 10 MB)
-var uploadRateLimiter = ratelimit.NewBucketWithRate(1024*1024, 1024*1024*10)
-
-// Throttle uploads by wrapping the request body
-func throttleUpload(reader io.Reader) io.Reader {
-	return ratelimit.Reader(reader, uploadRateLimiter)
-}
-
 // Periodically log the status of goroutines, memory, and CPU usage
 func monitorSystemStatus() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+    ticker := time.NewTicker(10 * time.Second) // Adjust the interval as needed
+    defer ticker.Stop()
 
-	for range ticker.C {
-		numGoroutines := runtime.NumGoroutine()
-		log.Infof("Active goroutines: %d", numGoroutines)
+    for range ticker.C {
+        // Log the number of active goroutines
+        numGoroutines := runtime.NumGoroutine()
+        log.Infof("Active goroutines: %d", numGoroutines)
 
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		log.Infof("Memory usage - Alloc: %v MB, TotalAlloc: %v MB, Sys: %v MB, NumGC: %v",
-			memStats.Alloc/1024/1024, memStats.TotalAlloc/1024/1024, memStats.Sys/1024/1024, memStats.NumGC)
+        // Log memory usage
+        var memStats runtime.MemStats
+        runtime.ReadMemStats(&memStats)
+        log.Infof("Memory usage - Alloc: %v MB, TotalAlloc: %v MB, Sys: %v MB, NumGC: %v",
+            memStats.Alloc/1024/1024, memStats.TotalAlloc/1024/1024, memStats.Sys/1024/1024, memStats.NumGC)
 
-		cpuPercent, err := cpu.Percent(0, false)
-		if err == nil && len(cpuPercent) > 0 {
-			log.Infof("CPU usage: %.2f%%", cpuPercent[0])
-		} else {
-			log.Warn("Could not retrieve CPU usage information.")
-		}
-	}
+        // Log CPU usage
+        cpuPercent, err := cpu.Percent(0, false)
+        if err == nil && len(cpuPercent) > 0 {
+            log.Infof("CPU usage: %.2f%%", cpuPercent[0])
+        } else {
+            log.Warn("Could not retrieve CPU usage information.")
+        }
+    }
 }
 
 // Periodically trigger garbage collection
 func startPeriodicGarbageCollection() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+    ticker := time.NewTicker(30 * time.Second) // Adjust the interval as needed
+    defer ticker.Stop()
 
-	for range ticker.C {
-		log.Info("Running manual garbage collection...")
-		runtime.GC()
-		log.Info("Garbage collection completed.")
-	}
+    for range ticker.C {
+        log.Info("Running manual garbage collection...")
+        runtime.GC()
+        log.Info("Garbage collection completed.")
+    }
 }
 
 // Initialize Redis client only once at startup
@@ -381,7 +362,7 @@ func appendToFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	}
 	defer targetFile.Close()
 
-	_, err = io.Copy(targetFile, throttleUpload(r.Body))
+	_, err = io.Copy(targetFile, throttleUpload(r.Body, conf.MaxBytesPerSecond))
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -405,7 +386,7 @@ func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 	}
 	defer targetFile.Close()
 
-	_, err = io.Copy(targetFile, throttleUpload(r.Body))
+	_, err = io.Copy(targetFile, throttleUpload(r.Body, conf.MaxBytesPerSecond))
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -413,6 +394,25 @@ func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
 
 	uploadsTotal.Inc()
 	w.WriteHeader(http.StatusCreated)
+}
+
+// Throttle upload speed based on maxBytesPerSecond setting
+func throttleUpload(reader io.Reader, maxBytesPerSecond int) io.Reader {
+	return io.TeeReader(reader, &throttler{maxBytesPerSecond: maxBytesPerSecond})
+}
+
+// Define the throttler struct
+type throttler struct {
+	maxBytesPerSecond int
+}
+
+// Write method to throttle uploads
+func (t *throttler) Write(p []byte) (n int, err error) {
+	n = len(p)
+
+	// Sleep to enforce rate limit
+	time.Sleep(time.Second * time.Duration(n) / time.Duration(t.maxBytesPerSecond))
+	return n, nil
 }
 
 // Serve file for GET or HEAD requests with caching
@@ -521,8 +521,14 @@ func main() {
 		log.Fatalln("Error reading config:", err)
 	}
 
+	// Set dynamic configurations
 	setDynamicConfig()
+
+	fmt.Println("Configuration loaded successfully.")
+
+	// Setup logging
 	setupLogging()
+	fmt.Println("Logging setup completed.")
 
 	// Start monitoring system status (goroutines, memory, CPU)
 	go monitorSystemStatus()
@@ -542,11 +548,21 @@ func main() {
 
 	// Initialize fallback database if enabled
 	if conf.FallbackEnabled {
-		if err := initPostgres(); err != nil {
-			log.Fatalln("Could not connect to PostgreSQL fallback database:", err)
-		}
-		if err := initMySQL(); err != nil {
-			log.Fatalln("Could not connect to MySQL fallback database:", err)
+		fmt.Println("Initializing fallback database...")
+		if conf.FallbackDBType == "postgres" {
+			if err := initPostgres(); err != nil {
+				fmt.Println("Failed to initialize PostgreSQL:", err)
+				log.Fatalln("Could not connect to PostgreSQL fallback database:", err)
+			} else {
+				fmt.Println("PostgreSQL initialized successfully.")
+			}
+		} else if conf.FallbackDBType == "mysql" {
+			if err := initMySQL(); err != nil {
+				fmt.Println("Failed to initialize MySQL:", err)
+				log.Fatalln("Could not connect to MySQL fallback database:", err)
+			} else {
+				fmt.Println("MySQL initialized successfully.")
+			}
 		}
 	}
 
@@ -557,35 +573,46 @@ func main() {
 		proto = "tcp"
 	}
 
+	fmt.Println("Attempting to open listener on:", conf.ListenPort)
 	listener, err := net.Listen(proto, conf.ListenPort)
 	if err != nil {
+		fmt.Println("Error opening listener:", err)
 		log.Fatalln("Could not open listener:", err)
 	}
+
+	fmt.Println("Listener opened successfully on:", conf.ListenPort)
 
 	// Start the metrics server if enabled
 	if conf.MetricsEnabled {
 		go func() {
+			fmt.Println("Starting metrics server on:", conf.MetricsPort)
 			http.Handle("/metrics", promhttp.Handler())
 			log.Printf("Metrics server listening on %s", conf.MetricsPort)
 			if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
+				fmt.Println("Metrics server failed:", err)
 				log.Fatalf("Metrics server failed: %v", err)
 			}
 		}()
 	}
 
-	http.Handle("/upload", rateLimiter(http.HandlerFunc(handleRequest)))
+	subpath := path.Join("/", conf.UploadSubDir)
+	subpath = strings.TrimRight(subpath, "/") + "/"
+	http.HandleFunc(subpath, handleRequest)
 
 	// Graceful shutdown handling
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-quit
+		fmt.Println("Shutting down server...")
 		listener.Close()
+		fmt.Println("Server stopped.")
 	}()
 
+	fmt.Printf("Server started on %s. Waiting for requests.\n", conf.ListenPort)
 	err = http.Serve(listener, nil)
 	if err != nil {
-		log.Fatalf("HTTP server error: %v", err)
+		fmt.Println("HTTP server error:", err)
 	}
 }
 
