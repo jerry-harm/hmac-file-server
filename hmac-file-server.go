@@ -1,11 +1,8 @@
 package main
 
 import (
-	"bufio"
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -15,65 +12,31 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/go-redis/redis/v8"
-	"github.com/jackc/pgx/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
-	_ "github.com/go-sql-driver/mysql"
-	_ "net/http/pprof"
 )
 
-// Configuration struct with fallback options
-type Config struct {
-	ListenPort             string
-	UnixSocket             bool
-	Secret                 string
-	StoreDir               string
-	UploadSubDir           string
-	LogLevel               string
-	LogFile                string
-	MaxRetries             int
-	RetryDelay             int
-	RedisAddr              string
-	RedisPassword          string
-	RedisDB                int
-	FallbackEnabled        bool
-	FallbackDBType         string
-	FallbackDBHost         string
-	FallbackDBUser         string
-	FallbackDBPassword     string
-	FallbackDBName         string
-	MetricsEnabled         bool
-	MetricsPort            string
-	ChunkSize              string  // Now a human-readable string like "64KB"
-	UploadMaxSize          string  // Human-readable string like "1GB"
-	MaxBytesPerSecond      string  // Human-readable string like "1MB/s"
-	MaxWorkers             string  // Auto or a specific number
-	MaxMemoryMB            string  // Human-readable like "4GB"
-	GarbageCollectionInterval string // Interval for garbage collection in human-readable form like "30s"
-}
-
 var conf Config
-var log = logrus.New()
+var versionString string = "v2.0"
 
-// Redis client
-var redisClient *redis.Client
-var postgresConn *pgx.Conn
-var mysqlConn *sql.DB
+var log = &logrus.Logger{
+	Out:       os.Stdout,
+	Formatter: new(logrus.TextFormatter),
+	Hooks:     make(logrus.LevelHooks),
+	Level:     logrus.DebugLevel,
+}
 
 // Prometheus metrics
 var (
@@ -139,41 +102,16 @@ var (
 	})
 )
 
-func init() {
-	prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
-	prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
-	prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
-}
-
-// Helper function to convert human-readable sizes to bytes
-func humanReadableToBytes(value string) (int64, error) {
-	var multiplier int64 = 1
-	value = strings.ToUpper(value)
-
-	if strings.HasSuffix(value, "KB") {
-		multiplier = 1024
-		value = strings.TrimSuffix(value, "KB")
-	} else if strings.HasSuffix(value, "MB") {
-		multiplier = 1024 * 1024
-		value = strings.TrimSuffix(value, "MB")
-	} else if strings.HasSuffix(value, "GB") {
-		multiplier = 1024 * 1024 * 1024
-		value = strings.TrimSuffix(value, "GB")
-	} else if strings.HasSuffix(value, "B") {
-		value = strings.TrimSuffix(value, "B")
-	}
-
-	parsedValue, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return parsedValue * multiplier, nil
-}
-
-// Helper function to convert human-readable durations to time.Duration
-func humanReadableToDuration(value string) (time.Duration, error) {
-	return time.ParseDuration(value)
+// Configuration struct
+type Config struct {
+	ListenPort    string
+	UnixSocket    bool
+	Secret        string
+	StoreDir      string
+	UploadSubDir  string
+	LogLevel      string
+	MetricsEnabled bool
+	MetricsPort    string
 }
 
 // Log system information with a banner
@@ -198,6 +136,12 @@ func logSystemInfo() {
 	log.Infof("Free Memory: %v MB", v.Free/1024/1024)
 	log.Infof("Used Memory: %v MB", v.Used/1024/1024)
 
+	// Get CPU information
+	cpuInfo, _ := cpu.Info()
+	for _, info := range cpuInfo {
+		log.Infof("CPU Model: %s, Cores: %d, Mhz: %f", info.ModelName, info.Cores, info.Mhz)
+	}
+
 	// Get host information
 	hInfo, _ := host.Info()
 	log.Infof("Hostname: %s", hInfo.Hostname)
@@ -209,118 +153,37 @@ func logSystemInfo() {
 	log.Infof("Kernel Version: %s", hInfo.KernelVersion)
 }
 
-// Setup logging
-func setupLogging() {
-	if conf.LogFile != "" {
-		file, err := os.OpenFile(conf.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			log.Fatalf("Failed to open log file: %v", err)
-		}
-		writer := bufio.NewWriter(file)
-		log.SetOutput(writer)
 
-		go func() {
-			for range time.Tick(5 * time.Second) {
-				writer.Flush()
-			}
-		}()
-	} else {
-		log.SetOutput(os.Stdout)
-	}
-	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-	logSystemInfo()
+/*
+ * Sets CORS headers
+ */
+func addCORSheaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, HEAD")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-// Monitor system status, including memory and CPU
-func monitorSystemStatus() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		goroutines.Set(float64(runtime.NumGoroutine()))
-
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		memoryUsage.Set(float64(memStats.Alloc))
-
-		cpuPercent, err := cpu.Percent(0, false)
-		if err == nil && len(cpuPercent) > 0 {
-			cpuUsage.Set(cpuPercent[0])
-		}
-	}
-}
-
-// Periodically trigger garbage collection
-func startPeriodicGarbageCollection() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		log.Info("Running manual garbage collection...")
-		runtime.GC()
-		log.Info("Garbage collection completed.")
-	}
-}
-
-// Initialize Redis client only once at startup
-func initRedis() error {
-	if conf.RedisAddr != "" {
-		redisClient = redis.NewClient(&redis.Options{
-			Addr:     conf.RedisAddr,
-			Password: conf.RedisPassword,
-			DB:       conf.RedisDB,
-		})
-
-		_, err := redisClient.Ping(context.Background()).Result()
-		if err != nil {
-			log.Warn("Redis unavailable, switching to fallback.")
-			return err
-		}
-		log.Info("Connected to Redis.")
-	} else {
-		log.Info("Redis not enabled, skipping Redis initialization.")
-	}
-	return nil
-}
-
-// Initialize PostgreSQL connection
-func initPostgres() error {
-	if conf.FallbackEnabled && conf.FallbackDBType == "postgres" {
-		conn, err := pgx.Connect(context.Background(), fmt.Sprintf("postgresql://%s:%s@%s/%s",
-			conf.FallbackDBUser, conf.FallbackDBPassword, conf.FallbackDBHost, conf.FallbackDBName))
-		if err != nil {
-			log.Warn("Failed to connect to PostgreSQL.")
-			return err
-		}
-		log.Info("Connected to PostgreSQL fallback.")
-		postgresConn = conn
-	}
-	return nil
-}
-
-// Initialize MySQL connection
-func initMySQL() error {
-	if conf.FallbackEnabled && conf.FallbackDBType == "mysql" {
-		dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s", conf.FallbackDBUser, conf.FallbackDBPassword, conf.FallbackDBHost, conf.FallbackDBName)
-		db, err := sql.Open("mysql", dsn)
-		if err != nil {
-			log.Warn("Failed to connect to MySQL.")
-			return err
-		}
-		log.Info("Connected to MySQL fallback.")
-		mysqlConn = db
-	}
-	return nil
-}
-
-// Handle requests
+/*
+ * Handles incoming HTTP requests, including HMAC validation and file uploads/downloads
+ */
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	log.Info("Incoming request: ", r.Method, r.URL.String())
-	addCORSheaders(w)
+
+	// Parse URL and args
+	p := r.URL.Path
+	a, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		log.Warn("Failed to parse query")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
 	subDir := path.Join("/", conf.UploadSubDir)
-	fileStorePath := strings.TrimPrefix(r.URL.Path, subDir)
+	fileStorePath := strings.TrimPrefix(p, subDir)
 	if fileStorePath == "" || fileStorePath == "/" {
+		log.Warn("Access to / forbidden")
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	} else if fileStorePath[0] == '/' {
@@ -329,360 +192,237 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	absFilename := filepath.Join(conf.StoreDir, fileStorePath)
 
+	// Add CORS headers
+	addCORSheaders(w)
+
 	if r.Method == http.MethodPut {
-		handleUpload(w, r, absFilename, fileStorePath)
-	} else if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		serveFile(w, r, absFilename)
-	} else if r.Method == http.MethodOptions {
-		w.Header().Set("Allow", "GET, PUT, OPTIONS")
-	} else {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
+		/*
+		 * User client tries to upload file
+		 */
 
-// Serve file for GET or HEAD requests with caching and download tracking
-func serveFile(w http.ResponseWriter, r *http.Request, absFilename string) {
-	startTime := time.Now() // Track start time for download duration
-
-	fileInfo, err := os.Stat(absFilename)
-	if err != nil {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		downloadErrorsTotal.Inc() // Increment download error counter
-		return
-	} else if fileInfo.IsDir() {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		downloadErrorsTotal.Inc() // Increment download error counter
-		return
-	}
-
-	// Set headers for caching and file serving
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Header().Set("Last-Modified", fileInfo.ModTime().UTC().Format(http.TimeFormat))
-
-	// Optionally add ETag
-	etag := fmt.Sprintf("%x", fileInfo.ModTime().UnixNano())
-	w.Header().Set("ETag", etag)
-
-	// Handle If-Modified-Since and If-None-Match
-	if since := r.Header.Get("If-Modified-Since"); since != "" {
-		t, err := time.Parse(http.TimeFormat, since)
-		if err == nil && fileInfo.ModTime().Before(t.Add(1*time.Second)) {
-			w.WriteHeader(http.StatusNotModified)
+		/*
+			Check if MAC is attached to URL and check protocol version.
+			Ejabberd: supports "v" and probably "v2" - Prosody: supports "v" and "v2" - Metronome: supports: "token" (meaning "v2")
+		*/
+		var protocolVersion string
+		if a["v2"] != nil {
+			protocolVersion = "v2"
+		} else if a["token"] != nil {
+			protocolVersion = "token"
+		} else if a["v"] != nil {
+			protocolVersion = "v"
+		} else {
+			log.Warn("No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC")
+			http.Error(w, "No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC", http.StatusForbidden)
 			return
 		}
-	}
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
 
-	// Set Content-Type header
-	contentType := mime.TypeByExtension(filepath.Ext(absFilename))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", contentType)
+		// Init HMAC
+		mac := hmac.New(sha256.New, []byte(conf.Secret))
+		macString := ""
 
-	// Serve the file
-	if r.Method == http.MethodHead {
-		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
-	} else {
-		http.ServeFile(w, r, absFilename)
-	}
+		// Calculate MAC, depending on protocolVersion
+		if protocolVersion == "v" {
+			// use a space character (0x20) between components of MAC
+			mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+			macString = hex.EncodeToString(mac.Sum(nil))
+		} else if protocolVersion == "v2" || protocolVersion == "token" {
+			// Get content type (for v2 / token)
+			contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
 
-	// Track download duration and increment total downloads
-	downloadsTotal.Inc()
-	downloadDuration.Observe(time.Since(startTime).Seconds())
-}
+			// use a null byte character (0x00) between components of MAC
+			mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+			macString = hex.EncodeToString(mac.Sum(nil))
+		}
 
-// Add CORS headers
-func addCORSheaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Max-Age", "7200")
-}
+		/*
+		 * Check whether calculated (expected) MAC is the MAC that client send in "v" URL parameter
+		 */
+		if hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
+			err = createFile(absFilename, fileStorePath, w, r)
+			if err != nil {
+				log.Error(err)
+			}
+			return
+		} else {
+			log.Warning("Invalid MAC.")
+			http.Error(w, "Invalid MAC", http.StatusForbidden)
+			return
+		}
+	} else if r.Method == http.MethodHead || r.Method == http.MethodGet {
+		/*
+		 * User client tries to download a file
+		 */
 
-// Handle uploads with HMAC validation and chunking support
-func handleUpload(w http.ResponseWriter, r *http.Request, absFilename string, fileStorePath string) {
-	a, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+		fileInfo, err := os.Stat(absFilename)
+		if err != nil {
+			log.Error("Getting file information failed:", err)
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		} else if fileInfo.IsDir() {
+			log.Warning("Directory listing forbidden!")
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 
-	// Enforce maximum upload size
-	uploadMaxSize, _ := humanReadableToBytes(conf.UploadMaxSize)
-	if r.ContentLength > uploadMaxSize {
-		http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
-		return
-	}
-
-	// Determine protocol version and initialize HMAC
-	var protocolVersion string
-	if a["v2"] != nil {
-		protocolVersion = "v2"
-	} else if a["token"] != nil {
-		protocolVersion = "token"
-	} else if a["v"] != nil {
-		protocolVersion = "v"
-	} else {
-		log.Warn("No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC")
-		http.Error(w, "No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC", http.StatusForbidden)
-		return
-	}
-
-	// Initialize HMAC
-	mac := hmac.New(sha256.New, []byte(conf.Secret))
-	macString := ""
-
-	// Calculate MAC based on protocol version
-	if protocolVersion == "v" {
-		// For "v" use a space character (0x20) between components of MAC
-		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
-		macString = hex.EncodeToString(mac.Sum(nil))
-	} else if protocolVersion == "v2" || protocolVersion == "token" {
-		// For "v2" and "token" use a null byte (0x00) between components of MAC
+		/*
+		 * Find out the content type to sent correct header. There is a Go function for retrieving the
+		 * MIME content type, but this does not work with encrypted files (=> OMEMO). Therefore we're just
+		 * relying on file extensions.
+		 */
 		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
 		if contentType == "" {
 			contentType = "application/octet-stream"
 		}
-		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-		macString = hex.EncodeToString(mac.Sum(nil))
-	}
+		w.Header().Set("Content-Type", contentType)
 
-	// Check if calculated MAC matches the one provided by the client
-	if hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
-		// Proceed with upload
-		if chunkID := r.Header.Get("X-Chunk-ID"); chunkID != "" {
-			handleChunkedUpload(absFilename, w, r, chunkID)
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 		} else {
-			// Handle normal upload
-			createFile(absFilename, w, r)
+			http.ServeFile(w, r, absFilename)
 		}
+
+		return
+	} else if r.Method == http.MethodOptions {
+		// Client CORS request: Return allowed methods
+		w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
+		return
 	} else {
-		http.Error(w, "Invalid MAC", http.StatusForbidden)
+		// Client is using a prohibited / unsupported method
+		log.Warn("Invalid method", r.Method, "for access to ", conf.UploadSubDir)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 }
 
-// Handle chunked upload logic
-func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request, chunkID string) {
-	totalChunks := r.Header.Get("X-Total-Chunks")
-
-	// Append chunk to file
-	appendToFile(absFilename, w, r)
-
-	// If it's the last chunk, complete the upload process
-	if chunkID == totalChunks {
-		log.Infof("All chunks received for file: %s", absFilename)
-		uploadsTotal.Inc()
+// Create the file for upload
+func createFile(absFilename string, fileStorePath string, w http.ResponseWriter, r *http.Request) error {
+	// Make sure the directory path exists
+	absDirectory := filepath.Dir(absFilename)
+	err := os.MkdirAll(absDirectory, os.ModePerm)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return fmt.Errorf("failed to create directory %s: %s", absDirectory, err)
 	}
-}
 
-// Append chunk to the file
-func appendToFile(absFilename string, w http.ResponseWriter, r *http.Request) {
-	// Open file in append mode
-	targetFile, err := os.OpenFile(absFilename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	// Make sure the target file exists (MUST NOT exist before! -> O_EXCL)
+	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		http.Error(w, "Conflict", http.StatusConflict)
-		return
+		return fmt.Errorf("failed to create file %s: %s", absFilename, err)
 	}
 	defer targetFile.Close()
 
-	maxBytesPerSecond, _ := humanReadableToBytes(conf.MaxBytesPerSecond)
-	_, err = io.Copy(targetFile, throttleUpload(r.Body, int(maxBytesPerSecond)))
+	// Copy file contents to file
+	_, err = io.Copy(targetFile, r.Body)
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return fmt.Errorf("failed to copy file contents to %s: %s", absFilename, err)
 	}
 
-	w.WriteHeader(http.StatusOK)
-}
-
-// Create a new file during normal upload
-func createFile(absFilename string, w http.ResponseWriter, r *http.Request) {
-	err := os.MkdirAll(filepath.Dir(absFilename), os.ModePerm)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		http.Error(w, "Conflict", http.StatusConflict)
-		return
-	}
-	defer targetFile.Close()
-
-	maxBytesPerSecond, _ := humanReadableToBytes(conf.MaxBytesPerSecond)
-	_, err = io.Copy(targetFile, throttleUpload(r.Body, int(maxBytesPerSecond)))
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	uploadsTotal.Inc()
+	uploadsTotal.Inc() // Increment successful upload counter
 	w.WriteHeader(http.StatusCreated)
+	return nil
 }
 
-// Throttle upload speed based on maxBytesPerSecond setting
-func throttleUpload(reader io.Reader, maxBytesPerSecond int) io.Reader {
-	return io.TeeReader(reader, &throttler{maxBytesPerSecond: maxBytesPerSecond})
+func readConfig(configFilename string, conf *Config) error {
+	configData, err := os.ReadFile(configFilename)
+	if err != nil {
+		log.Fatal("Configuration file config.toml cannot be read:", err, "...Exiting.")
+		return err
+	}
+
+	if _, err := toml.Decode(string(configData), conf); err != nil {
+		log.Fatal("Config file config.toml is invalid:", err)
+		return err
+	}
+
+	return nil
 }
 
-// Define the throttler struct
-type throttler struct {
-	maxBytesPerSecond int
+func setLogLevel() {
+	switch conf.LogLevel {
+	case "info":
+		log.SetLevel(logrus.InfoLevel)
+	case "warn":
+		log.SetLevel(logrus.WarnLevel)
+	case "error":
+		log.SetLevel(logrus.ErrorLevel)
+	default:
+		log.SetLevel(logrus.WarnLevel)
+		fmt.Print("Invalid log level set in config. Defaulting to \"warn\"")
+	}
 }
 
-// Write method to throttle uploads
-func (t *throttler) Write(p []byte) (n int, err error) {
-	n = len(p)
-
-	// Sleep to enforce rate limit
-	time.Sleep(time.Second * time.Duration(n) / time.Duration(t.maxBytesPerSecond))
-	return n, nil
-}
-
-// Main function
 func main() {
 	var configFile string
+	var proto string
 
-	fmt.Println("Starting HMAC File Server - v2.0...")
-
-	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file.")
+	// Parse command-line flags
+	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
 	flag.Parse()
 
-	fmt.Println("Reading configuration from:", configFile)
-
-	if err := readConfig(configFile, &conf); err != nil {
-		fmt.Println("Error reading config:", err)
-		log.Fatalln("Error reading config:", err)
+	if !flag.Parsed() {
+		log.Fatalln("Could not parse flags")
 	}
 
-	// Set dynamic configurations
-	setDynamicConfig()
-
-	fmt.Println("Configuration loaded successfully.")
-
-	// Setup logging
-	setupLogging()
-	fmt.Println("Logging setup completed.")
-
-	// Start monitoring system status (goroutines, memory, CPU)
-	go monitorSystemStatus()
-
-	// Start periodic garbage collection
-	go startPeriodicGarbageCollection()
-
-	// Initialize Redis if configured
-	if conf.RedisAddr != "" {
-		fmt.Println("Initializing Redis...")
-		if err := initRedis(); err != nil {
-			fmt.Println("Failed to initialize Redis:", err)
-		} else {
-			fmt.Println("Redis initialized successfully.")
-		}
+	// Read config file
+	err := readConfig(configFile, &conf)
+	if err != nil {
+		log.Fatalln("There was an error while reading the configuration file:", err)
 	}
 
-	// Initialize fallback database if enabled
-	if conf.FallbackEnabled {
-		fmt.Println("Initializing fallback database...")
-		if conf.FallbackDBType == "postgres" {
-			if err := initPostgres(); err != nil {
-				fmt.Println("Failed to initialize PostgreSQL:", err)
-				log.Fatalln("Could not connect to PostgreSQL fallback database:", err)
-			} else {
-				fmt.Println("PostgreSQL initialized successfully.")
-			}
-		} else if conf.FallbackDBType == "mysql" {
-			if err := initMySQL(); err != nil {
-				fmt.Println("Failed to initialize MySQL:", err)
-				log.Fatalln("Could not connect to MySQL fallback database:", err)
-			} else {
-				fmt.Println("MySQL initialized successfully.")
-			}
-		}
+	// Ensure that the HMAC StoreDir directory exists, create it if it does not
+	err = os.MkdirAll(conf.StoreDir, os.ModePerm)
+	if err != nil {
+		log.Fatalf("Could not create directory %s: %v", conf.StoreDir, err)
 	}
+	log.Infof("Directory %s is ready", conf.StoreDir)
 
-	// Check network listener initialization
-	var proto string
+	// Log system information
+	logSystemInfo()
+
+	// Select protocol
 	if conf.UnixSocket {
 		proto = "unix"
 	} else {
 		proto = "tcp"
 	}
 
-	fmt.Println("Attempting to open listener on:", conf.ListenPort)
-	listener, err := net.Listen(proto, conf.ListenPort)
-	if err != nil {
-		fmt.Println("Error opening listener:", err)
-		log.Fatalln("Could not open listener:", err)
-	}
-
-	fmt.Println("Listener opened successfully on:", conf.ListenPort)
-
-	// Start the metrics server if enabled
+	// Register Prometheus metrics
 	if conf.MetricsEnabled {
+		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
+		prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
+		prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
+
 		go func() {
-			fmt.Println("Starting metrics server on:", conf.MetricsPort)
 			http.Handle("/metrics", promhttp.Handler())
-			log.Printf("Metrics server listening on %s", conf.MetricsPort)
+			log.Printf("Starting metrics server on %s", conf.MetricsPort)
 			if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
-				fmt.Println("Metrics server failed:", err)
 				log.Fatalf("Metrics server failed: %v", err)
 			}
 		}()
 	}
 
+	// Start the main server
+	log.Println("Starting HMAC file server", versionString, "...")
+	listener, err := net.Listen(proto, conf.ListenPort)
+	if err != nil {
+		log.Fatalln("Could not open listening socket:", err)
+	}
+
 	subpath := path.Join("/", conf.UploadSubDir)
-	subpath = strings.TrimRight(subpath, "/") + "/"
+	subpath = strings.TrimRight(subpath, "/")
+	subpath += "/"
 	http.HandleFunc(subpath, handleRequest)
 
-	// Graceful shutdown handling
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-quit
-		fmt.Println("Shutting down server...")
-		listener.Close()
-		fmt.Println("Server stopped.")
-	}()
+	log.Printf("Server started on port %s. Waiting for requests.\n", conf.ListenPort)
 
-	fmt.Printf("Server started on %s. Waiting for requests.\n", conf.ListenPort)
-	err = http.Serve(listener, nil)
-	if err != nil {
-		fmt.Println("HTTP server error:", err)
-	}
-}
+	// Set log level
+	setLogLevel()
 
-// Read config from TOML
-func readConfig(configFile string, config *Config) error {
-	_, err := toml.DecodeFile(configFile, config)
-	return err
-}
-
-// Set dynamic configurations based on system resources
-func setDynamicConfig() {
-	// Handle MaxWorkers based on user input or "auto"
-	if conf.MaxWorkers == "auto" {
-		cpuCount, err := cpu.Counts(false)
-		if err != nil {
-			log.Warn("Could not get CPU count, defaulting MaxWorkers to 4")
-			conf.MaxWorkers = "4" // Fallback value
-		} else {
-			conf.MaxWorkers = strconv.Itoa(cpuCount) // Set MaxWorkers based on CPU count
-		}
-	} else {
-		log.Infof("Using user-defined MaxWorkers: %s", conf.MaxWorkers)
-	}
-
-	// Set MaxMemoryMB based on available memory
-	v, _ := mem.VirtualMemory()
-	conf.MaxMemoryMB = fmt.Sprintf("%dMB", v.Total/(1024*1024)) // Total RAM in MB
-
-	// Log dynamic configurations
-	log.Infof("Max Workers set to: %s", conf.MaxWorkers)
-	log.Infof("Max Memory set to: %s", conf.MaxMemoryMB)
+	http.Serve(listener, nil)
 }
