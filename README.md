@@ -1,181 +1,100 @@
-
 # HMAC File Server
 
 ## Overview
 
-The HMAC File Server is a secure file upload and download server that uses HMAC authentication to verify requests. It includes support for chunked uploads, Prometheus metrics, Redis, and fallback database options (PostgreSQL/MySQL).
+The **HMAC File Server** is a secure and scalable solution for file uploads and downloads, protected by HMAC (Hash-based Message Authentication Code). It supports chunked file uploads, rate limiting, Prometheus metrics, and optional Redis or fallback database (PostgreSQL/MySQL) for session handling. 
+
+This server ensures secure file transfers using a configurable HMAC key and offers easy monitoring through Prometheus metrics. It is designed for efficient performance with support for both memory and CPU usage tracking.
 
 ## Features
 
-- Secure file uploads with HMAC authentication
-- Chunked uploads with support for resumable transfers
-- Prometheus metrics integration
-- Redis and fallback database support
-- Configurable upload size and rate limits
-- Graceful shutdown and garbage collection
+- **Secure File Uploads and Downloads** using HMAC
+- **Chunked File Uploads** with optional Redis or fallback database support
+- **Rate Limiting** for uploads
+- **Prometheus Metrics** for monitoring upload/download activity, CPU, memory, and more
+- **Graceful Shutdown** to ensure no data loss during termination
+- **PostgreSQL/MySQL Fallback** for Redis session handling
 
-## Usage
+## Configuration
 
-### Compilation
-
-To build the HMAC File Server, you need to have Go installed. You can compile the server using the following commands:
-
-```bash
-git clone https://github.com/your-repo/hmac-file-server.git
-cd hmac-file-server
-go build -o hmac-file-server
-```
-
-### Configuration
-
-The server configuration is done via a `config.toml` file. Below is an example of the configuration parameters:
+The configuration for the HMAC File Server is managed through a TOML file. Below is an example configuration:
 
 ```toml
-ListenPort = ":8080"  
-UnixSocket = false  
-Secret = "stellar-wisdom-orbit-echo"  
-StoreDir = "/mnt/storage/hmac-file-server/"  
-UploadSubDir = "upload"  
-LogLevel = "info"  
-LogFile = "/var/log/hmac-file-server.log"  
-MaxRetries = 5  
-RetryDelay = 2  
-MetricsEnabled = true  
-MetricsPort = ":9090"  
-ChunkSize = "64KB"  # Human-readable format
-UploadMaxSize = "1GB"  # Human-readable format
-MaxBytesPerSecond = "1MB/s"  # Human-readable format
+# Server settings
+ListenPort = ":8080"                   # Port for the file server to listen on
+UnixSocket = false                     # Use Unix sockets if true, otherwise TCP
+Secret = "a-horse-is-a-horse-even-is-a-jet"    # HMAC secret for securing uploads
+StoreDir = "/mnt/storage/hmac-file-server/"  # Directory for storing uploaded files
+UploadSubDir = "upload"                # Subdirectory for uploads
+LogLevel = "info"                      # Logging level: "debug", "info", "warn", "error"
+LogFile = "/var/log/hmac-file-server.log"  # Log file path
+MaxRetries = 5                         # Maximum number of retries for failed uploads
+RetryDelay = 2                         # Delay in seconds between retries
+
+# Metrics configuration
+MetricsEnabled = true                  # Enable Prometheus metrics
+MetricsPort = ":9090"                  # Port for Prometheus metrics server
+
+# Upload settings
+ChunkSize = 65536                      # Size of each chunk for chunked uploads (in bytes)
+UploadMaxSize = 1073741824             # Maximum upload size (1 GB in bytes)
+MaxBytesPerSecond = 1048576            # Throttle upload speed to 1 MB/s
 
 # Redis configuration (optional)
-RedisAddr = "localhost:6379"  
-RedisPassword = ""  
-RedisDB = 0  
+RedisAddr = "localhost:6379"           # Redis server address (leave blank if not using Redis)
+RedisPassword = ""                     # Redis password (leave blank if no password is required)
+RedisDB = 0                            # Redis database number
 
 # Fallback database configuration (optional)
-FallbackEnabled = false  
-FallbackDBType = "postgres"  
-FallbackDBHost = "localhost"  
-FallbackDBUser = "your_db_user"  
-FallbackDBPassword = "your_db_password"  
-FallbackDBName = "your_db_name"  
+FallbackEnabled = false                # Enable fallback to a database if Redis is unavailable
+FallbackDBType = "postgres"            # Fallback database type ("postgres" or "mysql")
+FallbackDBHost = "localhost"           # Fallback database host
+FallbackDBUser = "your_db_user"        # Fallback database username
+FallbackDBPassword = "your_db_password" # Fallback database password
+FallbackDBName = "your_db_name"        # Fallback database name
 
-# Garbage Collection Intervall
-GarbageCollectionInterval = "30s"  # Garbage collection interval in human-readable format
-
-# Resources CPU/MEM
-MaxWorkers = "auto"
-MaxMemoryMB = "4GB"  # Human-readable format
+# Graceful shutdown settings
+GracefulShutdownTimeout = 30           # Timeout for graceful shutdowns (in seconds)
 ```
 
-### Helper for Configuration Issues
+## Running the Server
 
-The server includes built-in validation for config parameters. If there is an issue with the configuration, the server will display an error message with advice on how to fix it.
+1. Download and configure the `config.toml` file for the server.
+2. Run the server using the following command:
+   ```bash
+   ./hmac-file-server -config /path/to/config.toml
+   ```
 
-### Running the Server
+3. The server will start on the configured port (e.g., `:8080`), and metrics will be available on the Prometheus metrics server port (e.g., `:9090`).
 
-Once compiled, you can run the server using:
+## Prometheus Metrics
 
-```bash
-./hmac-file-server -config ./config.toml
-```
+The HMAC File Server exposes several key metrics through Prometheus:
 
-### Prometheus Metrics
+- **File Upload Duration** (`file_server_upload_duration_seconds`)
+- **File Download Duration** (`file_server_download_duration_seconds`)
+- **Upload/Download Errors** (`file_server_upload_errors_total`, `file_server_download_errors_total`)
+- **Memory and CPU Usage** (`memory_usage_bytes`, `cpu_usage_percent`)
+- **Active Connections** (`active_connections_total`)
+- **Goroutines Count** (`goroutines_count`)
+- **Total Requests** (`http_requests_total`, labeled by method and path)
 
-The following Prometheus metrics are exported by the server:
+## Logging
 
-- `hmac_file_server_upload_duration_seconds`: Histogram of file upload duration in seconds
-- `hmac_file_server_upload_errors_total`: Total number of file upload errors
-- `hmac_file_server_uploads_total`: Total number of successful file uploads
-- `hmac_file_server_download_duration_seconds`: Histogram of file download duration in seconds
-- `hmac_file_server_download_errors_total`: Total number of file download errors
-- `hmac_file_server_downloads_total`: Total number of successful file downloads
-- `memory_usage_bytes`: Current memory usage in bytes
-- `cpu_usage_percent`: Current CPU usage as a percentage
-- `active_connections_total`: Total number of active connections
-- `http_requests_total`: Total number of HTTP requests, labeled by method and path
-- `goroutines_count`: Current number of goroutines
+Logging can be directed to a file or the console. The logging level can be set to `debug`, `info`, `warn`, or `error` in the `config.toml`.
 
-### Systemd Service
+- **File Logging:** Specify the log file path using the `LogFile` configuration option.
+- **Console Logging:** If no file is specified, logs will be printed to the console.
 
-To run the server as a systemd service, create a service file at `/etc/systemd/system/hmac-file-server.service`:
+## Graceful Shutdown
 
-```ini
-[Unit]
-Description=HMAC File Server
-After=network.target
+To gracefully shut down the server:
 
-[Service]
-Type=simple
-ExecStart=/path/to/hmac-file-server -config /path/to/config.toml
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start the service:
-
-```bash
-sudo systemctl enable hmac-file-server
-sudo systemctl start hmac-file-server
-```
-
-### NGINX Configuration
-
-To use NGINX as a reverse proxy for the HMAC File Server:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### Apache2 Configuration
-
-For Apache2, use the following configuration:
-
-```apache
-<VirtualHost *:80>
-    ServerName your-domain.com
-
-    ProxyPass / http://localhost:8080/
-    ProxyPassReverse / http://localhost:8080/
-
-    RequestHeader set X-Forwarded-Proto "http"
-    RequestHeader set X-Forwarded-Port "80"
-</VirtualHost>
-```
-
-### ejabberd/Prosody Integration
-
-For integrating with ejabberd or Prosody, you will need to configure mod_http_upload or mod_http_upload_external to use the HMAC File Server for secure file handling. You can configure the URL in your XMPP server configuration as follows:
-
-#### ejabberd
-
-```yaml
-mod_http_upload_external:
-  docroot: "/mnt/storage/hmac-file-server/"
-  put_url: "https://your-domain.com/upload/"
-  get_url: "https://your-domain.com/upload/"
-  secret: "jasper-and-waldemar-are-wunderbar"
-```
-
-#### Prosody
-
-```lua
-Component "upload.your-domain.com" "http_upload_external"
-    http_external_base_url = "https://your-domain.com/upload/"
-    secret = "stellar-wisdom-orbit-echo"
-```
+1. Send a SIGINT or SIGTERM signal:
+   ```bash
+   kill -SIGINT <pid>
+   ```
+2. The server will finish handling active requests before shutting down.
 
 ## License
 
