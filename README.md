@@ -88,5 +88,91 @@ For `v2` or `token` protocol:
 hmac-sha256("file/path\x00content-length\x00content-type")
 ```
 
+# Changes in the HMAC File Server
+
+## 1. Manual Garbage Collection
+- A new function `startPeriodicGarbageCollection` has been added.
+- It triggers the garbage collector manually every 30 seconds to ensure periodic cleanup of unused memory.
+- The function is as follows:
+
+```go
+func startPeriodicGarbageCollection() {
+    ticker := time.NewTicker(30 * time.Second) // Adjust the interval as needed
+    defer ticker.Stop()
+
+    for range ticker.C {
+        log.Info("Running manual garbage collection...")
+        runtime.GC()
+        log.Info("Garbage collection completed.")
+    }
+}
+```
+
+- This function is called as a goroutine in the `main` function.
+
+```go
+// Start periodic garbage collection
+go startPeriodicGarbageCollection()
+```
+
+## 2. System Status Monitoring
+- A new function `monitorSystemStatus` has been added to periodically log the status of the system (CPU, memory, and goroutines).
+- This function runs every 10 seconds and provides insights into the system's state during runtime.
+
+```go
+func monitorSystemStatus() {
+    ticker := time.NewTicker(10 * time.Second) // Adjust the interval as needed
+    defer ticker.Stop()
+
+    for range ticker.C {
+        // Log the number of active goroutines
+        numGoroutines := runtime.NumGoroutine()
+        log.Infof("Active goroutines: %d", numGoroutines)
+
+        // Log memory usage
+        var memStats runtime.MemStats
+        runtime.ReadMemStats(&memStats)
+        log.Infof("Memory usage - Alloc: %v MB, TotalAlloc: %v MB, Sys: %v MB, NumGC: %v",
+            memStats.Alloc/1024/1024, memStats.TotalAlloc/1024/1024, memStats.Sys/1024/1024, memStats.NumGC)
+
+        // Log CPU usage
+        cpuPercent, err := cpu.Percent(0, false)
+        if err == nil && len(cpuPercent) > 0 {
+            log.Infof("CPU usage: %.2f%%", cpuPercent[0])
+        } else {
+            log.Warn("Could not retrieve CPU usage information.")
+        }
+    }
+}
+```
+
+- This function is also called as a goroutine in the `main` function.
+
+```go
+// Start monitoring system status (goroutines, memory, CPU)
+go monitorSystemStatus()
+```
+
+## 3. Integration in `main` function
+- The `main` function has been updated to include both periodic garbage collection and system status monitoring:
+
+```go
+func main() {
+    // Setup logging
+    setupLogging()
+    fmt.Println("Logging setup completed.")
+
+    // Start monitoring system status (goroutines, memory, CPU)
+    go monitorSystemStatus()
+
+    // Start periodic garbage collection
+    go startPeriodicGarbageCollection()
+
+    // Remaining code...
+}
+```
+
+These changes ensure better resource management and monitoring during the server's runtime.
+
 ### License
 This project is licensed under the MIT License.
