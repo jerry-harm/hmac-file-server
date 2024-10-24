@@ -39,7 +39,7 @@
           "showLineNumbers": false,
           "showMiniMap": false
         },
-        "content": "<h3 style=\"color:#4CAF50; font-family: 'Arial', sans-serif; font-weight: bold;\">\n    HMAC Dashboard\n</h3>\n<p style=\"font-family: 'Verdana', sans-serif; color:#333;\">\n    This dashboard monitors <strong style=\"color:#FF5733;\">key metrics</strong> for the <span style=\"font-style:italic; color:#007BFF;\">HMAC File Server</span>.\n</p>",
+        "content": "<h3 style=\"color:#4CAF50; font-family: 'Arial', sans-serif; font-weight: bold;\">HMAC Dashboard</h3><p style=\"font-family: 'Verdana', sans-serif; color:#333;\">This dashboard monitors <strong style=\"color:#FF5733;\">key metrics</strong> for the <span style=\"font-style:italic; color:#007BFF;\">HMAC File Server</span>.</p>",
         "mode": "html"
       },
       "pluginVersion": "11.3.0",
@@ -49,87 +49,21 @@
     {
       "datasource": {
         "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
+        "type": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "fixed"
-          },
-          "fieldMinMax": false,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "light-blue",
+                "color": "green",
                 "value": null
-              }
-            ]
-          },
-          "unit": "threads"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 4
-      },
-      "id": 10,
-      "options": {
-        "colorMode": "none",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "text": {},
-        "textMode": "value",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "go_threads",
-          "format": "table",
-          "legendFormat": "{{hmax-file-server}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "HMAC GO Threads",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "fixed"
-          },
-          "fieldMinMax": false,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+              },
               {
-                "color": "light-blue",
-                "value": null
+                "color": "red",
+                "value": 80
               }
             ]
           },
@@ -141,11 +75,11 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 13
+        "y": 4
       },
       "id": 11,
       "options": {
-        "colorMode": "none",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
@@ -158,35 +92,27 @@
           "values": false
         },
         "showPercentChange": false,
-        "text": {},
         "textMode": "value",
         "wideLayout": true
       },
       "pluginVersion": "11.3.0",
       "targets": [
         {
-          "editorMode": "code",
           "expr": "hmac_file_server_uploads_total",
-          "format": "table",
-          "legendFormat": "{{hmax-file-server}}",
-          "range": true,
+          "legendFormat": "Uploads",
           "refId": "A"
         }
       ],
-      "title": "HMAC Upload(s)",
+      "title": "HMAC Uploads",
       "type": "stat"
     },
     {
       "datasource": {
         "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
+        "type": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -208,7 +134,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 13
+        "y": 4
       },
       "id": 2,
       "options": {
@@ -242,157 +168,10 @@
     {
       "datasource": {
         "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
+        "type": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "semi-dark-blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 21
-      },
-      "id": 7,
-      "options": {
-        "displayMode": "basic",
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "maxVizHeight": 300,
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "auto",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "exemplar": false,
-          "expr": "process_network_receive_bytes_total",
-          "format": "table",
-          "instant": false,
-          "legendFormat": "Received Network Bytes",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Received Network Bytes",
-      "type": "bargauge"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "semi-dark-blue",
-                "value": null
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 21
-      },
-      "id": 8,
-      "options": {
-        "displayMode": "basic",
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "maxVizHeight": 300,
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "auto",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "process_network_transmit_bytes_total",
-          "format": "table",
-          "legendFormat": "Transmitted Network Bytes",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Transmitted Network Bytes",
-      "type": "bargauge"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#ffffff",
-            "mode": "fixed"
-          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -411,10 +190,186 @@
         "overrides": []
       },
       "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "expr": "hmac_file_server_download_errors_total",
+          "legendFormat": "Download Errors",
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC Download Errors",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "expr": "hmac_file_server_downloads_total",
+          "legendFormat": "Downloads",
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC Downloads",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "threads"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "expr": "go_threads",
+          "legendFormat": "{{hmac-file-server}}",
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC GO Threads",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "semi-dark-blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "seconds"
+        },
+        "overrides": []
+      },
+      "gridPos": {
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 30
+        "y": 29
       },
       "id": 3,
       "options": {
@@ -448,159 +403,17 @@
     {
       "datasource": {
         "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
+        "type": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "fixedColor": "#ffffff",
-            "mode": "fixed"
-          },
           "mappings": [],
           "thresholds": {
-            "mode": "absolute",
+            "mode": "percentage",
             "steps": [
               {
-                "color": "green",
+                "color": "semi-dark-blue",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 30
-      },
-      "id": 4,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "text": {
-          "titleSize": 1
-        },
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "expr": "process_virtual_memory_bytes",
-          "legendFormat": "Virtual Memory",
-          "refId": "A"
-        }
-      ],
-      "title": "Process Virtual Memory Usage",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#fdfdfb",
-            "mode": "fixed"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 39
-      },
-      "id": 9,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "expr": "process_resident_memory_bytes",
-          "legendFormat": "Resident Memory",
-          "refId": "A"
-        }
-      ],
-      "title": "Process Resident Memory Usage",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus",
-        "uid": "bduehd5vqv1moa"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#ffffff",
-            "mode": "fixed"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           },
@@ -612,9 +425,9 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 39
+        "y": 29
       },
-      "id": 6,
+      "id": 14,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -635,12 +448,12 @@
       "pluginVersion": "11.3.0",
       "targets": [
         {
-          "expr": "process_cpu_seconds_total",
-          "legendFormat": "Total CPU Time",
+          "expr": "hmac_file_server_download_duration_seconds_bucket",
+          "legendFormat": "Download Duration",
           "refId": "A"
         }
       ],
-      "title": "Total CPU Time",
+      "title": "HMAC Download Duration",
       "type": "stat"
     }
   ],
@@ -658,6 +471,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 62,
+  "version": 65,
   "weekStart": ""
 }
