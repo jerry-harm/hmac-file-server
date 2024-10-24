@@ -72,7 +72,7 @@ ListenPort = ":8080"  # Port for the file server to listen on
 UnixSocket = false  # Use Unix sockets if true, otherwise TCP
 
 # Security configurations
-Secret = "stellar-wisdom-orbit-echo"  # HMAC secret for securing uploads
+Secret = "horst-bob-martin-are-drunk"  # HMAC secret for securing uploads
 
 # Directories for file storage
 StoreDir = "/mnt/storage/hmac-file-server/"  # Directory for storing uploaded files
