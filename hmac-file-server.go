@@ -62,7 +62,7 @@ type Config struct {
 	ChunkSize              int
 	UploadMaxSize          int64  // Maximum upload size
 	MaxBytesPerSecond      int    // Rate limiting in bytes per second
-	MaxWorkers             int    // Number of worker goroutines
+	MaxWorkers             string // "auto" or specific number of worker goroutines
 	MaxMemoryMB            int    // Maximum memory in MB
 }
 
@@ -630,13 +630,17 @@ func readConfig(configFile string, config *Config) error {
 
 // Set dynamic configurations based on system resources
 func setDynamicConfig() {
-	// Set MaxWorkers based on CPU count
-	cpuCount, err := cpu.Counts(false)
-	if err != nil {
-		log.Warn("Could not get CPU count, defaulting MaxWorkers to 4")
-		conf.MaxWorkers = 4 // Fallback value
+	// Handle MaxWorkers based on user input or "auto"
+	if conf.MaxWorkers == "auto" {
+		cpuCount, err := cpu.Counts(false)
+		if err != nil {
+			log.Warn("Could not get CPU count, defaulting MaxWorkers to 4")
+			conf.MaxWorkers = "4" // Fallback value
+		} else {
+			conf.MaxWorkers = strconv.Itoa(cpuCount) // Set MaxWorkers based on CPU count
+		}
 	} else {
-		conf.MaxWorkers = cpuCount // Set MaxWorkers based on CPU count
+		log.Infof("Using user-defined MaxWorkers: %s", conf.MaxWorkers)
 	}
 
 	// Set MaxMemoryMB based on available memory
@@ -644,6 +648,6 @@ func setDynamicConfig() {
 	conf.MaxMemoryMB = int(v.Total / (1024 * 1024)) // Total RAM in MB
 
 	// Log dynamic configurations
-	log.Infof("Max Workers set to: %d", conf.MaxWorkers)
+	log.Infof("Max Workers set to: %s", conf.MaxWorkers)
 	log.Infof("Max Memory set to: %d MB", conf.MaxMemoryMB)
 }
