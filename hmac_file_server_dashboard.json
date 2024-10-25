@@ -55,35 +55,32 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed"
           },
+          "fieldMinMax": false,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "light-blue",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
           },
-          "unit": "short"
+          "unit": "threads"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 9,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 4
       },
-      "id": 1,
+      "id": 10,
       "options": {
-        "colorMode": "value",
+        "colorMode": "none",
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
@@ -96,24 +93,87 @@
           "values": false
         },
         "showPercentChange": false,
-        "textMode": "auto",
+        "text": {},
+        "textMode": "value",
         "wideLayout": true
       },
       "pluginVersion": "11.3.0",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "bduehd5vqv1moa"
-          },
           "editorMode": "code",
-          "expr": "hmac_file_server_uploads_total",
-          "legendFormat": "__auto",
+          "expr": "go_threads",
+          "format": "table",
+          "legendFormat": "{{hmax-file-server}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HMAC Downloads",
+      "title": "HMAC GO Threads",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus",
+        "uid": "bduehd5vqv1moa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed"
+          },
+          "fieldMinMax": false,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "light-blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {},
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "hmac_file_server_uploads_total",
+          "format": "table",
+          "legendFormat": "{{hmax-file-server}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC Upload(s)",
       "type": "stat"
     },
     {
@@ -145,10 +205,216 @@
         "overrides": []
       },
       "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "expr": "hmac_file_server_upload_errors_total",
+          "legendFormat": "Upload Errors",
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC Upload Errors",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus",
+        "uid": "bduehd5vqv1moa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "semi-dark-blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "id": 7,
+      "options": {
+        "displayMode": "basic",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "process_network_receive_bytes_total",
+          "format": "table",
+          "instant": false,
+          "legendFormat": "Received Network Bytes",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Received Network Bytes",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus",
+        "uid": "bduehd5vqv1moa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "semi-dark-blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 21
+      },
+      "id": 8,
+      "options": {
+        "displayMode": "basic",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "process_network_transmit_bytes_total",
+          "format": "table",
+          "legendFormat": "Transmitted Network Bytes",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Transmitted Network Bytes",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus",
+        "uid": "bduehd5vqv1moa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#ffffff",
+            "mode": "fixed"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 30
       },
       "id": 3,
       "options": {
@@ -171,18 +437,12 @@
       "pluginVersion": "11.3.0",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "bduehd5vqv1moa"
-          },
-          "editorMode": "code",
-          "expr": "hmac_file_server_upload_errors_total",
-          "legendFormat": "Upload Errors",
-          "range": true,
+          "expr": "hmac_file_server_upload_duration_seconds_bucket",
+          "legendFormat": "Upload Duration",
           "refId": "A"
         }
       ],
-      "title": "HMAC Upload Errors",
+      "title": "HMAC Upload Duration",
       "type": "stat"
     },
     {
@@ -194,40 +454,8 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "fixedColor": "#ffffff",
+            "mode": "fixed"
           },
           "mappings": [],
           "thresholds": {
@@ -242,45 +470,48 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "bytes"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 11,
+        "h": 9,
         "w": 12,
-        "x": 0,
-        "y": 13
+        "x": 12,
+        "y": 30
       },
-      "id": 2,
+      "id": 4,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 1
+        },
+        "textMode": "auto",
+        "wideLayout": true
       },
       "pluginVersion": "11.3.0",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "bduehd5vqv1moa"
-          },
-          "editorMode": "code",
-          "expr": "hmac_file_server_upload_duration_seconds_bucket",
-          "legendFormat": "Upload Duration",
-          "range": true,
+          "expr": "process_virtual_memory_bytes",
+          "legendFormat": "Virtual Memory",
           "refId": "A"
         }
       ],
-      "title": "HMAC Upload Duration",
-      "type": "timeseries"
+      "title": "Process Virtual Memory Usage",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -291,40 +522,8 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "fixedColor": "#fdfdfb",
+            "mode": "fixed"
           },
           "mappings": [],
           "thresholds": {
@@ -339,45 +538,110 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "bytes"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 11,
+        "h": 9,
         "w": 12,
-        "x": 12,
-        "y": 13
+        "x": 0,
+        "y": 39
       },
-      "id": 4,
+      "id": 9,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
       "pluginVersion": "11.3.0",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "bduehd5vqv1moa"
-          },
-          "editorMode": "code",
-          "expr": "hmac_file_server_upload_duration_seconds_count",
-          "legendFormat": "__auto",
-          "range": true,
+          "expr": "process_resident_memory_bytes",
+          "legendFormat": "Resident Memory",
           "refId": "A"
         }
       ],
-      "title": "HMAC Total Uploads",
-      "type": "timeseries"
+      "title": "Process Resident Memory Usage",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus",
+        "uid": "bduehd5vqv1moa"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#ffffff",
+            "mode": "fixed"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "seconds"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.0",
+      "targets": [
+        {
+          "expr": "process_cpu_seconds_total",
+          "legendFormat": "Total CPU Time",
+          "refId": "A"
+        }
+      ],
+      "title": "Total CPU Time",
+      "type": "stat"
     }
   ],
   "preload": false,
@@ -392,8 +656,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "HMAC File Server Dashboard",
+  "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 25,
+  "version": 60,
   "weekStart": ""
 }
