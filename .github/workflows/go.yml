@@ -1,12 +1,10 @@
-name: Build hmac-file-server
+name: Build Go Project
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   build:
@@ -14,11 +12,11 @@ jobs:
 
     strategy:
       matrix:
-        go-version: [1.19.x]
-        platform: [amd64, arm64]
+        go-version: [ '1.20' ]
+        arch: [ 'amd64', 'arm64' ]
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up Go
@@ -26,34 +24,33 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-      - name: Install dependencies
-        run: go mod tidy
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.go-version }}-
+            ${{ runner.os }}-go-
+            ${{ runner.os }}-
 
-      - name: Build for ${{ matrix.platform }}
-        env:
-          GOARCH: ${{ matrix.platform }}
-          GOOS: linux
+      - name: Run Tests
         run: |
-          echo "Building for $GOARCH"
-          go build -o hmac-file-server-${GOARCH}
+          go test ./...
 
-      - name: Upload build artifact
+      - name: Build for ${{ matrix.arch }}
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p build/${{ matrix.arch }}
+          go build -o build/${{ matrix.arch }}/hmac-file-server ./cmd/server
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: hmac-file-server-${{ matrix.platform }}
-          path: hmac-file-server-${{ matrix.platform }}
-
-  test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: 1.19.x
-
-      - name: Run tests
-        run: go test ./...
+          name: build-${{ matrix.arch }}
+          path: build/${{ matrix.arch }}/hmac-file-server
