@@ -1,0 +1,51 @@
+[server]
+ListenPort = ":8080"  # Port for the file server to listen on
+UnixSocket = false  # Use Unix sockets if true, otherwise TCP
+Secret = "supa-secret-maria-und-josef"  # HMAC secret for securing uploads
+StoreDir = "/mnt/storage/hmac-file-server/"  # Directory for storing uploaded files
+UploadSubDir = "upload"  # Subdirectory for uploads
+LogLevel = "info"  # Logging level: "debug", "info", "warn", "error"
+LogFile = "/var/log/hmac-file-server.log"  # Log file path
+MetricsEnabled = true  # Enable Prometheus metrics
+MetricsPort = ":9090"  # Port for Prometheus metrics server
+
+# Fallback database configuration (optional)
+FallbackEnabled = false  # Enable fallback to a database if Redis is unavailable
+FallbackDBType = "postgres"  # Fallback database type ("postgres" or "mysql")
+FallbackDBHost = "localhost"  # Fallback database host
+FallbackDBUser = "your_db_user"  # Fallback database username
+FallbackDBPassword = "your_db_password"  # Fallback database password
+FallbackDBName = "your_db_name"  # Fallback database name
+
+# Graceful shutdown
+GracefulShutdownTimeout = 30  # Timeout for graceful shutdowns (in seconds)
+
+# FileTTL
+FileTTL = "120d"
+ResumableUploadsEnabled = true 
+MaxVersions = 2
+EnableVersioning = true
+AuditLogFile = "/home/hmac-file-server/audit.log"
+
+ChunkedUploadsEnabled = true
+ChunkSize = 16384   # 64kb for small mobile networks
+
+# File type management
+#Whitelist = ["image/png", "image/jpeg", "application/pdf"]  # Allowed file types
+#Blacklist = ["application/x-msdownload", "application/vnd.microsoft.portable-executable"]  # Blocked file types
+
+# Throttle Relaxement
+ThrottleEnabled = true
+ThrottleEffect = 30   # Throttle effect in seconds
+#MaxConcurrentUploadsPerConnection = 4
+
+# Garbage Collector and Goroutines
+DynamicCpus = true
+DynCores = 4
+GCEnabled = true
+GCInterval = "30m"
+
+# RedisDB
+RedisEnabled = true
+RedisAddr = "localhost:6379"
+RedisPassword = ""
