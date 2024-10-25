@@ -1,6 +1,7 @@
 package main
 
 import (
+    "bufio"
     "crypto/hmac"
     "crypto/sha256"
     "encoding/hex"
@@ -40,9 +41,9 @@ var (
     uploadDuration      = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds.", Buckets: prometheus.DefBuckets})
     uploadErrorsTotal   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
     uploadsTotal        = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
-    downloadDuration     = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
+    downloadDuration    = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
     downloadsTotal      = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
-    downloadErrorsTotal  = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
+    downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
     memoryUsage         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
     cpuUsage            = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
     activeConnections   = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
@@ -68,6 +69,22 @@ type Config struct {
     ChunkingEnabled         bool    // Enable or disable chunking
     ChunkSize               int64   // Size of each chunk in bytes
 }
+
+// UploadTask struct
+type UploadTask struct {
+    AbsFilename   string
+    FileStorePath string
+    Writer        http.ResponseWriter
+    Request       *http.Request
+    Done          chan error
+}
+
+const (
+    NumWorkers      = 10   // Anzahl der Worker
+    UploadQueueSize = 1000 // Größe der Warteschlange
+)
+
+var uploadQueue chan UploadTask
 
 // Read configuration from config.toml with default values for optional settings
 func readConfig(configFilename string, conf *Config) error {
@@ -225,27 +242,28 @@ func cleanupOldVersions(versionDir string) error {
     return nil
 }
 
-// Handle chunked uploads
-func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request) {
+// Handle chunked uploads (using bufio.Writer)
+func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request) error {
     log.Infof("Handling chunked upload for %s", absFilename)
 
     targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
     if err != nil {
         http.Error(w, "Internal Server Error", http.StatusInternalServerError)
         log.Error("Failed to open file for chunked upload:", err)
-        return
+        return err
     }
     defer targetFile.Close()
 
+    writer := bufio.NewWriter(targetFile)
     buffer := make([]byte, conf.ChunkSize)
     for {
         n, err := r.Body.Read(buffer)
         if n > 0 {
-            _, writeErr := targetFile.Write(buffer[:n])
+            _, writeErr := writer.Write(buffer[:n])
             if writeErr != nil {
                 http.Error(w, "Internal Server Error", http.StatusInternalServerError)
                 log.Error("Failed to write chunk to file:", writeErr)
-                return
+                return writeErr
             }
         }
         if err != nil {
@@ -254,17 +272,66 @@ func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Requ
             }
             log.Error("Error reading from request body:", err)
             http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-            return
+            return err
         }
+    }
+
+    err = writer.Flush()
+    if err != nil {
+        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        log.Error("Failed to flush buffer to file:", err)
+        return err
     }
 
     uploadsTotal.Inc()
     w.WriteHeader(http.StatusCreated)
+    return nil
 }
 
-/*
- * Handles incoming HTTP requests, including HMAC validation and file uploads/downloads
- */
+// ProcessUpload function to handle upload tasks
+func processUpload(task UploadTask) error {
+    absFilename := task.AbsFilename
+    fileStorePath := task.FileStorePath
+    w := task.Writer
+    r := task.Request
+
+    // Handle chunked upload if enabled
+    if conf.ChunkingEnabled {
+        return handleChunkedUpload(absFilename, w, r)
+    }
+
+    // File versioning logic
+    if conf.EnableVersioning {
+        existing, _ := fileExists(absFilename)
+        if existing {
+            err := versionFile(absFilename)
+            if err != nil {
+                log.Errorf("Error versioning file: %v", err)
+                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+                return err
+            }
+        }
+    }
+
+    // Proceed to create the file after successful HMAC validation
+    err := createFile(absFilename, fileStorePath, w, r)
+    if err != nil {
+        log.Error(err)
+        return err
+    }
+    return nil
+}
+
+// Worker function to process upload tasks
+func uploadWorker() {
+    for task := range uploadQueue {
+        err := processUpload(task)
+        task.Done <- err
+        close(task.Done)
+    }
+}
+
+// Handle incoming HTTP requests, including HMAC validation and file uploads/downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
     log.Info("Incoming request: ", r.Method, r.URL.String())
 
@@ -325,36 +392,42 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
         }
 
         // Validate the HMAC
-        if !hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
+        if len(a[protocolVersion]) == 0 || !hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
             log.Warn("Invalid MAC.")
             http.Error(w, "Invalid MAC", http.StatusForbidden)
             return
         }
 
-        // Handle chunked upload if enabled
-        if conf.ChunkingEnabled {
-            handleChunkedUpload(absFilename, w, r)
+        // Create an UploadTask with a done channel
+        done := make(chan error)
+        task := UploadTask{
+            AbsFilename:   absFilename,
+            FileStorePath: fileStorePath,
+            Writer:        w,
+            Request:       r,
+            Done:          done,
+        }
+
+        select {
+        case uploadQueue <- task:
+            // Successfully added to the queue
+        default:
+            // Queue is full
+            log.Warn("Upload queue is full. Rejecting upload.")
+            http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
+            uploadErrorsTotal.Inc()
             return
         }
 
-        // File versioning logic
-        if conf.EnableVersioning {
-            existing, _ := fileExists(absFilename)
-            if existing {
-                err = versionFile(absFilename)
-                if err != nil {
-                    log.Errorf("Error versioning file: %v", err)
-                    http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-                    return
-                }
-            }
+        // Wait for the worker to process the upload
+        err = <-done
+        if err != nil {
+            uploadErrorsTotal.Inc()
+            // The worker has already sent an appropriate HTTP error response
+            return
         }
 
-        // Proceed to create the file after successful HMAC validation
-        err = createFile(absFilename, fileStorePath, w, r)
-        if err != nil {
-            log.Error(err)
-        }
+        // Upload was successful; the worker has already sent the HTTP response
         return
     } else if r.Method == http.MethodHead || r.Method == http.MethodGet {
         // File download logic
@@ -378,10 +451,11 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
         if r.Method == http.MethodHead {
             w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+            return
         } else {
             http.ServeFile(w, r, absFilename)
+            return
         }
-        return
     } else if r.Method == http.MethodOptions {
         w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
         return
@@ -392,7 +466,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-// Create the file for upload
+// Create the file for upload with buffered Writer
 func createFile(absFilename string, fileStorePath string, w http.ResponseWriter, r *http.Request) error {
     absDirectory := filepath.Dir(absFilename)
     err := os.MkdirAll(absDirectory, os.ModePerm)
@@ -408,10 +482,17 @@ func createFile(absFilename string, fileStorePath string, w http.ResponseWriter,
     }
     defer targetFile.Close()
 
-    _, err = io.Copy(targetFile, r.Body)
+    writer := bufio.NewWriter(targetFile)
+    _, err = io.Copy(writer, r.Body)
     if err != nil {
         http.Error(w, "Internal server error", http.StatusInternalServerError)
         return fmt.Errorf("failed to copy file contents to %s: %s", absFilename, err)
+    }
+
+    err = writer.Flush()
+    if err != nil {
+        http.Error(w, "Internal server error", http.StatusInternalServerError)
+        return fmt.Errorf("failed to flush buffer to file %s: %s", absFilename, err)
     }
 
     uploadsTotal.Inc()
@@ -437,6 +518,14 @@ func main() {
 
     setupLogging()
     logSystemInfo()
+
+    // Initialize the upload queue
+    uploadQueue = make(chan UploadTask, UploadQueueSize)
+
+    // Start the workers
+    for i := 0; i < NumWorkers; i++ {
+        go uploadWorker()
+    }
 
     var proto string
     if conf.UnixSocket {
@@ -483,6 +572,10 @@ func setupGracefulShutdown() {
     go func() {
         <-quit
         log.Println("Shutting down server...")
-        // Optionally handle cleanup here
+        // Close the upload queue to signal workers to stop
+        close(uploadQueue)
+        // Optional: Wait for workers to finish
+        time.Sleep(2 * time.Second)
+        os.Exit(0)
     }()
 }
