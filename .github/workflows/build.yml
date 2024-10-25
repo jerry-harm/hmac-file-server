@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        go-version: [ '1.20' ]  # Update if you use a different Go version
+        go-version: [ '1.20' ]  # Specify your Go version
         arch: [ 'amd64', 'arm64' ]
 
     steps:
@@ -41,6 +41,10 @@ jobs:
           go mod tidy
           go mod download
 
+      - name: Run Tests
+        run: |
+          go test ./... -v
+
       - name: Build for ${{ matrix.arch }}
         env:
           GOOS: linux
@@ -48,8 +52,8 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p build/${{ matrix.arch }}
-          go build -o build/${{ matrix.arch }}/hmac-file-server ./cmd/server
-          # Replace `./cmd/server` with your actual main package path if different
+          go build -v -o build/${{ matrix.arch }}/hmac-file-server ./cmd/server
+          # Ensure './cmd/server' is the correct path to your main package
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
