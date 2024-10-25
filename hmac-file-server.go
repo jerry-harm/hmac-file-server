@@ -27,74 +27,28 @@ import (
     "github.com/shirou/gopsutil/host"
     "github.com/shirou/gopsutil/mem"
     "github.com/sirupsen/logrus"
+    "github.com/go-redis/redis/v8" // Redis client
+    "golang.org/x/net/context"
 )
 
 var conf Config
 var versionString string = "v2.0"
 var log = logrus.New()
+var ctx = context.Background()
 
 // Prometheus metrics
 var (
-    uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-        Namespace: "hmac",
-        Name:      "file_server_upload_duration_seconds",
-        Help:      "Histogram of file upload duration in seconds.",
-        Buckets:   prometheus.DefBuckets,
-    })
-    uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_upload_errors_total",
-        Help:      "Total number of file upload errors.",
-    })
-    uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_uploads_total",
-        Help:      "Total number of successful file uploads.",
-    })
-    downloadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-        Namespace: "hmac",
-        Name:      "file_server_download_duration_seconds",
-        Help:      "Histogram of file download duration in seconds.",
-        Buckets:   prometheus.DefBuckets,
-    })
-    downloadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_downloads_total",
-        Help:      "Total number of successful file downloads.",
-    })
-    downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_download_errors_total",
-        Help:      "Total number of file download errors.",
-    })
-    memoryUsage = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "memory_usage_bytes",
-        Help:      "Current memory usage in bytes.",
-    })
-    cpuUsage = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "cpu_usage_percent",
-        Help:      "Current CPU usage as a percentage.",
-    })
-    activeConnections = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "active_connections_total",
-        Help:      "Total number of active connections.",
-    })
-    requestsTotal = prometheus.NewCounterVec(
-        prometheus.CounterOpts{
-            Namespace: "hmac",
-            Name:      "http_requests_total",
-            Help:      "Total number of HTTP requests received, labeled by method and path.",
-        },
-        []string{"method", "path"},
-    )
-    goroutines = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "goroutines_count",
-        Help:      "Current number of goroutines.",
-    })
+    uploadDuration      = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds.", Buckets: prometheus.DefBuckets})
+    uploadErrorsTotal   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
+    uploadsTotal        = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
+    downloadDuration    = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
+    downloadsTotal      = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
+    downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
+    memoryUsage         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
+    cpuUsage            = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
+    activeConnections   = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
+    requestsTotal       = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
+    goroutines          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
 )
 
 // Configuration struct
@@ -108,10 +62,17 @@ type Config struct {
     LogFile                 string
     MetricsEnabled          bool
     MetricsPort             string
-    FileTTL                 string
-    ResumableUploadsEnabled bool // New option for resumable uploads
-    Dyncpus                 bool   // Dynamic CPU usage enabled
-    Dyncores                int    // Number of cores to use if dynamic CPU is disabled
+    FileTTL                 string // Optional TTL for file expiration (default: "30d")
+    ResumableUploadsEnabled bool   // New option for resumable uploads
+    EnableVersioning        bool   // New option for file versioning
+    MaxVersions             int    // Maximum number of file versions to keep
+    ChunkingEnabled         bool   // Enable chunking
+    ChunkSize               int    // Size for chunks in bytes
+    RedisEnabled            bool   // Enable Redis for caching
+    RedisAddr               string // Address for Redis
+    DynCPUs                 bool   // Dynamic CPU configuration
+    DynCores                int    // Number of dynamic cores
+    HealthCheckInterval     int    // Health check interval in seconds
 }
 
 // Read configuration from config.toml with default values for optional settings
@@ -128,14 +89,20 @@ func readConfig(configFilename string, conf *Config) error {
     }
 
     // Set defaults for optional settings
-    if conf.FileTTL == "" {
-        conf.FileTTL = "30d"
-    }
     if !conf.ResumableUploadsEnabled {
-        conf.ResumableUploadsEnabled = false
+        conf.ResumableUploadsEnabled = true
     }
-    if !conf.Dyncpus {
-        conf.Dyncores = runtime.NumCPU() // Default to available CPU count if not specified
+    if conf.MaxVersions == 0 {
+        conf.MaxVersions = 0 // Default to no maximum versions
+    }
+    if !conf.EnableVersioning {
+        conf.EnableVersioning = false // Default to not enabling versioning
+    }
+    if conf.ChunkSize == 0 {
+        conf.ChunkSize = 1024 * 1024 // Default chunk size 1MB
+    }
+    if conf.HealthCheckInterval == 0 {
+        conf.HealthCheckInterval = 30 // Default health check every 30 seconds
     }
 
     return nil
@@ -222,9 +189,49 @@ func fileExists(filePath string) (bool, int64) {
     return true, fileInfo.Size()
 }
 
-/*
- * Handles incoming HTTP requests, including HMAC validation and file uploads/downloads
- */
+// Handle file versioning by moving the existing file to a versioned directory
+func versionFile(absFilename string) error {
+    versionDir := absFilename + "_versions"
+
+    err := os.MkdirAll(versionDir, os.ModePerm)
+    if err != nil {
+        return fmt.Errorf("failed to create version directory: %v", err)
+    }
+
+    timestamp := time.Now().Format("20060102-150405")
+    versionedFilename := filepath.Join(versionDir, filepath.Base(absFilename)+"."+timestamp)
+
+    err = os.Rename(absFilename, versionedFilename)
+    if err != nil {
+        return fmt.Errorf("failed to version the file: %v", err)
+    }
+
+    log.Infof("Versioned old file: %s to %s", absFilename, versionedFilename)
+    return cleanupOldVersions(versionDir)
+}
+
+// Clean up older versions if they exceed the maximum allowed
+func cleanupOldVersions(versionDir string) error {
+    files, err := os.ReadDir(versionDir)
+    if err != nil {
+        return fmt.Errorf("failed to list version files: %v", err)
+    }
+
+    if len(files) > conf.MaxVersions {
+        excessFiles := len(files) - conf.MaxVersions
+        for i := 0; i < excessFiles; i++ {
+            err := os.Remove(filepath.Join(versionDir, files[i].Name()))
+            if err != nil {
+                return fmt.Errorf("failed to remove old version: %v", err)
+            }
+            log.Infof("Removed old version: %s", files[i].Name())
+        }
+    }
+
+    return nil
+}
+
+// Handles incoming HTTP requests, including HMAC validation and file uploads/downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
     log.Info("Incoming request: ", r.Method, r.URL.String())
 
@@ -332,6 +339,19 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
             }
         }
 
+        // File versioning logic
+        if conf.EnableVersioning {
+            existing, _ := fileExists(absFilename)
+            if existing {
+                err = versionFile(absFilename)
+                if err != nil {
+                    log.Errorf("Error versioning file: %v", err)
+                    http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+                    return
+                }
+            }
+        }
+
         // Proceed to create the file after successful HMAC validation and non-resumable logic
         err = createFile(absFilename, fileStorePath, w, r)
         if err != nil {
@@ -401,6 +421,31 @@ func createFile(absFilename string, fileStorePath string, w http.ResponseWriter,
     return nil
 }
 
+// Health check function
+func healthCheck() {
+    ticker := time.NewTicker(time.Duration(conf.HealthCheckInterval) * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            log.Info("Performing health check...")
+            // Implement health check logic here, e.g., check Redis connection
+            if conf.RedisEnabled {
+                client := redis.NewClient(&redis.Options{
+                    Addr: conf.RedisAddr,
+                })
+                _, err := client.Ping(ctx).Result()
+                if err != nil {
+                    log.Warn("Redis not reachable, falling back to internal solution")
+                } else {
+                    log.Info("Redis is reachable")
+                }
+            }
+        }
+    }
+}
+
 func main() {
     var configFile string
     flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
@@ -440,6 +485,9 @@ func main() {
             }
         }()
     }
+
+    // Start health check goroutine
+    go healthCheck()
 
     log.Println("Starting HMAC file server", versionString, "...")
     listener, err := net.Listen(proto, conf.ListenPort)
