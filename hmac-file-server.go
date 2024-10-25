@@ -12,14 +12,6 @@ import (
     "net/http"
     "net/url"
     "os"
-<<<<<<< HEAD
-    "path"
-    "path/filepath"
-    "runtime"
-    "strconv"
-    "strings"
-    "time"
-=======
     "os/signal"
     "path"
     "path/filepath"
@@ -28,7 +20,6 @@ import (
     "syscall"
     "time"
     "runtime"
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
 
     "github.com/BurntSushi/toml"
     "github.com/prometheus/client_golang/prometheus"
@@ -42,78 +33,6 @@ import (
 
 var conf Config
 var versionString string = "v2.0"
-<<<<<<< HEAD
-
-var log = &logrus.Logger{
-    Out:       os.Stdout,
-    Formatter: new(logrus.TextFormatter),
-    Hooks:     make(logrus.LevelHooks),
-    Level:     logrus.DebugLevel,
-}
-
-// Prometheus metrics
-var (
-    uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-        Namespace: "hmac",
-        Name:      "file_server_upload_duration_seconds",
-        Help:      "Histogram of file upload duration in seconds.",
-        Buckets:   prometheus.DefBuckets,
-    })
-    uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_upload_errors_total",
-        Help:      "Total number of file upload errors.",
-    })
-    uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_uploads_total",
-        Help:      "Total number of successful file uploads.",
-    })
-    downloadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-        Namespace: "hmac",
-        Name:      "file_server_download_duration_seconds",
-        Help:      "Histogram of file download duration in seconds.",
-        Buckets:   prometheus.DefBuckets,
-    })
-    downloadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_downloads_total",
-        Help:      "Total number of successful file downloads.",
-    })
-    downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-        Namespace: "hmac",
-        Name:      "file_server_download_errors_total",
-        Help:      "Total number of file download errors.",
-    })
-    memoryUsage = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "memory_usage_bytes",
-        Help:      "Current memory usage in bytes.",
-    })
-    cpuUsage = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "cpu_usage_percent",
-        Help:      "Current CPU usage as a percentage.",
-    })
-    activeConnections = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "active_connections_total",
-        Help:      "Total number of active connections.",
-    })
-    requestsTotal = prometheus.NewCounterVec(
-        prometheus.CounterOpts{
-            Namespace: "hmac",
-            Name:      "http_requests_total",
-            Help:      "Total number of HTTP requests received, labeled by method and path.",
-        },
-        []string{"method", "path"},
-    )
-    goroutines = prometheus.NewGauge(prometheus.GaugeOpts{
-        Namespace: "hmac",
-        Name:      "goroutines_count",
-        Help:      "Current number of goroutines.",
-    })
-=======
 var log = logrus.New()
 
 // Prometheus metrics
@@ -129,21 +48,10 @@ var (
     activeConnections   = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
     requestsTotal       = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
     goroutines          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
 )
 
 // Configuration struct
 type Config struct {
-<<<<<<< HEAD
-    ListenPort     string
-    UnixSocket     bool
-    Secret         string
-    StoreDir       string
-    UploadSubDir   string
-    LogLevel       string
-    MetricsEnabled bool
-    MetricsPort    string
-=======
     ListenPort              string
     UnixSocket              bool
     Secret                  string
@@ -211,7 +119,6 @@ func setupLogging() {
     } else {
         log.SetOutput(os.Stdout)
     }
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
 }
 
 // Log system information with a banner
@@ -224,37 +131,21 @@ func logSystemInfo() {
     log.Info("Features: Redis, Fallback Database (PostgreSQL/MySQL), Prometheus Metrics")
     log.Info("Build Date: 2024-10-23")
 
-<<<<<<< HEAD
-    // Log basic system info
-=======
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
     log.Infof("Operating System: %s", runtime.GOOS)
     log.Infof("Architecture: %s", runtime.GOARCH)
     log.Infof("Number of CPUs: %d", runtime.NumCPU())
     log.Infof("Go Version: %s", runtime.Version())
 
-<<<<<<< HEAD
-    // Get memory information
-=======
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
     v, _ := mem.VirtualMemory()
     log.Infof("Total Memory: %v MB", v.Total/1024/1024)
     log.Infof("Free Memory: %v MB", v.Free/1024/1024)
     log.Infof("Used Memory: %v MB", v.Used/1024/1024)
 
-<<<<<<< HEAD
-    // Get CPU information
-=======
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
     cpuInfo, _ := cpu.Info()
     for _, info := range cpuInfo {
         log.Infof("CPU Model: %s, Cores: %d, Mhz: %f", info.ModelName, info.Cores, info.Mhz)
     }
 
-<<<<<<< HEAD
-    // Get HDD information
-=======
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
     partitions, _ := disk.Partitions(false)
     for _, partition := range partitions {
         usage, _ := disk.Usage(partition.Mountpoint)
@@ -262,10 +153,6 @@ func logSystemInfo() {
             partition.Mountpoint, usage.Total/1024/1024/1024, usage.Free/1024/1024/1024, usage.Used/1024/1024/1024)
     }
 
-<<<<<<< HEAD
-    // Get host information
-=======
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
     hInfo, _ := host.Info()
     log.Infof("Hostname: %s", hInfo.Hostname)
     log.Infof("Uptime: %v seconds", hInfo.Uptime)
@@ -287,8 +174,6 @@ func addCORSheaders(w http.ResponseWriter) {
     w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
-<<<<<<< HEAD
-=======
 // Function to check if file exists and return its size
 func fileExists(filePath string) (bool, int64) {
     fileInfo, err := os.Stat(filePath)
@@ -377,7 +262,6 @@ func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Requ
     w.WriteHeader(http.StatusCreated)
 }
 
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
 /*
  * Handles incoming HTTP requests, including HMAC validation and file uploads/downloads
  */
@@ -410,10 +294,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
     if r.Method == http.MethodPut {
         // File upload logic with HMAC validation
-<<<<<<< HEAD
-
-=======
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
         var protocolVersion string
         if a["v2"] != nil {
             protocolVersion = "v2"
@@ -445,19 +325,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
         }
 
         // Validate the HMAC
-<<<<<<< HEAD
-        if hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
-            err = createFile(absFilename, fileStorePath, w, r)
-            if err != nil {
-                log.Error(err)
-            }
-            return
-        } else {
-            log.Warning("Invalid MAC.")
-            http.Error(w, "Invalid MAC", http.StatusForbidden)
-            return
-        }
-=======
         if !hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
             log.Warn("Invalid MAC.")
             http.Error(w, "Invalid MAC", http.StatusForbidden)
@@ -489,7 +356,6 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
             log.Error(err)
         }
         return
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
     } else if r.Method == http.MethodHead || r.Method == http.MethodGet {
         // File download logic
 
@@ -499,11 +365,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
             http.Error(w, "Not Found", http.StatusNotFound)
             return
         } else if fileInfo.IsDir() {
-<<<<<<< HEAD
-            log.Warning("Directory listing forbidden!")
-=======
             log.Warn("Directory listing forbidden!")
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
             http.Error(w, "Forbidden", http.StatusForbidden)
             return
         }
@@ -555,103 +417,10 @@ func createFile(absFilename string, fileStorePath string, w http.ResponseWriter,
     uploadsTotal.Inc()
     w.WriteHeader(http.StatusCreated)
     return nil
-<<<<<<< HEAD
-}
-
-// Read configuration from config.toml
-func readConfig(configFilename string, conf *Config) error {
-    configData, err := os.ReadFile(configFilename)
-    if err != nil {
-        log.Fatal("Configuration file config.toml cannot be read:", err, "...Exiting.")
-        return err
-    }
-
-    if _, err := toml.Decode(string(configData), conf); err != nil {
-        log.Fatal("Config file config.toml is invalid:", err)
-        return err
-    }
-
-    return nil
-}
-
-// Set log level based on configuration
-func setLogLevel() {
-    switch conf.LogLevel {
-    case "info":
-        log.SetLevel(logrus.InfoLevel)
-    case "warn":
-        log.SetLevel(logrus.WarnLevel)
-    case "error":
-        log.SetLevel(logrus.ErrorLevel)
-    default:
-        log.SetLevel(logrus.WarnLevel)
-        fmt.Print("Invalid log level set in config. Defaulting to \"warn\"")
-    }
-=======
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
 }
 
 func main() {
     var configFile string
-<<<<<<< HEAD
-    var proto string
-
-    flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
-    flag.Parse()
-
-    if !flag.Parsed() {
-        log.Fatalln("Could not parse flags")
-    }
-
-    err := readConfig(configFile, &conf)
-    if err != nil {
-        log.Fatalln("There was an error while reading the configuration file:", err)
-    }
-
-    err = os.MkdirAll(conf.StoreDir, os.ModePerm)
-    if err != nil {
-        log.Fatalf("Could not create directory %s: %v", conf.StoreDir, err)
-    }
-    log.Infof("Directory %s is ready", conf.StoreDir)
-
-    logSystemInfo()
-    setLogLevel()
-
-    if conf.UnixSocket {
-        proto = "unix"
-    } else {
-        proto = "tcp"
-    }
-
-    if conf.MetricsEnabled {
-        prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
-        prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
-        prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
-
-        go func() {
-            http.Handle("/metrics", promhttp.Handler())
-            log.Printf("Starting metrics server on %s", conf.MetricsPort)
-            if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
-                log.Fatalf("Metrics server failed: %v", err)
-            }
-        }()
-    }
-
-    log.Println("Starting HMAC file server", versionString, "...")
-    listener, err := net.Listen(proto, conf.ListenPort)
-    if err != nil {
-        log.Fatalln("Could not open listening socket:", err)
-    }
-
-    subpath := path.Join("/", conf.UploadSubDir)
-    subpath = strings.TrimRight(subpath, "/")
-    subpath += "/"
-    http.HandleFunc(subpath, handleRequest)
-
-    log.Printf("Server started on port %s. Waiting for requests.\n", conf.ListenPort)
-
-    http.Serve(listener, nil)
-=======
     flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
     flag.Parse()
 
@@ -716,5 +485,4 @@ func setupGracefulShutdown() {
         log.Println("Shutting down server...")
         // Optionally handle cleanup here
     }()
->>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
 }
