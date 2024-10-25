@@ -12,10 +12,12 @@ import (
     "net/http"
     "net/url"
     "os"
+    "os/signal"
     "path"
     "path/filepath"
     "strconv"
     "strings"
+    "syscall"
     "time"
     "runtime"
 
@@ -27,23 +29,20 @@ import (
     "github.com/shirou/gopsutil/host"
     "github.com/shirou/gopsutil/mem"
     "github.com/sirupsen/logrus"
-    "github.com/go-redis/redis/v8" // Redis client
-    "golang.org/x/net/context"
 )
 
 var conf Config
 var versionString string = "v2.0"
 var log = logrus.New()
-var ctx = context.Background()
 
 // Prometheus metrics
 var (
     uploadDuration      = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds.", Buckets: prometheus.DefBuckets})
     uploadErrorsTotal   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
     uploadsTotal        = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
-    downloadDuration    = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
+    downloadDuration     = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
     downloadsTotal      = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
-    downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
+    downloadErrorsTotal  = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
     memoryUsage         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
     cpuUsage            = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
     activeConnections   = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
@@ -62,17 +61,12 @@ type Config struct {
     LogFile                 string
     MetricsEnabled          bool
     MetricsPort             string
-    FileTTL                 string // Optional TTL for file expiration (default: "30d")
-    ResumableUploadsEnabled bool   // New option for resumable uploads
-    EnableVersioning        bool   // New option for file versioning
-    MaxVersions             int    // Maximum number of file versions to keep
-    ChunkingEnabled         bool   // Enable chunking
-    ChunkSize               int    // Size for chunks in bytes
-    RedisEnabled            bool   // Enable Redis for caching
-    RedisAddr               string // Address for Redis
-    DynCPUs                 bool   // Dynamic CPU configuration
-    DynCores                int    // Number of dynamic cores
-    HealthCheckInterval     int    // Health check interval in seconds
+    FileTTL                 string  // Optional TTL for file expiration (default: "30d")
+    ResumableUploadsEnabled bool    // Enable or disable resumable uploads
+    EnableVersioning        bool    // Enable file versioning
+    MaxVersions             int     // Maximum number of file versions to keep
+    ChunkingEnabled         bool    // Enable or disable chunking
+    ChunkSize               int64   // Size of each chunk in bytes
 }
 
 // Read configuration from config.toml with default values for optional settings
@@ -90,7 +84,7 @@ func readConfig(configFilename string, conf *Config) error {
 
     // Set defaults for optional settings
     if !conf.ResumableUploadsEnabled {
-        conf.ResumableUploadsEnabled = true
+        conf.ResumableUploadsEnabled = false
     }
     if conf.MaxVersions == 0 {
         conf.MaxVersions = 0 // Default to no maximum versions
@@ -98,11 +92,11 @@ func readConfig(configFilename string, conf *Config) error {
     if !conf.EnableVersioning {
         conf.EnableVersioning = false // Default to not enabling versioning
     }
-    if conf.ChunkSize == 0 {
-        conf.ChunkSize = 1024 * 1024 // Default chunk size 1MB
+    if !conf.ChunkingEnabled {
+        conf.ChunkingEnabled = false // Default to not enabling chunking
     }
-    if conf.HealthCheckInterval == 0 {
-        conf.HealthCheckInterval = 30 // Default health check every 30 seconds
+    if conf.ChunkSize == 0 {
+        conf.ChunkSize = 1048576 // Default chunk size of 1MB
     }
 
     return nil
@@ -231,7 +225,46 @@ func cleanupOldVersions(versionDir string) error {
     return nil
 }
 
-// Handles incoming HTTP requests, including HMAC validation and file uploads/downloads
+// Handle chunked uploads
+func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request) {
+    log.Infof("Handling chunked upload for %s", absFilename)
+
+    targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+    if err != nil {
+        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        log.Error("Failed to open file for chunked upload:", err)
+        return
+    }
+    defer targetFile.Close()
+
+    buffer := make([]byte, conf.ChunkSize)
+    for {
+        n, err := r.Body.Read(buffer)
+        if n > 0 {
+            _, writeErr := targetFile.Write(buffer[:n])
+            if writeErr != nil {
+                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+                log.Error("Failed to write chunk to file:", writeErr)
+                return
+            }
+        }
+        if err != nil {
+            if err == io.EOF {
+                break // Finished reading the body
+            }
+            log.Error("Error reading from request body:", err)
+            http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+            return
+        }
+    }
+
+    uploadsTotal.Inc()
+    w.WriteHeader(http.StatusCreated)
+}
+
+/*
+ * Handles incoming HTTP requests, including HMAC validation and file uploads/downloads
+ */
 func handleRequest(w http.ResponseWriter, r *http.Request) {
     log.Info("Incoming request: ", r.Method, r.URL.String())
 
@@ -260,8 +293,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
     addCORSheaders(w)
 
     if r.Method == http.MethodPut {
-        // File upload logic with HMAC validation and resumable uploads
-
+        // File upload logic with HMAC validation
         var protocolVersion string
         if a["v2"] != nil {
             protocolVersion = "v2"
@@ -299,44 +331,10 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
             return
         }
 
-        // Resumable Uploads logic
-        if conf.ResumableUploadsEnabled {
-            existing, currentSize := fileExists(absFilename)
-            if existing {
-                rangeHeader := r.Header.Get("Content-Range")
-                if rangeHeader != "" {
-                    log.Infof("Resuming upload for %s", absFilename)
-
-                    // Parse range header
-                    parts := strings.Split(rangeHeader, " ")
-                    if len(parts) == 2 {
-                        rangeInfo := strings.Split(parts[1], "-")
-                        startByte, err := strconv.ParseInt(rangeInfo[0], 10, 64)
-                        if err != nil || startByte != currentSize {
-                            log.Warn("Invalid range in request")
-                            http.Error(w, "Invalid range", http.StatusBadRequest)
-                            return
-                        }
-
-                        // Append to the existing file
-                        targetFile, err := os.OpenFile(absFilename, os.O_APPEND|os.O_WRONLY, 0644)
-                        if err != nil {
-                            http.Error(w, "Internal server error", http.StatusInternalServerError)
-                            return
-                        }
-                        defer targetFile.Close()
-
-                        _, err = io.Copy(targetFile, r.Body)
-                        if err != nil {
-                            http.Error(w, "Internal server error", http.StatusInternalServerError)
-                            return
-                        }
-
-                        w.WriteHeader(http.StatusNoContent) // 204 for successful resume
-                        return
-                    }
-                }
-            }
+        // Handle chunked upload if enabled
+        if conf.ChunkingEnabled {
+            handleChunkedUpload(absFilename, w, r)
+            return
         }
 
         // File versioning logic
@@ -352,7 +350,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
             }
         }
 
-        // Proceed to create the file after successful HMAC validation and non-resumable logic
+        // Proceed to create the file after successful HMAC validation
         err = createFile(absFilename, fileStorePath, w, r)
         if err != nil {
             log.Error(err)
@@ -421,31 +419,6 @@ func createFile(absFilename string, fileStorePath string, w http.ResponseWriter,
     return nil
 }
 
-// Health check function
-func healthCheck() {
-    ticker := time.NewTicker(time.Duration(conf.HealthCheckInterval) * time.Second)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ticker.C:
-            log.Info("Performing health check...")
-            // Implement health check logic here, e.g., check Redis connection
-            if conf.RedisEnabled {
-                client := redis.NewClient(&redis.Options{
-                    Addr: conf.RedisAddr,
-                })
-                _, err := client.Ping(ctx).Result()
-                if err != nil {
-                    log.Warn("Redis not reachable, falling back to internal solution")
-                } else {
-                    log.Info("Redis is reachable")
-                }
-            }
-        }
-    }
-}
-
 func main() {
     var configFile string
     flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
@@ -486,9 +459,6 @@ func main() {
         }()
     }
 
-    // Start health check goroutine
-    go healthCheck()
-
     log.Println("Starting HMAC file server", versionString, "...")
     listener, err := net.Listen(proto, conf.ListenPort)
     if err != nil {
@@ -501,5 +471,18 @@ func main() {
 
     log.Printf("Server started on port %s. Waiting for requests.\n", conf.ListenPort)
 
+    // Setup graceful shutdown
+    setupGracefulShutdown()
     http.Serve(listener, nil)
+}
+
+// Setup graceful shutdown
+func setupGracefulShutdown() {
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    go func() {
+        <-quit
+        log.Println("Shutting down server...")
+        // Optionally handle cleanup here
+    }()
 }
