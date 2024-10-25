@@ -16,6 +16,11 @@ The HMAC File Server is a secure file handling server that supports HMAC authent
 - **Garbage Collection**: Cleans up old versions to manage storage efficiently.
 - **Prometheus Metrics**: Exposes server metrics for monitoring.
 
+<<<<<<< HEAD
+=======
+![image](https://github.com/user-attachments/assets/d7a4a0d6-9782-40f0-8b9c-8cdf1572ef03)
+
+>>>>>>> 7407bdc33d5411ba38c8e7a9f5e66ab1d550bf6f
 ## Installation
 
 1. Clone the repository:
