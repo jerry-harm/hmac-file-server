@@ -2,7 +2,7 @@ module github.com/PlusOne/hmac-file-server
 
 go 1.22
 
-toolchain go1.22.8
+// toolchain go1.22.8
 
 require (
 	github.com/BurntSushi/toml v1.4.0
