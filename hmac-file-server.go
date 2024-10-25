@@ -20,7 +20,6 @@ import (
     "runtime"
 
     "github.com/BurntSushi/toml"
-    "github.com/go-redis/redis/v8" // Import Redis
     "github.com/prometheus/client_golang/prometheus"
     "github.com/prometheus/client_golang/prometheus/promhttp"
     "github.com/shirou/gopsutil/cpu"
@@ -28,15 +27,11 @@ import (
     "github.com/shirou/gopsutil/host"
     "github.com/shirou/gopsutil/mem"
     "github.com/sirupsen/logrus"
-    "golang.org/x/net/context" // Import context for Redis
 )
 
-var (
-    conf        Config
-    versionString = "v2.0"
-    log         = logrus.New()
-    redisClient *redis.Client
-)
+var conf Config
+var versionString string = "v2.0"
+var log = logrus.New()
 
 // Prometheus metrics
 var (
@@ -114,11 +109,9 @@ type Config struct {
     MetricsEnabled          bool
     MetricsPort             string
     FileTTL                 string
-    ResumableUploadsEnabled bool
-    GCEnabled               bool
-    GCInterval              string
-    RedisEnabled            bool
-    RedisAddr               string
+    ResumableUploadsEnabled bool // New option for resumable uploads
+    Dyncpus                 bool   // Dynamic CPU usage enabled
+    Dyncores                int    // Number of cores to use if dynamic CPU is disabled
 }
 
 // Read configuration from config.toml with default values for optional settings
@@ -135,43 +128,17 @@ func readConfig(configFilename string, conf *Config) error {
     }
 
     // Set defaults for optional settings
-    if conf.RedisEnabled == false {
-        conf.RedisEnabled = false
-    }
     if conf.FileTTL == "" {
         conf.FileTTL = "30d"
     }
+    if !conf.ResumableUploadsEnabled {
+        conf.ResumableUploadsEnabled = false
+    }
+    if !conf.Dyncpus {
+        conf.Dyncores = runtime.NumCPU() // Default to available CPU count if not specified
+    }
 
     return nil
-}
-
-// Setup Redis client
-func setupRedis() {
-    if conf.RedisEnabled {
-        redisClient = redis.NewClient(&redis.Options{
-            Addr: conf.RedisAddr,
-        })
-        _, err := redisClient.Ping(context.Background()).Result()
-        if err != nil {
-            log.Warn("Could not connect to Redis, falling back to internal caching.")
-            conf.RedisEnabled = false
-        } else {
-            log.Info("Connected to Redis successfully.")
-        }
-    }
-}
-
-// Start garbage collector function
-func startGarbageCollector() {
-    if conf.GCEnabled {
-        interval, _ := time.ParseDuration(conf.GCInterval)
-        for {
-            log.Info("Running garbage collector and checking resources...")
-            v, _ := mem.VirtualMemory() // Update resource check
-            memoryUsage.Set(float64(v.Total)) // Example setting
-            time.Sleep(interval)
-        }
-    }
 }
 
 // Setup logging function
@@ -444,8 +411,6 @@ func main() {
         log.Fatalln("There was an error while reading the configuration file:", err)
     }
 
-    setupRedis() // Setup Redis
-
     err = os.MkdirAll(conf.StoreDir, os.ModePerm)
     if err != nil {
         log.Fatalf("Could not create directory %s: %v", conf.StoreDir, err)
@@ -454,9 +419,6 @@ func main() {
 
     setupLogging()
     logSystemInfo()
-
-    // Start garbage collector if enabled
-    go startGarbageCollector()
 
     var proto string
     if conf.UnixSocket {
