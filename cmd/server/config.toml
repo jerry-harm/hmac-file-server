@@ -9,6 +9,10 @@ LogFile = "./hmacdata/hmac-file-server.log"    # Log file path
 MetricsEnabled = true                           # Enable Prometheus metrics
 MetricsPort = ":9090"                          # Port for Prometheus metrics server
 
+# Workers and connections
+NumWorkers = 25                                 # Set number of workers
+UploadQueueSize = 10000                         # Set upload queue size for handling multiple uploads
+
 # Fallback database configuration (optional)
 FallbackEnabled = false                         # Enable fallback to a database if Redis is unavailable
 FallbackDBType = "postgres"                    # Fallback database type ("postgres" or "mysql")
@@ -29,21 +33,21 @@ EnableVersioning = true                         # Enable file versioning
 AuditLogFile = "/home/hmac-file-server/audit.log" # Path for audit log
 
 # Upload/Download settings
-ChunkedUploadsEnabled = true                    # Enable or disable chunked uploads
+ChunkedUploadsEnabled = false                    # Enable or disable chunked uploads
 ChunkSize = 4096                                # Size of each chunk in bytes (4 KB for small mobile networks)
 
 # Throttle Relaxation
-ThrottleEnabled = true                          # Enable throttling
+ThrottleEnabled = false                          # Enable throttling
 ThrottleEffect = 30                            # Throttle effect in seconds
 # MaxConcurrentUploadsPerConnection = 4        # Maximum concurrent uploads per connection
 
 # Garbage Collector and Goroutines
-DynamicCpus = true                              # Enable dynamic CPU allocation
-DynCores = 4                                    # Number of dynamic cores
+DynamicCpus = false                              # Enable dynamic CPU allocation
+DynCores = 1                                    # Number of dynamic cores
 GCEnabled = true                                # Enable garbage collection
 GCInterval = "30m"                              # Interval for garbage collection
 
 # RedisDB settings
-RedisEnabled = true                             # Enable Redis for caching
+RedisEnabled = false                             # Enable Redis for caching
 RedisAddr = "localhost:6379"                   # Redis server address
 RedisPassword = ""                              # Redis password (if any)

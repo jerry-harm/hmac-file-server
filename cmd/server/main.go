@@ -81,8 +81,8 @@ type UploadTask struct {
 }
 
 const (
-    NumWorkers      = 10   // Number of workers
-    UploadQueueSize = 1000 // Size of the queue
+    NumWorkers      = 20   // Number of workers
+    UploadQueueSize = 5000 // Size of the queue
 )
 
 var uploadQueue chan UploadTask
