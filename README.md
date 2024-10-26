@@ -25,16 +25,6 @@ Configuration is handled via a `config.toml` file located in the server director
 - `ResumableUploadsEnabled`: Enable or disable resumable uploads.
 - And more...
 
-## Download
-
-### Latest Version (v2.0.1)
-You can download the latest version of the HMAC File Server from the [GitHub Releases page](https://github.com/PlusOne/hmac-file-server/releases).
-
-Alternatively, use the direct download link:
-
-- **[Download HMAC File Server v2.0.1](https://github.com/PlusOne/hmac-file-server/releases/download/v2.0.1/hmac-file-server-linux-amd64)** – Linux (amd64)
-- **[Download HMAC File Server v2.0.1](https://github.com/PlusOne/hmac-file-server/releases/download/v2.0.1/hmac-file-server-windows-amd64.exe)** – Windows (amd64)
-
 ---
 
 ## Running the Server
