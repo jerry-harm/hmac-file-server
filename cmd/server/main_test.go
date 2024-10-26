@@ -2,67 +2,32 @@ package main
 
 import (
     "bytes"
-    "io"
     "net/http"
     "net/http/httptest"
     "os"
-    "path/filepath"
     "testing"
-
-    "github.com/sirupsen/logrus"
 )
 
-func mockUpload() {
-    os.MkdirAll(filepath.Join(conf.StoreDir, "thomas/abc/"), os.ModePerm)
-    from, err := os.Open("./catmetal.jpg")
-    if err != nil {
-        logrus.Fatal(err)
-    }
-    defer from.Close()
-
-    to, err := os.OpenFile(filepath.Join(conf.StoreDir, "thomas/abc/catmetal.jpg"), os.O_RDWR|os.O_CREATE, 0660)
-    if err != nil {
-        logrus.Fatal(err)
-    }
-    defer to.Close()
-
-    _, err = io.Copy(to, from)
-    if err != nil {
-        logrus.Fatal(err)
-    }
-}
-
-/*
- * Remove all uploaded files after an upload test
- */
+// cleanup removes all uploaded files after an upload test
 func cleanup() {
-    // Clean up
     if _, err := os.Stat(conf.StoreDir); err == nil {
         err := os.RemoveAll(conf.StoreDir)
         if err != nil {
-            logrus.Println("Error while cleaning up:", err)
+            println("Error while cleaning up:", err)
         }
     }
 }
 
-/*
- * Test if reading the config file works
- */
+// TestReadConfig checks if reading the configuration file works
 func TestReadConfig(t *testing.T) {
-    // Set config
     err := readConfig("config.toml", &conf)
     if err != nil {
         t.Fatal(err)
     }
-
-    logrus.SetLevel(logrus.FatalLevel)
 }
 
-/*
- * Run an upload test using the v1 / v MAC parameter
- */
-func TestUploadValidV1(t *testing.T) {
-    // Remove uploaded file after test
+// TestUploadWithHardcodedHMAC tests the upload using a hardcoded HMAC
+func TestUploadWithHardcodedHMAC(t *testing.T) {
     defer cleanup()
 
     // Set config
@@ -71,21 +36,24 @@ func TestUploadValidV1(t *testing.T) {
         t.Fatal(err)
     }
 
-    // Read catmetal file
-    catMetalFile, err := os.ReadFile("catmetal.jpg")
+    // Prepare test file
+    fileContent, err := os.ReadFile("hmac.jpg")
     if err != nil {
         t.Fatal(err)
     }
 
-    // Create request
-    req, err := http.NewRequest("PUT", "/upload/thomas/abc/catmetal.jpg", bytes.NewBuffer(catMetalFile))
+    // Use the hardcoded HMAC value for testing
+    hardcodedMAC := "aca8280410ea0fcbf787399ac4e1789e5286b4b7690925db87ba5de553fe9c7a"
+
+    // Create request with the hardcoded MAC in the query parameter
+    req, err := http.NewRequest("PUT", "/upload/badmuff/abc/hmac.jpg", bytes.NewBuffer(fileContent))
+    if err != nil {
+        t.Fatal(err)
+    }
+
     q := req.URL.Query()
-    q.Add("v", "7b8879e2d1c733b423a70cde30cecc3a3c64a03f790d1b5bcbb2a6aca52b477e")
+    q.Add("v", hardcodedMAC)
     req.URL.RawQuery = q.Encode()
-
-    if err != nil {
-        t.Fatal(err)
-    }
 
     rr := httptest.NewRecorder()
     handler := http.HandlerFunc(handleRequest)
@@ -95,8 +63,6 @@ func TestUploadValidV1(t *testing.T) {
 
     // Check status code
     if status := rr.Code; status != http.StatusCreated {
-        t.Errorf("handler returned wrong status code: got %v want %v. HTTP body: %s", status, http.StatusCreated, rr.Body.String())
+        t.Errorf("Expected status %v, but got %v. HTTP body: %s", http.StatusCreated, status, rr.Body.String())
     }
 }
-
-// ... Weitere Testfunktionen ...

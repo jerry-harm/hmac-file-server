@@ -1,11 +1,11 @@
-[server]
+#server
 ListenPort = ":8080"  # Port for the file server to listen on
 UnixSocket = false  # Use Unix sockets if true, otherwise TCP
 Secret = "supa-secret-maria-und-josef"  # HMAC secret for securing uploads
-StoreDir = "/mnt/storage/hmac-file-server/"  # Directory for storing uploaded files
+StoreDir = "/home/renz/source/hmac-file-server/cmd/server/hmacdata"
 UploadSubDir = "upload"  # Subdirectory for uploads
 LogLevel = "info"  # Logging level: "debug", "info", "warn", "error"
-LogFile = "/var/log/hmac-file-server.log"  # Log file path
+LogFile = "/home/renz/source/hmac-file-server/cmd/server/hmacdata/hmac-file-server.log"  # Log file path
 MetricsEnabled = true  # Enable Prometheus metrics
 MetricsPort = ":9090"  # Port for Prometheus metrics server
 
@@ -24,24 +24,18 @@ GracefulShutdownTimeout = 30  # Timeout for graceful shutdowns (in seconds)
 FileTTL = "120d"
 ResumableUploadsEnabled = true 
 MaxVersions = 2
-EnableVersioning = true
-AuditLogFile = "/home/hmac-file-server/audit.log"
+EnableVersioning = false
 
 ChunkedUploadsEnabled = true
 ChunkSize = 16384   # 64kb for small mobile networks
 
-# File type management
-#Whitelist = ["image/png", "image/jpeg", "application/pdf"]  # Allowed file types
-#Blacklist = ["application/x-msdownload", "application/vnd.microsoft.portable-executable"]  # Blocked file types
-
 # Throttle Relaxement
-ThrottleEnabled = true
+ThrottleEnabled = false
 ThrottleEffect = 30   # Throttle effect in seconds
-#MaxConcurrentUploadsPerConnection = 4
 
 # Garbage Collector and Goroutines
-DynamicCpus = true
-DynCores = 4
+DynamicCpus = false
+DynCores = 1
 GCEnabled = true
 GCInterval = "30m"
 
