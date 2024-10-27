@@ -87,6 +87,15 @@ const (
 
 var uploadQueue chan UploadTask
 
+// Event struct for network changes
+type NetworkEvent struct {
+    Type    string
+    Details string
+}
+
+// Channel for network events
+var networkEvents = make(chan NetworkEvent, 100)
+
 // Read configuration from config.toml with default values for optional settings
 func readConfig(configFilename string, conf *Config) error {
     configData, err := os.ReadFile(configFilename)
@@ -184,9 +193,7 @@ func logSystemInfo() {
     log.Infof("Kernel Version: %s", hInfo.KernelVersion)
 }
 
-/*
- * Sets CORS headers
- */
+// Sets CORS headers
 func addCORSheaders(w http.ResponseWriter) {
     w.Header().Set("Access-Control-Allow-Origin", "*")
     w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, HEAD")
@@ -579,6 +586,50 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
     w.Write(buffer)
 }
 
+// Function to handle network events
+func handleNetworkEvents() {
+    for event := range networkEvents {
+        switch event.Type {
+        case "IP_CHANGE":
+            log.Infof("Network change detected: %s", event.Details)
+            // Handle IP change, e.g., update routes, notify clients, etc.
+        }
+        // Additional event types can be handled here
+    }
+}
+
+// Function to monitor network changes
+func monitorNetwork() {
+    currentIP := getCurrentIPAddress() // Placeholder for initial IP address
+
+    for {
+        time.Sleep(5 * time.Second) // Check every 5 seconds
+        newIP := getCurrentIPAddress()
+        if newIP != currentIP {
+            currentIP = newIP
+            networkEvents <- NetworkEvent{Type: "IP_CHANGE", Details: currentIP}
+        }
+    }
+}
+
+// Example function to get current IP address
+func getCurrentIPAddress() string {
+    addrs, err := net.InterfaceAddrs()
+    if err != nil {
+        log.Error("Failed to get network interfaces:", err)
+        return ""
+    }
+
+    for _, addr := range addrs {
+        // Filter out IP addresses
+        if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.IsGlobalUnicast() {
+            return ipnet.IP.String() // Return the first global unicast IP found
+        }
+    }
+    return ""
+}
+
+// Main function
 func main() {
     var configFile string
     flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
@@ -605,6 +656,10 @@ func main() {
     for i := 0; i < NumWorkers; i++ {
         go uploadWorker()
     }
+
+    // Start monitoring network changes in a separate goroutine
+    go monitorNetwork()
+    go handleNetworkEvents() // Start handling events
 
     var proto string
     if conf.UnixSocket {
@@ -653,6 +708,7 @@ func setupGracefulShutdown() {
         log.Println("Shutting down server...")
         // Close the upload queue to signal workers to stop
         close(uploadQueue)
+        close(networkEvents) // Close network events channel
         // Optional: Wait for workers to finish
         time.Sleep(2 * time.Second)
         os.Exit(0)
