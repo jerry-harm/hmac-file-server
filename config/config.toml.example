@@ -17,7 +17,6 @@ MetricsPort = ":9090"                     # Port for Prometheus metrics server
 NumWorkers = 4                                 # Set number of workers
 UploadQueueSize = 2500                         # Set upload queue size for handling multiple uploads
 
-
 # ==============================
 #          File Settings
 # ==============================
