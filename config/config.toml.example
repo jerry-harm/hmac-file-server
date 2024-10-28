@@ -13,6 +13,11 @@ LogFile = "./hmacdata/hmac-file-server.log" # Log file path
 MetricsEnabled = true                     # Enable Prometheus metrics
 MetricsPort = ":9090"                     # Port for Prometheus metrics server
 
+# Workers and connections
+NumWorkers = 4                                 # Set number of workers
+UploadQueueSize = 2500                         # Set upload queue size for handling multiple uploads
+
+
 # ==============================
 #          File Settings
 # ==============================
@@ -26,6 +31,11 @@ MaxVersions = 2                            # Maximum number of file versions to 
 # Upload/Download settings
 ChunkingEnabled = true                     # Enable or disable chunked uploads
 ChunkSize = 4096                           # Size of each chunk in bytes (4 KB for small mobile networks)
+
+# Server timeout settings
+ReadTimeout = "2h"
+WriteTimeout = "2h"
+IdleTimeout = "2h"
 
 # Allowed file extensions including comprehensive image and video formats
 AllowedExtensions = [
