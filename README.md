@@ -5,29 +5,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Key Features](#key-features)
-3. [Installation](#installation)
-4. [Configuration](#configuration)
-5. [Usage](#usage)
-    - [Starting the Server](#starting-the-server)
-    - [Uploading Files](#uploading-files)
-    - [Downloading Files](#downloading-files)
-6. [Resumable Uploads and Downloads](#resumable-uploads-and-downloads)
-7. [File Versioning](#file-versioning)
-8. [Prometheus Metrics](#prometheus-metrics)
-9. [Graceful Shutdown](#graceful-shutdown)
-10. [Logging](#logging)
-11. [Security Considerations](#security-considerations)
-12. [Additional Features](#additional-features)
-13. [Troubleshooting](#troubleshooting)
-14. [Contributing](#contributing)
-15. [License](#license)
-
----
-
 ## Overview
 
 The **HMAC File Server** is a robust and secure solution for handling file uploads and downloads. It leverages **HMAC authentication** to ensure that only authorized users can access or modify files. The server supports advanced features like **resumable uploads/downloads**, **file versioning**, **event-based network management**, and comprehensive **Prometheus metrics** for monitoring.
