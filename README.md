@@ -1,5 +1,5 @@
 
-# HMAC File Server - v2.0.1
+# HMAC File Server - v2.0.2
 
 **Secure File Handling with HMAC Authentication**
 
