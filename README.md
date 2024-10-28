@@ -32,6 +32,8 @@ The **HMAC File Server** is a robust and secure solution for handling file uploa
 5. **Prometheus Metrics Integration**
     - **Comprehensive Metrics**: Tracks uploads/downloads, errors, system resource usage, active connections, and more.
     - **Metrics Endpoint**: Exposes metrics on the `/metrics` endpoint for Prometheus scraping.
+  
+![image](https://github.com/user-attachments/assets/2804b922-a923-4f82-a49c-2cc80eb0ac0d)
 
 6. **Graceful Shutdown**
     - **Signal Handling**: Listens for termination signals (`SIGINT`, `SIGTERM`) to initiate a graceful shutdown.
