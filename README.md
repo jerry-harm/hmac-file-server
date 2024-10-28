@@ -1,30 +1,7 @@
 
-# HMAC File Server - v2.0.1
+# HMAC File Server - v2.0.2
 
 **Secure File Handling with HMAC Authentication**
-
----
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Key Features](#key-features)
-3. [Installation](#installation)
-4. [Configuration](#configuration)
-5. [Usage](#usage)
-    - [Starting the Server](#starting-the-server)
-    - [Uploading Files](#uploading-files)
-    - [Downloading Files](#downloading-files)
-6. [Resumable Uploads and Downloads](#resumable-uploads-and-downloads)
-7. [File Versioning](#file-versioning)
-8. [Prometheus Metrics](#prometheus-metrics)
-9. [Graceful Shutdown](#graceful-shutdown)
-10. [Logging](#logging)
-11. [Security Considerations](#security-considerations)
-12. [Additional Features](#additional-features)
-13. [Troubleshooting](#troubleshooting)
-14. [Contributing](#contributing)
-15. [License](#license)
 
 ---
 
