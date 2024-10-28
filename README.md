@@ -1,5 +1,5 @@
 
-# HMAC File Server - v2.0.2
+# HMAC File Server - v2.0.3
 
 **Secure File Handling with HMAC Authentication**
 
@@ -66,7 +66,7 @@ The **HMAC File Server** is a robust and secure solution for handling file uploa
 
 ## Configuration
 
-Die Serverkonfiguration erfolgt über eine `config.toml`-Datei. Unten findest du ein Beispiel für eine Konfigurationsdatei mit Erklärungen zu den einzelnen Einstellungen.
+The server configuration is managed via a `config.toml` file. Below is a sample configuration file with explanations for each setting.
 
 ```toml
 # Server listening configuration
@@ -101,4 +101,3 @@ ChunkSize = 1048576                    # Size of each chunk in bytes (1MB)
 ```
 
 ---
-
