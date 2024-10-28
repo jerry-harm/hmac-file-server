@@ -2,6 +2,7 @@ package main
 
 import (
     "bufio"
+    "context"
     "crypto/hmac"
     "crypto/sha256"
     "encoding/hex"
@@ -30,6 +31,7 @@ import (
     "github.com/shirou/gopsutil/host"
     "github.com/shirou/gopsutil/mem"
     "github.com/sirupsen/logrus"
+    "github.com/patrickmn/go-cache"
 )
 
 var conf Config
@@ -49,6 +51,18 @@ var (
     activeConnections   = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
     requestsTotal       = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
     goroutines          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
+    uploadSizeBytes     = prometheus.NewHistogram(prometheus.HistogramOpts{
+        Namespace: "hmac",
+        Name:      "file_server_upload_size_bytes",
+        Help:      "Histogram of uploaded file sizes in bytes.",
+        Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
+    })
+    downloadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+        Namespace: "hmac",
+        Name:      "file_server_download_size_bytes",
+        Help:      "Histogram of downloaded file sizes in bytes.",
+        Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
+    })
 )
 
 // Configuration struct
@@ -80,13 +94,6 @@ type UploadTask struct {
     Done          chan error
 }
 
-const (
-    NumWorkers      = 20   // Number of workers
-    UploadQueueSize = 5000 // Size of the queue
-)
-
-var uploadQueue chan UploadTask
-
 // Event struct for network changes
 type NetworkEvent struct {
     Type    string
@@ -95,6 +102,20 @@ type NetworkEvent struct {
 
 // Channel for network events
 var networkEvents = make(chan NetworkEvent, 100)
+
+// Upload queue constants
+const (
+    MinWorkers       = 10
+    MaxWorkers       = 100
+    UploadQueueSize  = 5000
+    networkPollInterval = 10 * time.Second
+)
+
+// Upload queue
+var uploadQueue chan UploadTask
+
+// File info cache
+var fileInfoCache *cache.Cache
 
 // Read configuration from config.toml with default values for optional settings
 func readConfig(configFilename string, conf *Config) error {
@@ -149,6 +170,9 @@ func setupLogging() {
     } else {
         log.SetOutput(os.Stdout)
     }
+
+    // Use JSON formatter for structured logging
+    log.SetFormatter(&logrus.JSONFormatter{})
 }
 
 // Log system information with a banner
@@ -193,6 +217,44 @@ func logSystemInfo() {
     log.Infof("Kernel Version: %s", hInfo.KernelVersion)
 }
 
+// Initialize Prometheus metrics
+func initMetrics() {
+    if conf.MetricsEnabled {
+        prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
+        prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
+        prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
+        prometheus.MustRegister(uploadSizeBytes, downloadSizeBytes)
+    }
+}
+
+// Update system metrics periodically
+func updateSystemMetrics(ctx context.Context) {
+    ticker := time.NewTicker(10 * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            log.Info("Stopping system metrics updater.")
+            return
+        case <-ticker.C:
+            v, _ := mem.VirtualMemory()
+            memoryUsage.Set(float64(v.Used))
+
+            cpuPercent, _ := cpu.Percent(0, false)
+            if len(cpuPercent) > 0 {
+                cpuUsage.Set(cpuPercent[0])
+            }
+
+            goroutines.Set(float64(runtime.NumGoroutine()))
+
+            // Update active connections if applicable
+            // Placeholder: Implement actual active connection tracking
+            // activeConnections.Set(float64(getActiveConnections()))
+        }
+    }
+}
+
 // Sets CORS headers
 func addCORSheaders(w http.ResponseWriter) {
     w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -204,11 +266,22 @@ func addCORSheaders(w http.ResponseWriter) {
 
 // Function to check if file exists and return its size
 func fileExists(filePath string) (bool, int64) {
+    if cachedInfo, found := fileInfoCache.Get(filePath); found {
+        if info, ok := cachedInfo.(os.FileInfo); ok {
+            return !info.IsDir(), info.Size()
+        }
+    }
+
     fileInfo, err := os.Stat(filePath)
     if os.IsNotExist(err) {
         return false, 0
+    } else if err != nil {
+        log.Error("Error checking file existence:", err)
+        return false, 0
     }
-    return true, fileInfo.Size()
+
+    fileInfoCache.Set(filePath, fileInfo, cache.DefaultExpiration)
+    return !fileInfo.IsDir(), fileInfo.Size()
 }
 
 // Handle file versioning by moving the existing file to a versioned directory
@@ -228,7 +301,10 @@ func versionFile(absFilename string) error {
         return fmt.Errorf("failed to version the file: %v", err)
     }
 
-    log.Infof("Versioned old file: %s to %s", absFilename, versionedFilename)
+    log.WithFields(logrus.Fields{
+        "original":     absFilename,
+        "versioned_as": versionedFilename,
+    }).Info("Versioned old file")
     return cleanupOldVersions(versionDir)
 }
 
@@ -246,7 +322,7 @@ func cleanupOldVersions(versionDir string) error {
             if err != nil {
                 return fmt.Errorf("failed to remove old version: %v", err)
             }
-            log.Infof("Removed old version: %s", files[i].Name())
+            log.WithField("file", files[i].Name()).Info("Removed old version")
         }
     }
 
@@ -255,12 +331,12 @@ func cleanupOldVersions(versionDir string) error {
 
 // Handle chunked uploads (using bufio.Writer)
 func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request) error {
-    log.Infof("Handling chunked upload for %s", absFilename)
+    log.WithField("file", absFilename).Info("Handling chunked upload")
 
     targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
     if err != nil {
         http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        log.Error("Failed to open file for chunked upload:", err)
+        log.WithError(err).Error("Failed to open file for chunked upload")
         return err
     }
     defer targetFile.Close()
@@ -273,7 +349,7 @@ func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Requ
             _, writeErr := writer.Write(buffer[:n])
             if writeErr != nil {
                 http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-                log.Error("Failed to write chunk to file:", writeErr)
+                log.WithError(writeErr).Error("Failed to write chunk to file")
                 return writeErr
             }
         }
@@ -281,7 +357,7 @@ func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Requ
             if err == io.EOF {
                 break // Finished reading the body
             }
-            log.Error("Error reading from request body:", err)
+            log.WithError(err).Error("Error reading from request body")
             http.Error(w, "Internal Server Error", http.StatusInternalServerError)
             return err
         }
@@ -290,10 +366,11 @@ func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Requ
     err = writer.Flush()
     if err != nil {
         http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        log.Error("Failed to flush buffer to file:", err)
+        log.WithError(err).Error("Failed to flush buffer to file")
         return err
     }
 
+    uploadSizeBytes.Observe(float64(r.ContentLength))
     uploadsTotal.Inc()
     w.WriteHeader(http.StatusCreated)
     return nil
@@ -306,9 +383,17 @@ func processUpload(task UploadTask) error {
     w := task.Writer
     r := task.Request
 
+    startTime := time.Now()
+
     // Handle chunked upload if enabled
     if conf.ChunkingEnabled {
-        return handleChunkedUpload(absFilename, w, r)
+        err := handleChunkedUpload(absFilename, w, r)
+        if err != nil {
+            uploadDuration.Observe(time.Since(startTime).Seconds())
+            return err
+        }
+        uploadDuration.Observe(time.Since(startTime).Seconds())
+        return nil
     }
 
     // File versioning logic
@@ -317,8 +402,9 @@ func processUpload(task UploadTask) error {
         if existing {
             err := versionFile(absFilename)
             if err != nil {
-                log.Errorf("Error versioning file: %v", err)
+                log.WithError(err).Error("Error versioning file")
                 http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+                uploadDuration.Observe(time.Since(startTime).Seconds())
                 return err
             }
         }
@@ -327,30 +413,52 @@ func processUpload(task UploadTask) error {
     // Proceed to create the file after successful HMAC validation
     err := createFile(absFilename, fileStorePath, w, r)
     if err != nil {
-        log.Error(err)
+        log.WithError(err).Error("Error creating file")
+        uploadDuration.Observe(time.Since(startTime).Seconds())
         return err
     }
+
+    uploadDuration.Observe(time.Since(startTime).Seconds())
     return nil
 }
 
 // Worker function to process upload tasks
-func uploadWorker() {
-    for task := range uploadQueue {
-        err := processUpload(task)
-        task.Done <- err
-        close(task.Done)
+func uploadWorker(ctx context.Context, workerID int) {
+    log.WithField("worker_id", workerID).Info("Upload worker started")
+    for {
+        select {
+        case <-ctx.Done():
+            log.WithField("worker_id", workerID).Info("Upload worker stopping")
+            return
+        case task, ok := <-uploadQueue:
+            if !ok {
+                log.WithField("worker_id", workerID).Info("Upload queue closed")
+                return
+            }
+            err := processUpload(task)
+            if err != nil {
+                uploadErrorsTotal.Inc()
+                // Optionally, implement retry logic here
+            }
+            task.Done <- err
+            close(task.Done)
+        }
     }
 }
 
 // Handle incoming HTTP requests, including HMAC validation and file uploads/downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-    log.Info("Incoming request: ", r.Method, r.URL.String())
+    log.WithFields(logrus.Fields{
+        "method": r.Method,
+        "url":    r.URL.String(),
+        "remote": r.RemoteAddr,
+    }).Info("Incoming request")
 
     // Parse URL and args
     p := r.URL.Path
     a, err := url.ParseQuery(r.URL.RawQuery)
     if err != nil {
-        log.Warn("Failed to parse query")
+        log.Warn("Failed to parse query parameters")
         http.Error(w, "Internal Server Error", http.StatusInternalServerError)
         return
     }
@@ -358,7 +466,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
     subDir := path.Join("/", conf.UploadSubDir)
     fileStorePath := strings.TrimPrefix(p, subDir)
     if fileStorePath == "" || fileStorePath == "/" {
-        log.Warn("Access to / forbidden")
+        log.Warn("Access to root directory is forbidden")
         http.Error(w, "Forbidden", http.StatusForbidden)
         return
     } else if fileStorePath[0] == '/' {
@@ -370,159 +478,206 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
     // Add CORS headers
     addCORSheaders(w)
 
-    if r.Method == http.MethodPut {
-        // File upload logic with HMAC validation
-        var protocolVersion string
-        if a["v2"] != nil {
-            protocolVersion = "v2"
-        } else if a["token"] != nil {
-            protocolVersion = "token"
-        } else if a["v"] != nil {
-            protocolVersion = "v"
-        } else {
-            log.Warn("No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC")
-            http.Error(w, "No HMAC attached to URL. Expecting URL with \"v\", \"v2\" or \"token\" parameter as MAC", http.StatusForbidden)
-            return
-        }
-
-        // Init HMAC
-        mac := hmac.New(sha256.New, []byte(conf.Secret))
-        macString := ""
-
-        // Calculate MAC based on protocolVersion
-        if protocolVersion == "v" {
-            mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
-            macString = hex.EncodeToString(mac.Sum(nil))
-        } else if protocolVersion == "v2" || protocolVersion == "token" {
-            contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-            if contentType == "" {
-                contentType = "application/octet-stream"
-            }
-            mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-            macString = hex.EncodeToString(mac.Sum(nil))
-        }
-
-        // Validate the HMAC
-        if len(a[protocolVersion]) == 0 || !hmac.Equal([]byte(macString), []byte(a[protocolVersion][0])) {
-            log.Warn("Invalid MAC.")
-            http.Error(w, "Invalid MAC", http.StatusForbidden)
-            return
-        }
-
-        // Create an UploadTask with a done channel
-        done := make(chan error)
-        task := UploadTask{
-            AbsFilename:   absFilename,
-            FileStorePath: fileStorePath,
-            Writer:        w,
-            Request:       r,
-            Done:          done,
-        }
-
-        select {
-        case uploadQueue <- task:
-            // Successfully added to the queue
-        default:
-            // Queue is full
-            log.Warn("Upload queue is full. Rejecting upload.")
-            http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
-            uploadErrorsTotal.Inc()
-            return
-        }
-
-        // Wait for the worker to process the upload
-        err = <-done
-        if err != nil {
-            uploadErrorsTotal.Inc()
-            // The worker has already sent an appropriate HTTP error response
-            return
-        }
-
-        // Upload was successful; the worker has already sent the HTTP response
-        return
-    } else if r.Method == http.MethodHead || r.Method == http.MethodGet {
-        // File download logic
-
-        fileInfo, err := os.Stat(absFilename)
-        if err != nil {
-            log.Error("Getting file information failed:", err)
-            http.Error(w, "Not Found", http.StatusNotFound)
-            return
-        } else if fileInfo.IsDir() {
-            log.Warn("Directory listing forbidden!")
-            http.Error(w, "Forbidden", http.StatusForbidden)
-            return
-        }
-
-        contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-        if contentType == "" {
-            contentType = "application/octet-stream"
-        }
-        w.Header().Set("Content-Type", contentType)
-
-        // Handle resumable downloads
-        if conf.ResumableDownloadsEnabled {
-            handleResumableDownload(absFilename, w, r)
-            return
-        }
-
-        if r.Method == http.MethodHead {
-            w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
-            return
-        } else {
-            http.ServeFile(w, r, absFilename)
-            return
-        }
-    } else if r.Method == http.MethodOptions {
+    switch r.Method {
+    case http.MethodPut:
+        handleUpload(w, r, absFilename, fileStorePath, a)
+    case http.MethodHead, http.MethodGet:
+        handleDownload(w, r, absFilename, fileStorePath)
+    case http.MethodOptions:
         w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
         return
-    } else {
-        log.Warn("Invalid method", r.Method, "for access to ", conf.UploadSubDir)
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+    default:
+        log.WithField("method", r.Method).Warn("Invalid HTTP method for upload directory")
+        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
         return
     }
 }
 
+// Handle file uploads
+func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
+    // Determine protocol version based on query parameters
+    var protocolVersion string
+    if a.Get("v2") != "" {
+        protocolVersion = "v2"
+    } else if a.Get("token") != "" {
+        protocolVersion = "token"
+    } else if a.Get("v") != "" {
+        protocolVersion = "v"
+    } else {
+        log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
+        http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
+        return
+    }
+
+    // Initialize HMAC
+    mac := hmac.New(sha256.New, []byte(conf.Secret))
+
+    // Calculate MAC based on protocolVersion
+    if protocolVersion == "v" {
+        mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+    } else if protocolVersion == "v2" || protocolVersion == "token" {
+        contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+        if contentType == "" {
+            contentType = "application/octet-stream"
+        }
+        mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+    }
+
+    calculatedMAC := mac.Sum(nil)
+
+    // Decode provided MAC from hex
+    providedMAC, err := hex.DecodeString(a.Get(protocolVersion))
+    if err != nil {
+        log.Warn("Invalid MAC encoding")
+        http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
+        return
+    }
+
+    // Validate the HMAC
+    if !hmac.Equal(calculatedMAC, providedMAC) {
+        log.Warn("Invalid MAC")
+        http.Error(w, "Invalid MAC", http.StatusForbidden)
+        return
+    }
+
+    // Create an UploadTask with a done channel
+    done := make(chan error)
+    task := UploadTask{
+        AbsFilename:   absFilename,
+        FileStorePath: fileStorePath,
+        Writer:        w,
+        Request:       r,
+        Done:          done,
+    }
+
+    // Submit task to the upload queue
+    select {
+    case uploadQueue <- task:
+        // Successfully added to the queue
+        log.Debug("Upload task enqueued successfully")
+    default:
+        // Queue is full
+        log.Warn("Upload queue is full. Rejecting upload")
+        http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
+        uploadErrorsTotal.Inc()
+        return
+    }
+
+    // Wait for the worker to process the upload
+    err = <-done
+    if err != nil {
+        // The worker has already sent an appropriate HTTP error response
+        return
+    }
+
+    // Upload was successful; response has been handled by the worker
+}
+
 // Create the file for upload with buffered Writer
-func createFile(absFilename string, fileStorePath string, w http.ResponseWriter, r *http.Request) error {
+func createFile(absFilename, fileStorePath string, w http.ResponseWriter, r *http.Request) error {
     absDirectory := filepath.Dir(absFilename)
     err := os.MkdirAll(absDirectory, os.ModePerm)
     if err != nil {
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return fmt.Errorf("failed to create directory %s: %s", absDirectory, err)
+        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        return fmt.Errorf("failed to create directory %s: %w", absDirectory, err)
     }
 
     targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
     if err != nil {
         http.Error(w, "Conflict", http.StatusConflict)
-        return fmt.Errorf("failed to create file %s: %s", absFilename, err)
+        return fmt.Errorf("failed to create file %s: %w", absFilename, err)
     }
     defer targetFile.Close()
 
     writer := bufio.NewWriter(targetFile)
-    _, err = io.Copy(writer, r.Body)
+    buffer := make([]byte, 32*1024) // 32KB buffer
+    _, err = io.CopyBuffer(writer, r.Body, buffer)
     if err != nil {
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return fmt.Errorf("failed to copy file contents to %s: %s", absFilename, err)
+        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        return fmt.Errorf("failed to copy file contents to %s: %w", absFilename, err)
     }
 
     err = writer.Flush()
     if err != nil {
-        http.Error(w, "Internal server error", http.StatusInternalServerError)
-        return fmt.Errorf("failed to flush buffer to file %s: %s", absFilename, err)
+        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        return fmt.Errorf("failed to flush buffer to file %s: %w", absFilename, err)
     }
 
+    uploadSizeBytes.Observe(float64(r.ContentLength))
     uploadsTotal.Inc()
     w.WriteHeader(http.StatusCreated)
     return nil
 }
 
+// Handle file downloads
+func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
+    fileInfo, err := getFileInfo(absFilename)
+    if err != nil {
+        log.WithError(err).Error("Failed to get file information")
+        http.Error(w, "Not Found", http.StatusNotFound)
+        downloadErrorsTotal.Inc()
+        return
+    } else if fileInfo.IsDir() {
+        log.Warn("Directory listing forbidden")
+        http.Error(w, "Forbidden", http.StatusForbidden)
+        downloadErrorsTotal.Inc()
+        return
+    }
+
+    contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+    if contentType == "" {
+        contentType = "application/octet-stream"
+    }
+    w.Header().Set("Content-Type", contentType)
+
+    // Handle resumable downloads
+    if conf.ResumableDownloadsEnabled {
+        handleResumableDownload(absFilename, w, r, fileInfo.Size())
+        return
+    }
+
+    if r.Method == http.MethodHead {
+        w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+        downloadsTotal.Inc()
+        return
+    } else {
+        // Measure download duration
+        startTime := time.Now()
+        http.ServeFile(w, r, absFilename)
+        downloadDuration.Observe(time.Since(startTime).Seconds())
+        downloadSizeBytes.Observe(float64(fileInfo.Size()))
+        downloadsTotal.Inc()
+        return
+    }
+}
+
+// Get file information with caching
+func getFileInfo(absFilename string) (os.FileInfo, error) {
+    if cachedInfo, found := fileInfoCache.Get(absFilename); found {
+        if info, ok := cachedInfo.(os.FileInfo); ok {
+            return info, nil
+        }
+    }
+
+    fileInfo, err := os.Stat(absFilename)
+    if err != nil {
+        return nil, err
+    }
+
+    fileInfoCache.Set(absFilename, fileInfo, cache.DefaultExpiration)
+    return fileInfo, nil
+}
+
 // Handle resumable downloads
-func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.Request) {
+func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.Request, fileSize int64) {
     rangeHeader := r.Header.Get("Range")
     if rangeHeader == "" {
         // If no Range header, serve the full file
+        startTime := time.Now()
         http.ServeFile(w, r, absFilename)
+        downloadDuration.Observe(time.Since(startTime).Seconds())
+        downloadSizeBytes.Observe(float64(fileSize))
+        downloadsTotal.Inc()
         return
     }
 
@@ -530,40 +685,39 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
     ranges := strings.Split(strings.TrimPrefix(rangeHeader, "bytes="), "-")
     if len(ranges) != 2 {
         http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
+        downloadErrorsTotal.Inc()
         return
     }
 
     start, err := strconv.ParseInt(ranges[0], 10, 64)
     if err != nil {
         http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
-        return
-    }
-
-    fileInfo, err := os.Stat(absFilename)
-    if err != nil {
-        http.Error(w, "Not Found", http.StatusNotFound)
+        downloadErrorsTotal.Inc()
         return
     }
 
     // Calculate end byte
-    end := fileInfo.Size() - 1
+    end := fileSize - 1
     if ranges[1] != "" {
         end, err = strconv.ParseInt(ranges[1], 10, 64)
-        if err != nil || end > fileInfo.Size() {
+        if err != nil || end >= fileSize {
             http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
+            downloadErrorsTotal.Inc()
             return
         }
     }
 
     // Set response headers for partial content
-    w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileInfo.Size()))
-    w.Header().Set("Content-Length", fmt.Sprintf("%d", end-start+1))
+    w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+    w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+    w.Header().Set("Accept-Ranges", "bytes")
     w.WriteHeader(http.StatusPartialContent)
 
     // Serve the requested byte range
     file, err := os.Open(absFilename)
     if err != nil {
         http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        downloadErrorsTotal.Inc()
         return
     }
     defer file.Close()
@@ -572,61 +726,183 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
     _, err = file.Seek(start, 0)
     if err != nil {
         http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        downloadErrorsTotal.Inc()
         return
     }
 
     // Create a buffer and copy the specified range to the response writer
-    buffer := make([]byte, end-start+1)
-    _, err = io.ReadFull(file, buffer)
-    if err != nil {
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
+    buffer := make([]byte, 32*1024) // 32KB buffer
+    remaining := end - start + 1
+    startTime := time.Now()
+    for remaining > 0 {
+        if int64(len(buffer)) > remaining {
+            buffer = buffer[:remaining]
+        }
+        n, err := file.Read(buffer)
+        if n > 0 {
+            if _, writeErr := w.Write(buffer[:n]); writeErr != nil {
+                log.WithError(writeErr).Error("Failed to write to response")
+                downloadErrorsTotal.Inc()
+                return
+            }
+            remaining -= int64(n)
+        }
+        if err != nil {
+            if err != io.EOF {
+                log.WithError(err).Error("Error reading file during resumable download")
+                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+                downloadErrorsTotal.Inc()
+            }
+            break
+        }
     }
-
-    w.Write(buffer)
+    downloadDuration.Observe(time.Since(startTime).Seconds())
+    downloadSizeBytes.Observe(float64(end - start + 1))
+    downloadsTotal.Inc()
 }
 
 // Function to handle network events
-func handleNetworkEvents() {
-    for event := range networkEvents {
-        switch event.Type {
-        case "IP_CHANGE":
-            log.Infof("Network change detected: %s", event.Details)
-            // Handle IP change, e.g., update routes, notify clients, etc.
+func handleNetworkEvents(ctx context.Context) {
+    for {
+        select {
+        case <-ctx.Done():
+            log.Info("Stopping network event handler.")
+            return
+        case event, ok := <-networkEvents:
+            if !ok {
+                log.Info("Network events channel closed.")
+                return
+            }
+            switch event.Type {
+            case "IP_CHANGE":
+                log.WithField("new_ip", event.Details).Info("Network change detected")
+                // Example: Update Prometheus gauge or trigger alerts
+                // activeConnections.Set(float64(getActiveConnections()))
+            }
+            // Additional event types can be handled here
         }
-        // Additional event types can be handled here
     }
 }
 
 // Function to monitor network changes
-func monitorNetwork() {
+func monitorNetwork(ctx context.Context) {
     currentIP := getCurrentIPAddress() // Placeholder for initial IP address
 
     for {
-        time.Sleep(5 * time.Second) // Check every 5 seconds
-        newIP := getCurrentIPAddress()
-        if newIP != currentIP {
-            currentIP = newIP
-            networkEvents <- NetworkEvent{Type: "IP_CHANGE", Details: currentIP}
+        select {
+        case <-ctx.Done():
+            log.Info("Stopping network monitor.")
+            return
+        case <-time.After(networkPollInterval):
+            newIP := getCurrentIPAddress()
+            if newIP != currentIP && newIP != "" {
+                currentIP = newIP
+                select {
+                case networkEvents <- NetworkEvent{Type: "IP_CHANGE", Details: currentIP}:
+                    log.WithField("new_ip", currentIP).Info("Queued IP_CHANGE event")
+                default:
+                    log.Warn("Network event channel is full. Dropping IP_CHANGE event.")
+                }
+            }
         }
     }
 }
 
 // Example function to get current IP address
 func getCurrentIPAddress() string {
-    addrs, err := net.InterfaceAddrs()
+    interfaces, err := net.Interfaces()
     if err != nil {
-        log.Error("Failed to get network interfaces:", err)
+        log.WithError(err).Error("Failed to get network interfaces")
         return ""
     }
 
-    for _, addr := range addrs {
-        // Filter out IP addresses
-        if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.IsGlobalUnicast() {
-            return ipnet.IP.String() // Return the first global unicast IP found
+    for _, iface := range interfaces {
+        if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+            continue // Skip down or loopback interfaces
+        }
+        addrs, err := iface.Addrs()
+        if err != nil {
+            log.WithError(err).Errorf("Failed to get addresses for interface %s", iface.Name)
+            continue
+        }
+        for _, addr := range addrs {
+            if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.IsGlobalUnicast() && ipnet.IP.To4() != nil {
+                return ipnet.IP.String()
+            }
         }
     }
     return ""
+}
+
+// Setup graceful shutdown
+func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    go func() {
+        <-quit
+        log.Info("Shutting down server...")
+
+        // Create a deadline to wait for.
+        ctxShutdown, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+        defer shutdownCancel()
+
+        if err := server.Shutdown(ctxShutdown); err != nil {
+            log.WithError(err).Fatal("Server Shutdown Failed")
+        }
+
+        // Signal other goroutines to stop
+        cancel()
+
+        // Close the upload queue and network events channel
+        close(uploadQueue)
+        close(networkEvents)
+
+        log.Info("Server gracefully stopped.")
+        os.Exit(0)
+    }()
+}
+
+// Initialize worker pool with dynamic scaling
+func initializeWorkerPool(ctx context.Context) {
+    for i := 0; i < MinWorkers; i++ {
+        go uploadWorker(ctx, i)
+    }
+    // Dynamic scaling logic can be implemented here if needed
+}
+
+// Setup HTTP server with middleware
+func setupRouter() http.Handler {
+    mux := http.NewServeMux()
+    subpath := path.Join("/", conf.UploadSubDir)
+    subpath = strings.TrimRight(subpath, "/") + "/"
+    mux.HandleFunc(subpath, handleRequest)
+    if conf.MetricsEnabled {
+        mux.Handle("/metrics", promhttp.Handler())
+    }
+
+    // Apply middleware
+    handler := loggingMiddleware(corsMiddleware(mux))
+    return handler
+}
+
+// Middleware for logging
+func loggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        requestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
+        next.ServeHTTP(w, r)
+    })
+}
+
+// Middleware for CORS
+func corsMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        addCORSheaders(w)
+        if r.Method == http.MethodOptions {
+            w.WriteHeader(http.StatusOK)
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
 }
 
 // Main function
@@ -640,77 +916,80 @@ func main() {
         log.Fatalln("There was an error while reading the configuration file:", err)
     }
 
+    // Initialize file info cache with default expiration of 5 minutes
+    fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
+
     err = os.MkdirAll(conf.StoreDir, os.ModePerm)
     if err != nil {
         log.Fatalf("Could not create directory %s: %v", conf.StoreDir, err)
     }
-    log.Infof("Directory %s is ready", conf.StoreDir)
+    log.WithField("directory", conf.StoreDir).Info("Store directory is ready")
 
     setupLogging()
     logSystemInfo()
+    initMetrics()
 
     // Initialize the upload queue
     uploadQueue = make(chan UploadTask, UploadQueueSize)
 
-    // Start the workers
-    for i := 0; i < NumWorkers; i++ {
-        go uploadWorker()
+    // Create a context for managing goroutine lifecycles
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    // Start monitoring network changes and handling events
+    go monitorNetwork(ctx)
+    go handleNetworkEvents(ctx)
+
+    // Start updating system metrics
+    go updateSystemMetrics(ctx)
+
+    // Initialize worker pool
+    initializeWorkerPool(ctx)
+
+    // Setup HTTP server with router
+    router := setupRouter()
+    server := &http.Server{
+        Addr:         conf.ListenPort,
+        Handler:      router,
+        ReadTimeout:  15 * time.Second,
+        WriteTimeout: 15 * time.Second,
+        IdleTimeout:  60 * time.Second,
     }
 
-    // Start monitoring network changes in a separate goroutine
-    go monitorNetwork()
-    go handleNetworkEvents() // Start handling events
-
-    var proto string
-    if conf.UnixSocket {
-        proto = "unix"
-    } else {
-        proto = "tcp"
-    }
-
+    // Start metrics server if enabled
     if conf.MetricsEnabled {
-        prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
-        prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
-        prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
-
         go func() {
+            log.Infof("Starting metrics server on %s", conf.MetricsPort)
+            metricsAddr := conf.MetricsPort
+            if !strings.Contains(metricsAddr, ":") {
+                metricsAddr = ":" + metricsAddr
+            }
             http.Handle("/metrics", promhttp.Handler())
-            log.Printf("Starting metrics server on %s", conf.MetricsPort)
-            if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
-                log.Fatalf("Metrics server failed: %v", err)
+            if err := http.ListenAndServe(metricsAddr, nil); err != nil {
+                log.WithError(err).Fatal("Metrics server failed")
             }
         }()
     }
 
-    log.Println("Starting HMAC file server", versionString, "...")
-    listener, err := net.Listen(proto, conf.ListenPort)
-    if err != nil {
-        log.Fatalln("Could not open listening socket:", err)
-    }
-
-    subpath := path.Join("/", conf.UploadSubDir)
-    subpath = strings.TrimRight(subpath, "/") + "/"
-    http.HandleFunc(subpath, handleRequest)
-
-    log.Printf("Server started on port %s. Waiting for requests.\n", conf.ListenPort)
-
     // Setup graceful shutdown
-    setupGracefulShutdown()
-    http.Serve(listener, nil)
-}
+    setupGracefulShutdown(server, cancel)
 
-// Setup graceful shutdown
-func setupGracefulShutdown() {
-    quit := make(chan os.Signal, 1)
-    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-    go func() {
-        <-quit
-        log.Println("Shutting down server...")
-        // Close the upload queue to signal workers to stop
-        close(uploadQueue)
-        close(networkEvents) // Close network events channel
-        // Optional: Wait for workers to finish
-        time.Sleep(2 * time.Second)
-        os.Exit(0)
-    }()
+    // Start server
+    log.Infof("Starting HMAC file server %s...", versionString)
+    if conf.UnixSocket {
+        listener, err := net.Listen("unix", conf.ListenPort)
+        if err != nil {
+            log.WithError(err).Fatal("Could not open Unix socket")
+        }
+        defer listener.Close()
+        log.Infof("Server started on Unix socket %s. Waiting for requests.", conf.ListenPort)
+        if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+            log.WithError(err).Fatal("Server failed")
+        }
+    } else {
+        log.Infof("Server started on port %s. Waiting for requests.", conf.ListenPort)
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.WithError(err).Fatal("Server failed")
+        }
+    }
 }
