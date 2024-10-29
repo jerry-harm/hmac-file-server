@@ -33,7 +33,9 @@ jobs:
       - name: Run Tests
         env:
           SERVER_URL: http://localhost:8080
-        run: go test -v ./...
+        run: |
+          cd test
+          go test -v ./...
 
       - name: Stop Server
         run: |
