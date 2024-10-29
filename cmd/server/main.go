@@ -19,21 +19,22 @@ import (
     "os/signal"
     "path"
     "path/filepath"
+    "runtime"
     "strconv"
     "strings"
     "syscall"
     "time"
-    "runtime"
 
     "github.com/BurntSushi/toml"
     "github.com/prometheus/client_golang/prometheus"
     "github.com/prometheus/client_golang/prometheus/promhttp"
+    "github.com/patrickmn/go-cache"
     "github.com/shirou/gopsutil/cpu"
     "github.com/shirou/gopsutil/disk"
     "github.com/shirou/gopsutil/host"
     "github.com/shirou/gopsutil/mem"
     "github.com/sirupsen/logrus"
-    "github.com/patrickmn/go-cache"
+    "github.com/dutchcoders/go-clamd" // ClamAV integration
 )
 
 // Configuration structure
@@ -52,24 +53,33 @@ type Config struct {
     ResumableDownloadsEnabled bool
     EnableVersioning          bool
     MaxVersions               int
-    ChunkingEnabled           bool
+    ChunkedUploadsEnabled     bool
     ChunkSize                 int64
     AllowedExtensions         []string
 
-    // New fields for server timeouts
+    // Server timeouts
     ReadTimeout  string
     WriteTimeout string
     IdleTimeout  string
+
+    // ClamAV Configuration
+    ClamAVSocket string // Added for ClamAV integration
 }
 
+// UploadTask represents a file upload task
 type UploadTask struct {
-    AbsFilename   string
-    FileStorePath string
-    Writer        http.ResponseWriter
-    Request       *http.Request
-    Done          chan error
+    AbsFilename string
+    Request     *http.Request
+    Result      chan error
 }
 
+// ScanTask represents a file scan task
+type ScanTask struct {
+    AbsFilename string
+    Result      chan error
+}
+
+// NetworkEvent represents a network-related event
 type NetworkEvent struct {
     Type    string
     Details string
@@ -80,7 +90,7 @@ var (
     versionString string = "v2.0.3"
     log           = logrus.New()
     uploadQueue   chan UploadTask
-    networkEvents = make(chan NetworkEvent, 100)
+    networkEvents chan NetworkEvent
     fileInfoCache *cache.Cache
 
     // Prometheus metrics
@@ -108,9 +118,16 @@ var (
         Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
     })
 
+    // ClamAV client
+    clamClient *clamd.Clamd // Added for ClamAV integration
+
     // Constants for worker pool
-    MinWorkers      = 10
-    UploadQueueSize = 5000
+    MinWorkers      = 20    // Increased from 10 to 20 for better concurrency
+    UploadQueueSize = 10000 // Increased from 5000 to 10000
+
+    // Channels
+    scanQueue   chan ScanTask
+    ScanWorkers = 5 // Number of ClamAV scan workers
 )
 
 func main() {
@@ -144,8 +161,10 @@ func main() {
     // Initialize Prometheus metrics
     initMetrics()
 
-    // Initialize upload queue
+    // Initialize upload and scan queues
     uploadQueue = make(chan UploadTask, UploadQueueSize)
+    scanQueue = make(chan ScanTask, UploadQueueSize) // Adjust size as needed
+    networkEvents = make(chan NetworkEvent, 100)
 
     // Context for goroutines
     ctx, cancel := context.WithCancel(context.Background())
@@ -158,8 +177,19 @@ func main() {
     // Update system metrics
     go updateSystemMetrics(ctx)
 
-    // Initialize worker pool
-    initializeWorkerPool(ctx)
+    // Initialize ClamAV client (Optional)
+    clamClient, err = initClamAV(conf.ClamAVSocket)
+    if err != nil {
+        log.WithError(err).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+    } else {
+        log.Info("ClamAV client initialized successfully")
+    }
+
+    // Initialize worker pools
+    initializeUploadWorkerPool(ctx)
+    if clamClient != nil {
+        initializeScanWorkerPool(ctx)
+    }
 
     // Setup router
     router := setupRouter()
@@ -294,7 +324,7 @@ func logSystemInfo() {
     log.Info("  Secure File Handling with HMAC Auth   ")
     log.Info("========================================")
 
-    log.Info("Features: Prometheus Metrics")
+    log.Info("Features: Prometheus Metrics, Chunked Uploads, ClamAV Scanning")
     log.Info("Build Date: 2024-10-28")
 
     log.Infof("Operating System: %s", runtime.GOOS)
@@ -361,15 +391,6 @@ func updateSystemMetrics(ctx context.Context) {
             goroutines.Set(float64(runtime.NumGoroutine()))
         }
     }
-}
-
-// Add CORS headers
-func addCORSheaders(w http.ResponseWriter) {
-    w.Header().Set("Access-Control-Allow-Origin", "*")
-    w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, HEAD")
-    w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-    w.Header().Set("Access-Control-Allow-Credentials", "true")
-    w.Header().Set("Access-Control-Max-Age", "7200")
 }
 
 // Function to check if a file exists and return its size
@@ -454,46 +475,82 @@ func cleanupOldVersions(versionDir string) error {
 // Process the upload task
 func processUpload(task UploadTask) error {
     absFilename := task.AbsFilename
-    fileStorePath := task.FileStorePath
-    w := task.Writer
+    tempFilename := absFilename + ".tmp"
     r := task.Request
 
     startTime := time.Now()
 
-    // Handle chunked uploads if enabled
-    if conf.ChunkingEnabled {
-        err := handleChunkedUpload(absFilename, w, r)
+    // Handle uploads and write to a temporary file
+    if conf.ChunkedUploadsEnabled {
+        err := handleChunkedUpload(tempFilename, r)
         if err != nil {
+            uploadDuration.Observe(time.Since(startTime).Seconds())
+            log.WithFields(logrus.Fields{
+                "file":  tempFilename,
+                "error": err,
+            }).Error("Failed to handle chunked upload")
+            return err
+        }
+    } else {
+        err := createFile(tempFilename, r)
+        if err != nil {
+            log.WithFields(logrus.Fields{
+                "file":  tempFilename,
+                "error": err,
+            }).Error("Error creating file")
             uploadDuration.Observe(time.Since(startTime).Seconds())
             return err
         }
-        uploadDuration.Observe(time.Since(startTime).Seconds())
-        return nil
     }
 
-    // File versioning logic
+    // Perform ClamAV scan on the temporary file
+    if clamClient != nil {
+        err := scanFileWithClamAV(tempFilename)
+        if err != nil {
+            log.WithFields(logrus.Fields{
+                "file":  tempFilename,
+                "error": err,
+            }).Warn("ClamAV detected a virus or scan failed")
+            os.Remove(tempFilename)
+            uploadErrorsTotal.Inc()
+            return err
+        }
+    }
+
+    // Handle file versioning if enabled
     if conf.EnableVersioning {
         existing, _ := fileExists(absFilename)
         if existing {
             err := versionFile(absFilename)
             if err != nil {
-                log.WithError(err).Error("Error versioning file")
-                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-                uploadDuration.Observe(time.Since(startTime).Seconds())
+                log.WithFields(logrus.Fields{
+                    "file":  absFilename,
+                    "error": err,
+                }).Error("Error versioning file")
+                os.Remove(tempFilename)
                 return err
             }
         }
     }
 
-    // Proceed to create the file after successful HMAC validation
-    err := createFile(absFilename, fileStorePath, w, r)
+    // Move the temporary file to the final destination
+    err := os.Rename(tempFilename, absFilename)
     if err != nil {
-        log.WithError(err).Error("Error creating file")
-        uploadDuration.Observe(time.Since(startTime).Seconds())
+        log.WithFields(logrus.Fields{
+            "temp_file":  tempFilename,
+            "final_file": absFilename,
+            "error":      err,
+        }).Error("Failed to move file to final destination")
+        os.Remove(tempFilename)
         return err
     }
 
+    log.WithFields(logrus.Fields{
+        "file": absFilename,
+    }).Info("File uploaded and scanned successfully")
+
     uploadDuration.Observe(time.Since(startTime).Seconds())
+    uploadsTotal.Inc()
     return nil
 }
 
@@ -510,77 +567,124 @@ func uploadWorker(ctx context.Context, workerID int) {
                 log.WithField("worker_id", workerID).Info("Upload queue closed")
                 return
             }
+            log.WithFields(logrus.Fields{
+                "worker_id": workerID,
+                "file":      task.AbsFilename,
+            }).Info("Processing upload task")
             err := processUpload(task)
             if err != nil {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                    "error":     err,
+                }).Error("Failed to process upload task")
                 uploadErrorsTotal.Inc()
-                // Optionally, implement retry logic here
+            } else {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                }).Info("Successfully processed upload task")
             }
-            task.Done <- err
-            close(task.Done)
+            task.Result <- err
+            close(task.Result)
         }
     }
 }
 
-// Create the file for upload with buffered Writer
-func createFile(absFilename, fileStorePath string, w http.ResponseWriter, r *http.Request) error {
-    absDirectory := filepath.Dir(absFilename)
-    err := os.MkdirAll(absDirectory, os.ModePerm)
-    if err != nil {
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return fmt.Errorf("failed to create directory %s: %w", absDirectory, err)
+// Initialize upload worker pool
+func initializeUploadWorkerPool(ctx context.Context) {
+    for i := 0; i < MinWorkers; i++ {
+        go uploadWorker(ctx, i)
     }
+    log.Infof("Initialized %d upload workers", MinWorkers)
+}
 
-    // Open the file for writing (allows overwriting)
-    targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-    if err != nil {
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return fmt.Errorf("failed to create or overwrite file %s: %w", absFilename, err)
-    }
-    defer targetFile.Close()
-
-    // Use a large buffer for efficient file writing
-    bufferSize := 4 * 1024 * 1024 // 4 MB buffer
-    writer := bufio.NewWriterSize(targetFile, bufferSize)
-    buffer := make([]byte, bufferSize)
-
-    totalBytes := int64(0)
+// Worker function to process scan tasks
+func scanWorker(ctx context.Context, workerID int) {
+    log.WithField("worker_id", workerID).Info("Scan worker started")
     for {
-        n, readErr := r.Body.Read(buffer)
-        if n > 0 {
-            totalBytes += int64(n)
-            _, writeErr := writer.Write(buffer[:n])
-            if writeErr != nil {
-                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-                return fmt.Errorf("failed to write to file %s: %w", absFilename, writeErr)
+        select {
+        case <-ctx.Done():
+            log.WithField("worker_id", workerID).Info("Scan worker stopping")
+            return
+        case task, ok := <-scanQueue:
+            if !ok {
+                log.WithField("worker_id", workerID).Info("Scan queue closed")
+                return
             }
-        }
-        if readErr != nil {
-            if readErr == io.EOF {
-                break
+            log.WithFields(logrus.Fields{
+                "worker_id": workerID,
+                "file":      task.AbsFilename,
+            }).Info("Processing scan task")
+            err := scanFileWithClamAV(task.AbsFilename)
+            if err != nil {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                    "error":     err,
+                }).Error("Failed to scan file")
+            } else {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                }).Info("Successfully scanned file")
             }
-            http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-            return fmt.Errorf("failed to read request body: %w", readErr)
+            task.Result <- err
+            close(task.Result)
         }
     }
-
-    err = writer.Flush()
-    if err != nil {
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return fmt.Errorf("failed to flush buffer to file %s: %w", absFilename, err)
-    }
-
-    log.WithFields(logrus.Fields{
-        "filename":    absFilename,
-        "total_bytes": totalBytes,
-    }).Info("File uploaded successfully")
-
-    uploadSizeBytes.Observe(float64(totalBytes))
-    uploadsTotal.Inc()
-    w.WriteHeader(http.StatusCreated)
-    return nil
 }
 
-// Handle incoming HTTP requests, including HMAC validation and file uploads/downloads
+// Initialize scan worker pool
+func initializeScanWorkerPool(ctx context.Context) {
+    for i := 0; i < ScanWorkers; i++ {
+        go scanWorker(ctx, i)
+    }
+    log.Infof("Initialized %d scan workers", ScanWorkers)
+}
+
+// Setup router with middleware
+func setupRouter() http.Handler {
+    mux := http.NewServeMux()
+    subpath := path.Join("/", conf.UploadSubDir)
+    subpath = strings.TrimRight(subpath, "/") + "/"
+    mux.HandleFunc(subpath, handleRequest)
+    if conf.MetricsEnabled {
+        mux.Handle("/metrics", promhttp.Handler())
+    }
+
+    // Apply middleware
+    handler := loggingMiddleware(mux)     // CORS is handled by NGINX
+    handler = recoveryMiddleware(handler) // Add recovery middleware
+    return handler
+}
+
+// Middleware for logging
+func loggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        requestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
+        next.ServeHTTP(w, r)
+    })
+}
+
+// Middleware for panic recovery
+func recoveryMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if rec := recover(); rec != nil {
+                log.WithFields(logrus.Fields{
+                    "method": r.Method,
+                    "url":    r.URL.String(),
+                    "error":  rec,
+                }).Error("Panic recovered in HTTP handler")
+                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+            }
+        }()
+        next.ServeHTTP(w, r)
+    })
+}
+
+// Handle file uploads and downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
     // Get client IP address
     clientIP := r.Header.Get("X-Real-IP")
@@ -626,15 +730,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
     absFilename := filepath.Join(conf.StoreDir, fileStorePath)
 
-    // Add CORS headers
-    addCORSheaders(w)
-
     switch r.Method {
     case http.MethodPut:
         handleUpload(w, r, absFilename, fileStorePath, a)
     case http.MethodHead, http.MethodGet:
         handleDownload(w, r, absFilename, fileStorePath)
     case http.MethodOptions:
+        // Handled by NGINX; no action needed
         w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
         return
     default:
@@ -644,7 +746,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-// Handle file uploads with extension restrictions
+// Handle file uploads with extension restrictions and HMAC validation
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
     // Determine protocol version based on query parameters
     var protocolVersion string
@@ -707,14 +809,12 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
         return
     }
 
-    // Create an UploadTask with a done channel
-    done := make(chan error)
+    // Create an UploadTask with a result channel
+    result := make(chan error)
     task := UploadTask{
-        AbsFilename:   absFilename,
-        FileStorePath: fileStorePath,
-        Writer:        w,
-        Request:       r,
-        Done:          done,
+        AbsFilename: absFilename,
+        Request:     r,
+        Result:      result,
     }
 
     // Submit task to the upload queue
@@ -731,13 +831,15 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
     }
 
     // Wait for the worker to process the upload
-    err = <-done
+    err = <-result
     if err != nil {
-        // The worker has already sent an appropriate HTTP error response
+        // The worker has already logged the error; send an appropriate HTTP response
+        http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
         return
     }
 
-    // Upload was successful; response has been handled by the worker
+    // Upload was successful
+    w.WriteHeader(http.StatusCreated)
 }
 
 // Handle file downloads
@@ -782,21 +884,115 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
     }
 }
 
-// Get file information with caching
-func getFileInfo(absFilename string) (os.FileInfo, error) {
-    if cachedInfo, found := fileInfoCache.Get(absFilename); found {
-        if info, ok := cachedInfo.(os.FileInfo); ok {
-            return info, nil
+// Create the file for upload with buffered Writer
+func createFile(tempFilename string, r *http.Request) error {
+    absDirectory := filepath.Dir(tempFilename)
+    err := os.MkdirAll(absDirectory, os.ModePerm)
+    if err != nil {
+        log.WithError(err).Errorf("Failed to create directory %s", absDirectory)
+        return fmt.Errorf("failed to create directory %s: %w", absDirectory, err)
+    }
+
+    // Open the file for writing
+    targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+    if err != nil {
+        log.WithError(err).Errorf("Failed to create file %s", tempFilename)
+        return fmt.Errorf("failed to create file %s: %w", tempFilename, err)
+    }
+    defer targetFile.Close()
+
+    // Use a large buffer for efficient file writing
+    bufferSize := 4 * 1024 * 1024 // 4 MB buffer
+    writer := bufio.NewWriterSize(targetFile, bufferSize)
+    buffer := make([]byte, bufferSize)
+
+    totalBytes := int64(0)
+    for {
+        n, readErr := r.Body.Read(buffer)
+        if n > 0 {
+            totalBytes += int64(n)
+            _, writeErr := writer.Write(buffer[:n])
+            if writeErr != nil {
+                log.WithError(writeErr).Errorf("Failed to write to file %s", tempFilename)
+                return fmt.Errorf("failed to write to file %s: %w", tempFilename, writeErr)
+            }
+        }
+        if readErr != nil {
+            if readErr == io.EOF {
+                break
+            }
+            log.WithError(readErr).Error("Failed to read request body")
+            return fmt.Errorf("failed to read request body: %w", readErr)
         }
     }
 
-    fileInfo, err := os.Stat(absFilename)
+    err = writer.Flush()
     if err != nil {
-        return nil, err
+        log.WithError(err).Errorf("Failed to flush buffer to file %s", tempFilename)
+        return fmt.Errorf("failed to flush buffer to file %s: %w", tempFilename, err)
     }
 
-    fileInfoCache.Set(absFilename, fileInfo, cache.DefaultExpiration)
-    return fileInfo, nil
+    log.WithFields(logrus.Fields{
+        "temp_file":   tempFilename,
+        "total_bytes": totalBytes,
+    }).Info("File uploaded successfully")
+
+    uploadSizeBytes.Observe(float64(totalBytes))
+    return nil
+}
+
+// Scan the uploaded file with ClamAV (Optional)
+func scanFileWithClamAV(filePath string) error {
+    log.WithField("file", filePath).Info("Scanning file with ClamAV")
+
+    scanResultChan, err := clamClient.ScanFile(filePath)
+    if err != nil {
+        log.WithError(err).Error("Failed to initiate ClamAV scan")
+        return fmt.Errorf("failed to initiate ClamAV scan: %w", err)
+    }
+
+    // Receive scan result
+    scanResult := <-scanResultChan
+    if scanResult == nil {
+        log.Error("Failed to receive scan result from ClamAV")
+        return fmt.Errorf("failed to receive scan result from ClamAV")
+    }
+
+    // Handle scan result
+    switch scanResult.Status {
+    case clamd.RES_OK:
+        log.WithField("file", filePath).Info("ClamAV scan passed")
+        return nil
+    case clamd.RES_FOUND:
+        log.WithFields(logrus.Fields{
+            "file":        filePath,
+            "description": scanResult.Description,
+        }).Warn("ClamAV detected a virus")
+        return fmt.Errorf("virus detected: %s", scanResult.Description)
+    default:
+        log.WithFields(logrus.Fields{
+            "file":        filePath,
+            "status":      scanResult.Status,
+            "description": scanResult.Description,
+        }).Warn("ClamAV scan returned unexpected status")
+        return fmt.Errorf("ClamAV scan returned unexpected status: %s", scanResult.Description)
+    }
+}
+
+// Initialize ClamAV client (Optional)
+func initClamAV(socket string) (*clamd.Clamd, error) {
+    client := clamd.NewClamd(socket)
+    if client == nil {
+        return nil, fmt.Errorf("failed to create ClamAV client for socket: %s", socket)
+    }
+
+    // Ping ClamAV to verify connection
+    err := client.Ping()
+    if err != nil {
+        return nil, fmt.Errorf("failed to connect to ClamAV: %w", err)
+    }
+
+    return client, nil
 }
 
 // Handle resumable downloads
@@ -892,6 +1088,80 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
     downloadsTotal.Inc()
 }
 
+// Handle chunked uploads with bufio.Writer
+func handleChunkedUpload(tempFilename string, r *http.Request) error {
+    log.WithField("file", tempFilename).Info("Handling chunked upload to temporary file")
+
+    // Ensure the directory exists
+    absDirectory := filepath.Dir(tempFilename)
+    err := os.MkdirAll(absDirectory, os.ModePerm)
+    if err != nil {
+        log.WithError(err).Errorf("Failed to create directory %s for chunked upload", absDirectory)
+        return fmt.Errorf("failed to create directory %s: %w", absDirectory, err)
+    }
+
+    targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+    if err != nil {
+        log.WithError(err).Error("Failed to open temporary file for chunked upload")
+        return err
+    }
+    defer targetFile.Close()
+
+    writer := bufio.NewWriterSize(targetFile, int(conf.ChunkSize))
+    buffer := make([]byte, conf.ChunkSize)
+
+    totalBytes := int64(0)
+    for {
+        n, err := r.Body.Read(buffer)
+        if n > 0 {
+            totalBytes += int64(n)
+            _, writeErr := writer.Write(buffer[:n])
+            if writeErr != nil {
+                log.WithError(writeErr).Error("Failed to write chunk to temporary file")
+                return writeErr
+            }
+        }
+        if err != nil {
+            if err == io.EOF {
+                break // Finished reading the body
+            }
+            log.WithError(err).Error("Error reading from request body")
+            return err
+        }
+    }
+
+    err = writer.Flush()
+    if err != nil {
+        log.WithError(err).Error("Failed to flush buffer to temporary file")
+        return err
+    }
+
+    log.WithFields(logrus.Fields{
+        "temp_file":   tempFilename,
+        "total_bytes": totalBytes,
+    }).Info("Chunked upload completed successfully")
+
+    uploadSizeBytes.Observe(float64(totalBytes))
+    return nil
+}
+
+// Get file information with caching
+func getFileInfo(absFilename string) (os.FileInfo, error) {
+    if cachedInfo, found := fileInfoCache.Get(absFilename); found {
+        if info, ok := cachedInfo.(os.FileInfo); ok {
+            return info, nil
+        }
+    }
+
+    fileInfo, err := os.Stat(absFilename)
+    if err != nil {
+        return nil, err
+    }
+
+    fileInfoCache.Set(absFilename, fileInfo, cache.DefaultExpiration)
+    return fileInfo, nil
+}
+
 // Monitor network changes
 func monitorNetwork(ctx context.Context) {
     currentIP := getCurrentIPAddress() // Placeholder for the current IP address
@@ -984,101 +1254,12 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
         // Signal other goroutines to stop
         cancel()
 
-        // Close the upload queue and network events channel
+        // Close the upload and scan queues and network events channel
         close(uploadQueue)
+        close(scanQueue)
         close(networkEvents)
 
         log.Info("Server gracefully stopped.")
         os.Exit(0)
     }()
-}
-
-// Initialize worker pool
-func initializeWorkerPool(ctx context.Context) {
-    for i := 0; i < MinWorkers; i++ {
-        go uploadWorker(ctx, i)
-    }
-    // Dynamic scaling can be implemented here if needed
-}
-
-// Setup router with middleware
-func setupRouter() http.Handler {
-    mux := http.NewServeMux()
-    subpath := path.Join("/", conf.UploadSubDir)
-    subpath = strings.TrimRight(subpath, "/") + "/"
-    mux.HandleFunc(subpath, handleRequest)
-    if conf.MetricsEnabled {
-        mux.Handle("/metrics", promhttp.Handler())
-    }
-
-    // Apply middleware
-    handler := loggingMiddleware(corsMiddleware(mux))
-    return handler
-}
-
-// Middleware for logging
-func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        requestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
-        next.ServeHTTP(w, r)
-    })
-}
-
-// Middleware for CORS
-func corsMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        addCORSheaders(w)
-        if r.Method == http.MethodOptions {
-            w.WriteHeader(http.StatusOK)
-            return
-        }
-        next.ServeHTTP(w, r)
-    })
-}
-
-// Handle chunked uploads with bufio.Writer
-func handleChunkedUpload(absFilename string, w http.ResponseWriter, r *http.Request) error {
-    log.WithField("file", absFilename).Info("Handling chunked upload")
-
-    targetFile, err := os.OpenFile(absFilename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-    if err != nil {
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        log.WithError(err).Error("Failed to open file for chunked upload")
-        return err
-    }
-    defer targetFile.Close()
-
-    writer := bufio.NewWriter(targetFile)
-    buffer := make([]byte, conf.ChunkSize)
-    for {
-        n, err := r.Body.Read(buffer)
-        if n > 0 {
-            _, writeErr := writer.Write(buffer[:n])
-            if writeErr != nil {
-                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-                log.WithError(writeErr).Error("Failed to write chunk to file")
-                return writeErr
-            }
-        }
-        if err != nil {
-            if err == io.EOF {
-                break // Finished reading the body
-            }
-            log.WithError(err).Error("Error reading from request body")
-            http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-            return err
-        }
-    }
-
-    err = writer.Flush()
-    if err != nil {
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        log.WithError(err).Error("Failed to flush buffer to file")
-        return err
-    }
-
-    uploadSizeBytes.Observe(float64(r.ContentLength))
-    uploadsTotal.Inc()
-    w.WriteHeader(http.StatusCreated)
-    return nil
 }
