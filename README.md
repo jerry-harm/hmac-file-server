@@ -3,6 +3,8 @@
 
 **Secure File Handling with HMAC Authentication**
 
+![image](https://github.com/user-attachments/assets/4366f355-d750-4c4d-ba1d-f0cd18ae6a08)
+
 ---
 
 ## Overview
