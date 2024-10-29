@@ -137,6 +137,4 @@ AllowedExtensions = [
     # Audio formats
     ".mp3", ".ogg"
 ]
-
-
----
+```
