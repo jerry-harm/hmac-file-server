@@ -16,7 +16,7 @@ import (
 
 const (
     serverURL    = "http://localhost:8080/upload/" // Replace with your actual server URL
-    secret       = "supa-secret-maria-und-josef"              // Replace with your HMAC secret key
+    secret       = "your-secret-key"              // Replace with your HMAC secret key
     uploadPath   = "testfile.txt"                 // Test file to upload
     protocolType = "v2"                           // Use v2, v, or token as needed
 )
