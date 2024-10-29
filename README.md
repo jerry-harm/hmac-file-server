@@ -71,35 +71,70 @@ The **HMAC File Server** is a robust and secure solution for handling file uploa
 The server configuration is managed via a `config.toml` file. Below is a sample configuration file with explanations for each setting.
 
 ```toml
-# Server listening configuration
-ListenPort = ":8080"                  # Port to listen on (e.g., ":8080" for TCP)
-UnixSocket = false                    # Set to true to use a Unix socket instead of TCP
+# Example configuration for HMAC File Server
 
-# Security configuration
-Secret = "your-very-secure-secret-key" # HMAC secret key for authentication
+# Server settings
+ListenPort               = ":8080"                              # Port for the file server to listen on
+UnixSocket               = false                                # Use Unix sockets if true, otherwise TCP
+Secret                   = "your-secret-key"                    # HMAC secret for securing uploads
+StoreDir                 = "/mnt/storage/hmac-file-server/"     # Directory for storing uploaded files
+UploadSubDir             = "upload"                             # Subdirectory for uploads
+LogLevel                 = "info"                               # Logging level: "debug", "info", "warn", "error"
+LogFile                  = "/var/log/hmac-file-server.log"      # Log file path
+MetricsEnabled           = true                                 # Enable Prometheus metrics
+MetricsPort              = ":9090"                              # Port for Prometheus metrics server
 
-# File storage configuration
-StoreDir = "./uploads"                # Directory to store uploaded files
-UploadSubDir = "files"                # Subdirectory for file uploads
+# Workers and connections
+NumWorkers               = 5                                    # Number of workers
+UploadQueueSize          = 5000                                 # Upload queue size for handling multiple uploads
 
-# Logging configuration
-LogLevel = "info"                      # Logging level (e.g., "debug", "info", "warn", "error")
-LogFile = "./server.log"              # Path to the log file (optional)
+# Fallback database configuration (optional)
+FallbackEnabled          = true                                 # Enable fallback to a database if Redis is unavailable
+FallbackDBType           = "postgres"                           # Fallback database type ("postgres" or "mysql")
+FallbackDBHost           = "127.0.0.1"                          # Fallback database host
+FallbackDBUser           = "db_user"                            # Fallback database username
+FallbackDBPassword       = "secure_password"                    # Fallback database password
+FallbackDBName           = "db_name"                            # Fallback database name
 
-# Metrics configuration
-MetricsEnabled = true                  # Enable Prometheus metrics
-MetricsPort = ":9090"                  # Port for the metrics server
+# Graceful shutdown
+GracefulShutdownTimeout  = 60                                   # Timeout for graceful shutdowns (in seconds)
 
-# File management
-FileTTL = "30d"                        # Time-to-live for files before expiration (optional)
-ResumableUploadsEnabled = true         # Enable resumable uploads
-ResumableDownloadsEnabled = true       # Enable resumable downloads
-EnableVersioning = true                # Enable file versioning
-MaxVersions = 5                        # Maximum number of file versions to keep
+# File TTL and versioning
+FileTTL                  = "90d"                                # TTL for file expiration
+ResumableUploadsEnabled  = true                                 # Enable resumable uploads
+ResumableDownloads       = true                                 # Enable resumable downloads
+MaxVersions              = 3                                    # Maximum number of file versions to keep
+EnableVersioning         = true                                 # Enable file versioning
 
-# Chunking configuration
-ChunkingEnabled = true                 # Enable chunked uploads
-ChunkSize = 1048576                    # Size of each chunk in bytes (1MB)
-```
+# Upload/Download settings
+ChunkedUploadsEnabled    = true                                 # Enable chunked uploads
+ChunkSize                = 65536                                # Size of each chunk in bytes (64 KB)
 
+# Redis settings
+RedisEnabled             = true                                 # Enable Redis for caching
+RedisAddr                = "localhost:6379"                     # Redis server address
+RedisPassword            = "your_redis_password"                # Redis password (if any)
+
+# Server timeout settings
+ReadTimeout              = "1h"                                 # Server read timeout
+WriteTimeout             = "1h"                                 # Server write timeout
+IdleTimeout              = "30m"                                # Server idle timeout
+
+# ClamAV Configuration
+ClamAVSocket             = "/var/run/clamav/clamd.ctl"         # Use UNIX socket; alternatively use TCP socket
+
+# Allowed file extensions including image, video, and document formats
+AllowedExtensions = [
+    # Document formats
+    ".txt", ".pdf",
+
+    # Image formats
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+
+    # Video formats
+    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
+
+    # Audio formats
+    ".mp3", ".ogg"
+]
 ---
