@@ -265,3 +265,5 @@
 {"error":"stat test/TestUoload/testfile.txt: no such file or directory","level":"error","msg":"Failed to get file information","time":"2024-10-29T19:14:01+01:00"}
 {"level":"info","method":"GET","msg":"Incoming request","remote":"127.0.0.1","time":"2024-10-29T19:14:14+01:00","url":"/upload/testfile.txt?v2=6279542dd4cc0041dbcbfc4f55ceb10ee7498d86ae80d156571fc76dfb4689ff"}
 {"error":"stat test/TestUoload/testfile.txt: no such file or directory","level":"error","msg":"Failed to get file information","time":"2024-10-29T19:14:14+01:00"}
+{"level":"info","method":"GET","msg":"Incoming request","remote":"127.0.0.1","time":"2024-10-29T19:16:02+01:00","url":"/upload/testfile.txt?v2=6279542dd4cc0041dbcbfc4f55ceb10ee7498d86ae80d156571fc76dfb4689ff"}
+{"error":"stat test/TestUoload/testfile.txt: no such file or directory","level":"error","msg":"Failed to get file information","time":"2024-10-29T19:16:02+01:00"}
