@@ -1,31 +1,41 @@
-steps:
-  - name: Checkout code
-    uses: actions/checkout@v2
+name: Go CI
 
-  - name: Set up Go
-    uses: actions/setup-go@v2
-    with:
-      go-version: '^1.17'
+on: [push, pull_request]
 
-  - name: Build Server
-    run: |
-      cd cmd/server
-      go build -o hmac-file-server main.go
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-  - name: Start Server
-    run: |
-      cd cmd/server
-      ./hmac-file-server -config ./config.toml &
-      echo $! > server.pid
-    shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-  - name: Wait for Server to Start
-    run: sleep 5
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '^1.17'
 
-  - name: Run Tests
-    run: go test ./... -v
+      - name: Build Server
+        run: |
+          cd cmd/server
+          go build -o hmac-file-server main.go
 
-  - name: Stop Server
-    run: |
-      kill $(cat cmd/server/server.pid)
-    shell: bash
+      - name: Start Server
+        run: |
+          cd cmd/server
+          ./hmac-file-server -config ./config.toml &
+          echo $! > server.pid
+        shell: bash
+
+      - name: Wait for Server to Start
+        run: sleep 5
+
+      - name: Run Tests
+        env:
+          SERVER_URL: http://localhost:8080
+        run: go test -v ./...
+
+      - name: Stop Server
+        run: |
+          kill $(cat cmd/server/server.pid)
+        shell: bash
