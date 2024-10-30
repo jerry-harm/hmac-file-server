@@ -675,7 +675,7 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 7,
+        "w": 6,
         "x": 12,
         "y": 10
       },
@@ -736,8 +736,8 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 5,
-        "x": 19,
+        "w": 6,
+        "x": 18,
         "y": 10
       },
       "id": 13,
@@ -786,6 +786,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 92,
+  "version": 96,
   "weekStart": ""
 }
