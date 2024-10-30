@@ -54,7 +54,7 @@ The **HMAC File Server** is a robust and secure solution for handling file uploa
 2. **Clone the Repository**
 
     ```bash
-    git clone [https://github.com/yourusername/hmac-file-server.git](https://github.com/PlusOne/hmac-file-server.git)
+    git clone https://github.com/PlusOne/hmac-file-server.git
     cd hmac-file-server
     ```
 
