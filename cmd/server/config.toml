@@ -4,7 +4,7 @@
 ListenPort               = ":8080"                              # Port for the file server to listen on
 UnixSocket               = false                                # Use Unix sockets if true, otherwise TCP
 Secret                   = "your-secret-key"                    # HMAC secret for securing uploads
-StoreDir                 = "./test/TestUoload"     # Directory for storing uploaded files
+StoreDir                 = "./test/TestUpload"     # Directory for storing uploaded files
 UploadSubDir             = "upload"                             # Subdirectory for uploads
 LogLevel                 = "info"                               # Logging level: "debug", "info", "warn", "error"
 LogFile                  = "./test/hmac-file-server.log"      # Log file path
