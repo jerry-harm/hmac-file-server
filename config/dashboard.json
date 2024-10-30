@@ -39,7 +39,7 @@
           "showLineNumbers": false,
           "showMiniMap": false
         },
-        "content": "<h3 style=\"color:#4CAF50; font-family: 'Arial', sans-serif; font-weight: bold;\">HMAC Dashboard</h3><p style=\"font-family: 'Verdana', sans-serif; color:#333;\">This dashboard monitors <strong style=\"color:#FF5733;\">key metrics</strong> for the <span style=\"font-style:italic; color:#007BFF;\">HMAC File Server</span>.</p>",
+        "content": "<h3 style=\"color:white; font-family: 'Arial', sans-serif; font-weight: bold;\">HMAC Dashboard</h3>\n<p style=\"font-family: 'Verdana', sans-serif; color:white;\">This dashboard monitors <strong style=\"color:#FF5733;\">key metrics</strong> for the <span style=\"font-style:italic; color:#007BFF;\">HMAC File Server</span>.</p>\n",
         "mode": "html"
       },
       "pluginVersion": "11.3.0",
@@ -786,6 +786,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 91,
+  "version": 92,
   "weekStart": ""
 }
