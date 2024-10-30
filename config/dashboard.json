@@ -66,8 +66,7 @@
                 "value": 80
               }
             ]
-          },
-          "unit": "threads"
+          }
         },
         "overrides": []
       },
@@ -125,8 +124,7 @@
                 "value": null
               }
             ]
-          },
-          "unit": "bytes"
+          }
         },
         "overrides": []
       },
@@ -158,13 +156,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hmac_disk_usage_bytes",
+          "expr": "hmac_goroutines_count",
+          "format": "table",
           "legendFormat": "Download Errors",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HMAC Disk Usage",
+      "title": "HMAC GoRoutines",
       "type": "stat"
     },
     {
@@ -786,6 +785,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 96,
+  "version": 99,
   "weekStart": ""
 }
