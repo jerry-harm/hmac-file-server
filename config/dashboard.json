@@ -241,9 +241,14 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
               }
             ]
-          }
+          },
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -253,13 +258,20 @@
         "x": 9,
         "y": 4
       },
-      "id": 19,
+      "id": 14,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
+        "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -267,23 +279,23 @@
           "fields": "",
           "values": false
         },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "pluginVersion": "11.3.0",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hmac_infected_files_total",
+          "expr": "hmac_cpu_usage_percent",
           "format": "table",
-          "legendFormat": "__auto",
+          "legendFormat": "Downloads",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HMAC infected file(s)",
-      "type": "stat"
+      "title": "HMAC CPU Usage",
+      "type": "bargauge"
     },
     {
       "datasource": {
@@ -369,14 +381,9 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
-          },
-          "unit": "percent"
+          }
         },
         "overrides": []
       },
@@ -386,20 +393,13 @@
         "x": 15,
         "y": 4
       },
-      "id": 14,
+      "id": 19,
       "options": {
-        "displayMode": "gradient",
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "maxVizHeight": 300,
-        "minVizHeight": 16,
-        "minVizWidth": 8,
-        "namePlacement": "auto",
-        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -407,23 +407,23 @@
           "fields": "",
           "values": false
         },
-        "showUnfilled": true,
-        "sizing": "auto",
-        "valueMode": "color"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
       "pluginVersion": "11.3.0",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hmac_cpu_usage_percent",
+          "expr": "hmac_infected_files_total",
           "format": "table",
-          "legendFormat": "Downloads",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HMAC CPU Usage",
-      "type": "bargauge"
+      "title": "HMAC infected file(s)",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -783,6 +783,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 101,
+  "version": 103,
   "weekStart": ""
 }
