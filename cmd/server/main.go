@@ -102,7 +102,6 @@ var (
     downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
     memoryUsage         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
     cpuUsage            = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
-    activeConnections   = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
     requestsTotal       = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
     goroutines          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
     uploadSizeBytes     = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -156,16 +155,15 @@ func main() {
     setupLogging()
 
     // Log system information
-    logSystemInfo()
+    logSystemInfo() // Make sure this call is right after setupLogging()
 
-    // Initialize Prometheus metrics
-    initMetrics()
+    // Initialize the file info cache, create store directory, etc.
+    // (Rest of your main function code)
 
     // Initialize upload and scan queues
     uploadQueue = make(chan UploadTask, UploadQueueSize)
     scanQueue = make(chan ScanTask, UploadQueueSize) // Adjust size as needed
     networkEvents = make(chan NetworkEvent, 100)
-
     // Context for goroutines
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
@@ -359,15 +357,7 @@ func logSystemInfo() {
     log.Infof("Kernel Version: %s", hInfo.KernelVersion)
 }
 
-// Initialize Prometheus metrics
-func initMetrics() {
-    if conf.MetricsEnabled {
-        prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
-        prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
-        prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
-        prometheus.MustRegister(uploadSizeBytes, downloadSizeBytes)
-    }
-}
+// Removed unused initMetrics function
 
 // Update system metrics periodically
 func updateSystemMetrics(ctx context.Context) {
