@@ -243,8 +243,7 @@
                 "value": null
               }
             ]
-          },
-          "unit": "count"
+          }
         },
         "overrides": []
       },
@@ -309,8 +308,7 @@
                 "value": 80
               }
             ]
-          },
-          "unit": "connetions"
+          }
         },
         "overrides": []
       },
@@ -351,7 +349,7 @@
           "refId": "A"
         }
       ],
-      "title": "HMAC Up/Down Bucket",
+      "title": "HMAC Active Connections",
       "type": "stat"
     },
     {
@@ -785,6 +783,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 99,
+  "version": 101,
   "weekStart": ""
 }
