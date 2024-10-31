@@ -514,8 +514,8 @@ func versionFile(absFilename string) error {
 	}
 
 	log.WithFields(logrus.Fields{
-		"original":     absFilename,
-		"versioned_as": versionedFilename,
+		"original":      absFilename,
+		"versioned_as":  versionedFilename,
 	}).Info("Versioned old file")
 	return cleanupOldVersions(versionDir)
 }
@@ -797,7 +797,31 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		fileStorePath = fileStorePath[1:]
 	}
 
+	// Decode the fileStorePath to handle URL-encoded paths
+	fileStorePath, err = url.PathUnescape(fileStorePath)
+	if err != nil {
+		log.Warn("Failed to decode file path")
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
 	absFilename := filepath.Join(conf.StoreDir, fileStorePath)
+
+	// Prevent path traversal by ensuring absFilename is within conf.StoreDir
+	absStoreDir, err := filepath.Abs(conf.StoreDir)
+	if err != nil {
+		log.Error("Failed to get absolute path of store directory")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	absFilename, err = filepath.Abs(absFilename)
+	if err != nil || !strings.HasPrefix(absFilename, absStoreDir) {
+		log.Warn("Attempted path traversal attack: ", absFilename)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		downloadErrorsTotal.Inc()
+		return
+	}
 
 	switch r.Method {
 	case http.MethodPut:
@@ -1078,6 +1102,13 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Reject multiple ranges
+	if strings.Contains(rangeHeader, ",") {
+		http.Error(w, "Multiple ranges not supported", http.StatusRequestedRangeNotSatisfiable)
+		downloadErrorsTotal.Inc()
+		return
+	}
+
 	// Parse Range header
 	ranges := strings.Split(strings.TrimPrefix(rangeHeader, "bytes="), "-")
 	if len(ranges) != 2 {
@@ -1097,7 +1128,7 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
 	end := fileSize - 1
 	if ranges[1] != "" {
 		end, err = strconv.ParseInt(ranges[1], 10, 64)
-		if err != nil || end >= fileSize {
+		if err != nil || end >= fileSize || start > end {
 			http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
 			downloadErrorsTotal.Inc()
 			return
@@ -1360,12 +1391,17 @@ func cleanupFiles(storeDir string, ttl time.Duration) {
 			return nil // Continue walking
 		}
 
+		// Skip directories ending with "_versions" if versioning is enabled
+		if conf.EnableVersioning && info.IsDir() && strings.HasSuffix(info.Name(), "_versions") {
+			return filepath.SkipDir
+		}
+
 		if info.IsDir() {
 			return nil // Skip directories
 		}
 
-		// Skip versioned files if versioning is enabled
-		if conf.EnableVersioning && strings.HasSuffix(path, "_versions") {
+		// Skip versioned files if versioning is enabled and inside a "_versions" directory
+		if conf.EnableVersioning && strings.Contains(path, "_versions") {
 			return nil
 		}
 
