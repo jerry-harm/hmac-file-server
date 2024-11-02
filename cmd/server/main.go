@@ -64,11 +64,8 @@ type Config struct {
 	// ClamAV Configuration
 	ClamAVSocket string // Added for ClamAV integration
 
-	// Redis Configuration
-	EnableRedis   bool   `toml:"EnableRedis"`
-	RedisAddr     string `toml:"RedisAddr"`
-	RedisPassword string `toml:"RedisPassword"`
-	RedisDBIndex  int    `toml:"RedisDBIndex"`
+	// **New Field for Redis Database Index**
+	RedisDBIndex int `toml:"RedisDBIndex"`
 }
 
 // UploadTask represents a file upload task
@@ -200,42 +197,26 @@ func initMetrics() {
 		prometheus.MustRegister(downloadSizeBytes)
 		prometheus.MustRegister(infectedFilesTotal) // Added
 		prometheus.MustRegister(deletedFilesTotal)  // Added
-
-		// **Optional: Register Redis Metrics**
-		if conf.EnableRedis && redisClient != nil {
-			// Example: You can add custom Redis metrics here if needed
-			// Currently, go-redis does not provide a StatsCollector by default.
-			// You might need to implement custom collectors or use third-party libraries.
-		}
 	}
 }
 
 // **Initialize Redis client**
 func initRedis() {
-	if !conf.EnableRedis {
-		log.Info("Redis is disabled in configuration.")
-		return
-	}
-
-	log.Info("Initializing Redis...")
-	log.Info("Creating Redis client...")
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     conf.RedisAddr,
-		Password: conf.RedisPassword,
-		DB:       conf.RedisDBIndex,
+		Addr:     "localhost:6379",  // Update if your Redis server is on a different address
+		DB:       conf.RedisDBIndex, // Use the Redis database index from config
+		Password: "",                // Add password if your Redis requires authentication
 	})
 
 	// Test the Redis connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	log.Info("Pinging Redis server...")
-	pong, err := redisClient.Ping(ctx).Result()
+	_, err := redisClient.Ping(ctx).Result()
 	if err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
-
-	log.Infof("Connected to Redis successfully: %s", pong)
+	log.Info("Connected to Redis successfully")
 }
 
 func main() {
@@ -250,14 +231,8 @@ func main() {
 		log.Fatalln("Error reading configuration file:", err)
 	}
 
-	// **Setup logging before initializing Redis to capture Redis logs properly**
-	setupLogging()
-
 	// **Initialize Redis client**
 	initRedis()
-	if conf.EnableRedis {
-		log.Info("Redis initialization complete.")
-	}
 
 	// Initialize metrics
 	initMetrics() // Register the metrics
@@ -271,6 +246,9 @@ func main() {
 		log.Fatalf("Could not create directory %s: %v", conf.StoreDir, err)
 	}
 	log.WithField("directory", conf.StoreDir).Info("Store directory is ready")
+
+	// Setup logging
+	setupLogging()
 
 	// Log system information
 	logSystemInfo() // Make sure this call is right after setupLogging()
@@ -420,10 +398,7 @@ func readConfig(configFilename string, conf *Config) error {
 		conf.FileTTL = "7d" // Default FileTTL: 7 days
 	}
 
-	// Redis default settings
-	if conf.RedisAddr == "" {
-		conf.RedisAddr = "localhost:6379" // Default Redis address
-	}
+	// **Ensure RedisDBIndex is set; default to 0 if not provided**
 	if conf.RedisDBIndex == 0 {
 		conf.RedisDBIndex = 0 // Default Redis DB
 	}
@@ -1216,7 +1191,7 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
 	end := fileSize - 1
 	if ranges[1] != "" {
 		end, err = strconv.ParseInt(ranges[1], 10, 64)
-		if err != nil || start > end {
+		if err != nil || end >= fileSize || start > end {
 			http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
 			downloadErrorsTotal.Inc()
 			return
@@ -1440,9 +1415,8 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 			log.WithError(err).Fatal("Server Shutdown Failed")
 		}
 
-		// **Close Redis Client if enabled**
-		if conf.EnableRedis && redisClient != nil {
-			log.Info("Closing Redis client...")
+		// **Close Redis Client**
+		if redisClient != nil {
 			if err := redisClient.Close(); err != nil {
 				log.WithError(err).Error("Error closing Redis client")
 			} else {
