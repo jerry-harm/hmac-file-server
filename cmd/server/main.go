@@ -64,10 +64,8 @@ type Config struct {
 	// ClamAV Configuration
 	ClamAVSocket string // Added for ClamAV integration
 
-	// **New Field for Redis Address and Database Index**
-	RedisAddr     string `toml:"RedisAddr"`
-	RedisDBIndex  int    `toml:"RedisDBIndex"`
-	RedisPassword string `toml:"RedisPassword"` // Added RedisPassword field
+	// **New Field for Redis Database Index**
+	RedisDBIndex int `toml:"RedisDBIndex"`
 }
 
 // UploadTask represents a file upload task
@@ -205,9 +203,9 @@ func initMetrics() {
 // **Initialize Redis client**
 func initRedis() {
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     conf.RedisAddr,     // Redis server address from config
-		Password: conf.RedisPassword, // Redis password from config
-		DB:       conf.RedisDBIndex,  // Redis DB index from config
+		Addr:     "localhost:6379",  // Update if your Redis server is on a different address
+		DB:       conf.RedisDBIndex, // Use the Redis database index from config
+		Password: "",                // Add password if your Redis requires authentication
 	})
 
 	// Test the Redis connection
