@@ -25,7 +25,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
-	"github.com/go-redis/redis/v8"    // **Added for Redis**
+	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -36,6 +36,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Configuration structure
 type Config struct {
 	ListenPort                string
 	UnixSocket                bool
@@ -59,7 +60,7 @@ type Config struct {
 	NumWorkers      int `toml:"NumWorkers"`
 	UploadQueueSize int `toml:"UploadQueueSize"`
 
-	// Resmeable up/download(s)
+	// Resumable uploads/downloads
 	ResumableDownloads bool `toml:"ResumableDownloads"`
 
 	// Server timeouts
@@ -68,15 +69,15 @@ type Config struct {
 	IdleTimeout  string
 
 	// ClamAV Configuration
-	ClamAVSocket string // Added for ClamAV integration
+	ClamAVSocket string // ClamAV socket
 
 	// Redis Configuration
-	RedisEnabled  bool   `toml:"RedisEnabled"` // Added field to enable/disable Redis
+	RedisEnabled  bool   `toml:"RedisEnabled"` // Enable/disable Redis
 	RedisDBIndex  int    `toml:"RedisDBIndex"`
 	RedisAddr     string `toml:"RedisAddr"`
 	RedisPassword string `toml:"RedisPassword"`
 
-	// GracefullShutdownn
+	// Graceful Shutdown timeout
 	GracefulShutdownTimeout int `toml:"GracefulShutdownTimeout"`
 }
 
@@ -142,21 +143,17 @@ var (
 	})
 
 	// ClamAV client
-	clamClient *clamd.Clamd // Added for ClamAV integration
+	clamClient *clamd.Clamd // ClamAV client
 
-	// **Redis Client**
-	redisClient *redis.Client // Added for Redis
-
-	// Constants for worker pool
-	MinWorkers      = conf.NumWorkers
-	UploadQueueSize = conf.UploadQueueSize
+	// Redis Client
+	redisClient *redis.Client // Redis client
 
 	// Channels
 	scanQueue   chan ScanTask
 	ScanWorkers = 5 // Number of ClamAV scan workers
 )
 
-// ParseCustomDuration parses duration strings with h (hours), d (days), and y (years).
+// Function to parse duration strings with h (hours), d (days), and y (years).
 func ParseCustomDuration(s string) (time.Duration, error) {
 	var totalDuration time.Duration
 	var number string
@@ -192,7 +189,7 @@ func ParseCustomDuration(s string) (time.Duration, error) {
 	return totalDuration, nil
 }
 
-// InitMetrics registers the Prometheus metrics
+// Initialize Prometheus metrics
 func initMetrics() {
 	if conf.MetricsEnabled {
 		prometheus.MustRegister(uploadDuration)
@@ -207,11 +204,12 @@ func initMetrics() {
 		prometheus.MustRegister(goroutines)
 		prometheus.MustRegister(uploadSizeBytes)
 		prometheus.MustRegister(downloadSizeBytes)
-		prometheus.MustRegister(infectedFilesTotal) // Added
-		prometheus.MustRegister(deletedFilesTotal)  // Added
+		prometheus.MustRegister(infectedFilesTotal)
+		prometheus.MustRegister(deletedFilesTotal)
 	}
 }
 
+// Initialize Redis client
 func initRedis() {
 	if !conf.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
@@ -252,11 +250,8 @@ func main() {
 		initRedis()
 	}
 
-	// **Initialize Redis client**
-	initRedis()
-
 	// Initialize metrics
-	initMetrics() // Register the metrics
+	initMetrics()
 
 	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
@@ -272,24 +267,23 @@ func main() {
 	setupLogging()
 
 	// Log system information
-	logSystemInfo() // Make sure this call is right after setupLogging()
+	logSystemInfo()
 
 	// Initialize upload and scan queues
-	uploadQueue = make(chan UploadTask, UploadQueueSize)
-	scanQueue = make(chan ScanTask, UploadQueueSize) // Adjust size as needed
+	uploadQueue = make(chan UploadTask, conf.UploadQueueSize)
+	scanQueue = make(chan ScanTask, conf.UploadQueueSize)
 	networkEvents = make(chan NetworkEvent, 100)
+
 	// Context for goroutines
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start network monitoring
+	// Start network monitoring and system metrics updates
 	go monitorNetwork(ctx)
 	go handleNetworkEvents(ctx)
-
-	// Update system metrics
 	go updateSystemMetrics(ctx)
 
-	// Initialize ClamAV client (Optional)
+	// Initialize ClamAV client
 	clamClient, err = initClamAV(conf.ClamAVSocket)
 	if err != nil {
 		log.WithError(err).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
@@ -419,7 +413,7 @@ func readConfig(configFilename string, conf *Config) error {
 		conf.FileTTL = "7d" // Default FileTTL: 7 days
 	}
 
-	// **Ensure RedisDBIndex is set; default to 0 if not provided**
+	// Ensure RedisDBIndex is set; default to 0 if not provided
 	if conf.RedisDBIndex == 0 {
 		conf.RedisDBIndex = 0 // Default Redis DB
 	}
@@ -716,10 +710,10 @@ func uploadWorker(ctx context.Context, workerID int) {
 
 // Initialize upload worker pool
 func initializeUploadWorkerPool(ctx context.Context) {
-	for i := 0; i < MinWorkers; i++ {
+	for i := 0; i < conf.NumWorkers; i++ {
 		go uploadWorker(ctx, i)
 	}
-	log.Infof("Initialized %d upload workers", MinWorkers)
+	log.Infof("Initialized %d upload workers", conf.NumWorkers)
 }
 
 // Worker function to process scan tasks
@@ -945,38 +939,13 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	}
 	log.Debug("HMAC validation successful")
 
-	if !hmac.Equal(calculatedMAC, providedMAC) {
-		log.Warn("Invalid MAC")
-		http.Error(w, "Invalid MAC", http.StatusForbidden)
-		return
-	}
-	log.Debug("HMAC validation successful")
-
-	// Example: Storing HMAC Token in Redis (if protocolVersion is "token")
+	// Store HMAC Token in Redis if protocolVersion is "token"
 	if protocolVersion == "token" && conf.RedisEnabled && redisClient != nil {
 		token := a.Get("token")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		// Set token with an expiration time
-		err := redisClient.Set(ctx, token, "valid", 24*time.Hour).Err()
-		if err != nil {
-			log.WithError(err).Error("Failed to store HMAC token in Redis")
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		log.Info("HMAC token stored in Redis successfully")
-	}
-
-	// Proceed with file upload, versioning, etc.
-
-	// **Example: Storing HMAC Token in Redis (if protocolVersion is "token")**
-	if protocolVersion == "token" {
-		token := a.Get("token")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		// Example: Set token with an expiration time
 		err := redisClient.Set(ctx, token, "valid", 24*time.Hour).Err()
 		if err != nil {
 			log.WithError(err).Error("Failed to store HMAC token in Redis")
@@ -1026,17 +995,16 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		return
 	}
 
-	// **Example: Retrieve and Delete HMAC Token from Redis after Successful Upload**
+	// Retrieve and delete HMAC Token from Redis after Successful Upload
 	if protocolVersion == "token" {
 		token := a.Get("token")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Example: Delete the token after use
+		// Delete the token after use
 		err := redisClient.Del(ctx, token).Err()
 		if err != nil {
 			log.WithError(err).Error("Failed to delete HMAC token from Redis")
-			// Not returning error since upload was successful
 		}
 		log.Info("HMAC token deleted from Redis successfully")
 	}
@@ -1144,7 +1112,7 @@ func createFile(tempFilename string, r *http.Request) error {
 	return nil
 }
 
-// Scan the uploaded file with ClamAV (Optional)
+// Scan the uploaded file with ClamAV
 func scanFileWithClamAV(filePath string) error {
 	log.WithField("file", filePath).Info("Scanning file with ClamAV")
 
@@ -1183,7 +1151,7 @@ func scanFileWithClamAV(filePath string) error {
 	}
 }
 
-// Initialize ClamAV client (Optional)
+// Initialize ClamAV client
 func initClamAV(socket string) (*clamd.Clamd, error) {
 	client := clamd.NewClamd(socket)
 	if client == nil {
@@ -1413,7 +1381,6 @@ func handleNetworkEvents(ctx context.Context) {
 			case "IP_CHANGE":
 				log.WithField("new_ip", event.Details).Info("Network change detected")
 				// Example: Update Prometheus gauge or trigger alerts
-				// activeConnections.Set(float64(getActiveConnections()))
 			}
 			// Additional event types can be handled here
 		}
@@ -1462,7 +1429,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 			log.WithError(err).Fatal("Server Shutdown Failed")
 		}
 
-		// **Close Redis Client**
+		// Close Redis Client
 		if redisClient != nil {
 			if err := redisClient.Close(); err != nil {
 				log.WithError(err).Error("Error closing Redis client")
@@ -1484,7 +1451,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 	}()
 }
 
-// startFileCleanup initiates a background routine that deletes expired files.
+// Start file cleanup routine
 func startFileCleanup(ctx context.Context, storeDir string, ttl time.Duration) {
 	ticker := time.NewTicker(1 * time.Hour) // Run cleanup every hour
 	defer ticker.Stop()
@@ -1501,7 +1468,7 @@ func startFileCleanup(ctx context.Context, storeDir string, ttl time.Duration) {
 	}
 }
 
-// cleanupFiles scans the store directory and deletes files older than ttl.
+// Cleanup expired files
 func cleanupFiles(storeDir string, ttl time.Duration) {
 	now := time.Now()
 	err := filepath.Walk(storeDir, func(path string, info os.FileInfo, err error) error {
