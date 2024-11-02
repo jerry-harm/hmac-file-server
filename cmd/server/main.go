@@ -64,8 +64,10 @@ type Config struct {
 	// ClamAV Configuration
 	ClamAVSocket string // Added for ClamAV integration
 
-	// **New Field for Redis Database Index**
-	RedisDBIndex int `toml:"RedisDBIndex"`
+	// **New Field for Redis Address and Database Index**
+	RedisAddr     string `toml:"RedisAddr"`
+	RedisDBIndex  int    `toml:"RedisDBIndex"`
+	RedisPassword string `toml:"RedisPassword"` // Added RedisPassword field
 }
 
 // UploadTask represents a file upload task
