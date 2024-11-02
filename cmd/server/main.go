@@ -55,6 +55,13 @@ type Config struct {
 	ChunkSize                 int64
 	AllowedExtensions         []string
 
+	// Server configuration Workers/QueueSize
+	NumWorkers      int `toml:"NumWorkers"`
+	UploadQueueSize int `toml:"UploadQueueSize"`
+
+	// Resmeable up/download(s)
+	ResumableDownloads bool `toml:"ResumableDownloads"`
+
 	// Server timeouts
 	ReadTimeout  string
 	WriteTimeout string
@@ -64,8 +71,13 @@ type Config struct {
 	ClamAVSocket string // Added for ClamAV integration
 
 	// Redis Configuration
-	RedisEnabled bool `toml:"RedisEnabled"` // Added field to enable/disable Redis
-	RedisDBIndex int  `toml:"RedisDBIndex"`
+	RedisEnabled  bool   `toml:"RedisEnabled"` // Added field to enable/disable Redis
+	RedisDBIndex  int    `toml:"RedisDBIndex"`
+	RedisAddr     string `toml:"RedisAddr"`
+	RedisPassword string `toml:"RedisPassword"`
+
+	// GracefullShutdownn
+	GracefulShutdownTimeout int `toml:"GracefulShutdownTimeout"`
 }
 
 // UploadTask represents a file upload task
@@ -136,8 +148,8 @@ var (
 	redisClient *redis.Client // Added for Redis
 
 	// Constants for worker pool
-	MinWorkers      = 20    // Increased from 10 to 20 for better concurrency
-	UploadQueueSize = 10000 // Increased from 5000 to 10000
+	MinWorkers      = conf.NumWorkers
+	UploadQueueSize = conf.UploadQueueSize
 
 	// Channels
 	scanQueue   chan ScanTask
@@ -207,9 +219,9 @@ func initRedis() {
 	}
 
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",  // Update if your Redis server is on a different address
-		DB:       conf.RedisDBIndex, // Use the Redis database index from config
-		Password: "",                // Add password if your Redis requires authentication
+		Addr:     conf.RedisAddr,
+		Password: conf.RedisPassword,
+		DB:       conf.RedisDBIndex,
 	})
 
 	// Test the Redis connection
@@ -1443,7 +1455,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 		log.Info("Shutting down server...")
 
 		// Create a deadline to wait for.
-		ctxShutdown, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctxShutdown, shutdownCancel := context.WithTimeout(context.Background(), time.Duration(conf.GracefulShutdownTimeout)*time.Second)
 		defer shutdownCancel()
 
 		if err := server.Shutdown(ctxShutdown); err != nil {
