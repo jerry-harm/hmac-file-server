@@ -203,9 +203,9 @@ func initMetrics() {
 // **Initialize Redis client**
 func initRedis() {
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",  // Update if your Redis server is on a different address
-		DB:       conf.RedisDBIndex, // Use the Redis database index from config
-		Password: "",                // Add password if your Redis requires authentication
+		Addr:     conf.RedisAddr,     // Redis server address from config
+		Password: conf.RedisPassword, // Redis password from config
+		DB:       conf.RedisDBIndex,  // Redis DB index from config
 	})
 
 	// Test the Redis connection
