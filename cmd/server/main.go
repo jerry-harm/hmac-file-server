@@ -443,31 +443,34 @@ func logSystemInfo() {
 	log.Infof("Number of CPUs: %d", runtime.NumCPU())
 	log.Infof("Go Version: %s", runtime.Version())
 
-	v, _ := mem.VirtualMemory()
-	log.Infof("Total Memory: %v MB", v.Total/1024/1024)
-	log.Infof("Free Memory: %v MB", v.Free/1024/1024)
-	log.Infof("Used Memory: %v MB", v.Used/1024/1024)
+	// Check if debug level is enabled before logging detailed information
+	if log.IsLevelEnabled(logrus.DebugLevel) {
+		v, _ := mem.VirtualMemory()
+		log.Debugf("Total Memory: %v MB", v.Total/1024/1024)
+		log.Debugf("Free Memory: %v MB", v.Free/1024/1024)
+		log.Debugf("Used Memory: %v MB", v.Used/1024/1024)
 
-	cpuInfo, _ := cpu.Info()
-	for _, info := range cpuInfo {
-		log.Infof("CPU Model: %s, Cores: %d, Mhz: %f", info.ModelName, info.Cores, info.Mhz)
+		cpuInfo, _ := cpu.Info()
+		for _, info := range cpuInfo {
+			log.Debugf("CPU Model: %s, Cores: %d, Mhz: %f", info.ModelName, info.Cores, info.Mhz)
+		}
+
+		partitions, _ := disk.Partitions(false)
+		for _, partition := range partitions {
+			usage, _ := disk.Usage(partition.Mountpoint)
+			log.Debugf("Disk Mountpoint: %s, Total: %v GB, Free: %v GB, Used: %v GB",
+				partition.Mountpoint, usage.Total/1024/1024/1024, usage.Free/1024/1024/1024, usage.Used/1024/1024/1024)
+		}
+
+		hInfo, _ := host.Info()
+		log.Debugf("Hostname: %s", hInfo.Hostname)
+		log.Debugf("Uptime: %v seconds", hInfo.Uptime)
+		log.Debugf("Boot Time: %v", time.Unix(int64(hInfo.BootTime), 0))
+		log.Debugf("Platform: %s", hInfo.Platform)
+		log.Debugf("Platform Family: %s", hInfo.PlatformFamily)
+		log.Debugf("Platform Version: %s", hInfo.PlatformVersion)
+		log.Debugf("Kernel Version: %s", hInfo.KernelVersion)
 	}
-
-	partitions, _ := disk.Partitions(false)
-	for _, partition := range partitions {
-		usage, _ := disk.Usage(partition.Mountpoint)
-		log.Infof("Disk Mountpoint: %s, Total: %v GB, Free: %v GB, Used: %v GB",
-			partition.Mountpoint, usage.Total/1024/1024/1024, usage.Free/1024/1024/1024, usage.Used/1024/1024/1024)
-	}
-
-	hInfo, _ := host.Info()
-	log.Infof("Hostname: %s", hInfo.Hostname)
-	log.Infof("Uptime: %v seconds", hInfo.Uptime)
-	log.Infof("Boot Time: %v", time.Unix(int64(hInfo.BootTime), 0))
-	log.Infof("Platform: %s", hInfo.Platform)
-	log.Infof("Platform Family: %s", hInfo.PlatformFamily)
-	log.Infof("Platform Version: %s", hInfo.PlatformVersion)
-	log.Infof("Kernel Version: %s", hInfo.KernelVersion)
 }
 
 // Update system metrics periodically
