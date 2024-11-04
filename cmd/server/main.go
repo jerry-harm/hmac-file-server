@@ -61,6 +61,9 @@ type Config struct {
 	NumWorkers      int `toml:"NumWorkers"`
 	UploadQueueSize int `toml:"UploadQueueSize"`
 
+	// Resumable uploads/downloads
+	ResumableDownloads bool `toml:"ResumableDownloads"`
+
 	// Server timeouts
 	ReadTimeout  string
 	WriteTimeout string
@@ -1698,3 +1701,6 @@ func exampleRedisUsage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Value stored successfully"))
 }
+
+// Example: Using the connection status in a handler
+// You can integrate similar checks in your existing handlers as needed.
