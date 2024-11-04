@@ -105,7 +105,7 @@ type NetworkEvent struct {
 var (
 	conf          Config
 	versionString string = "v2.0.4"
-	log           = logrus.New()
+	log                  = logrus.New()
 	uploadQueue   chan UploadTask
 	networkEvents chan NetworkEvent
 	fileInfoCache *cache.Cache
@@ -838,9 +838,15 @@ func initializeScanWorkerPool(ctx context.Context) {
 // Setup router with middleware
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
+
+	// Handle upload and download requests
 	subpath := path.Join("/", conf.UploadSubDir)
 	subpath = strings.TrimRight(subpath, "/") + "/"
 	mux.HandleFunc(subpath, handleRequest)
+
+	// Handle example Redis usage
+	mux.HandleFunc("/example", exampleRedisUsage)
+
 	if conf.MetricsEnabled {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
@@ -1638,36 +1644,44 @@ func cleanupFiles(storeDir string, ttl time.Duration) {
 	}
 }
 
-// Example function that uses Redis
-func exampleRedisUsage() {
+// Example function that uses Redis, demonstrating how to use the `r` parameter
+func exampleRedisUsage(w http.ResponseWriter, r *http.Request) {
 	mu.RLock()
 	connected := redisConnected
 	mu.RUnlock()
 
 	if !connected {
 		log.Warn("Redis is not connected. Skipping Redis-dependent operation.")
-		// Implement fallback behavior here
-		return
-	}
-
-	// Proceed with Redis-dependent operation
-	// ...
-}
-
-// Example function showing conditional usage based on Redis connectivity
-func handleExampleFeature(w http.ResponseWriter, r *http.Request) {
-	mu.RLock()
-	connected := redisConnected
-	mu.RUnlock()
-
-	if !connected {
-		log.Warn("Cannot perform example feature: Redis is not connected.")
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Proceed with Redis-dependent feature
-	// ...
+	// Use `r` to extract parameters or headers as needed
+	exampleParam := r.URL.Query().Get("example")
+	if exampleParam == "" {
+		log.Warn("Missing 'example' parameter in the request")
+		http.Error(w, "Missing 'example' parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Log the example parameter for debugging purposes
+	log.Infof("Received 'example' parameter: %s", exampleParam)
+
+	// Perform Redis operation, e.g., checking or setting a value
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Example Redis operation: storing the parameter
+	err := redisClient.Set(ctx, "exampleKey", exampleParam, 10*time.Minute).Err()
+	if err != nil {
+		log.WithError(err).Error("Failed to store value in Redis")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info("Value successfully stored in Redis")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Value stored successfully"))
 }
 
 // Example: Using the connection status in a handler
