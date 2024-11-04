@@ -15,14 +15,6 @@ MetricsPort              = ":9090"                              # Port for Prome
 NumWorkers               = 5                                    # Number of workers
 UploadQueueSize          = 5000                                 # Upload queue size for handling multiple uploads
 
-# Fallback database configuration (optional)
-FallbackEnabled          = true                                 # Enable fallback to a database if Redis is unavailable
-FallbackDBType           = "postgres"                           # Fallback database type ("postgres" or "mysql")
-FallbackDBHost           = "127.0.0.1"                          # Fallback database host
-FallbackDBUser           = "db_user"                            # Fallback database username
-FallbackDBPassword       = "secure_password"                    # Fallback database password
-FallbackDBName           = "db_name"                            # Fallback database name
-
 # Graceful shutdown
 GracefulShutdownTimeout  = 60                                   # Timeout for graceful shutdowns (in seconds)
 
@@ -38,9 +30,10 @@ ChunkedUploadsEnabled    = true                                 # Enable chunked
 ChunkSize                = 65536                                # Size of each chunk in bytes (64 KB)
 
 # Redis settings
-RedisEnabled             = true                                 # Enable Redis for caching
-RedisAddr                = "localhost:6379"                     # Redis server address
-RedisPassword            = "your_redis_password"                # Redis password (if any)
+RedisEnabled             = false                                # Enable Redis for caching
+RedisAddr                = "localhost:6379"                    # Redis server address
+RedisPassword            = ""                                  # Redis password (if any)
+RedisDBIndex             = 1                                   # Redis DBIndex
 
 # Server timeout settings
 ReadTimeout              = "1h"                                 # Server read timeout
