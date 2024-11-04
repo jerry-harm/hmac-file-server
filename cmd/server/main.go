@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -72,10 +73,11 @@ type Config struct {
 	ClamAVSocket string // ClamAV socket
 
 	// Redis Configuration
-	RedisEnabled  bool   `toml:"RedisEnabled"` // Enable/disable Redis
-	RedisDBIndex  int    `toml:"RedisDBIndex"`
-	RedisAddr     string `toml:"RedisAddr"`
-	RedisPassword string `toml:"RedisPassword"`
+	RedisEnabled             bool   `toml:"RedisEnabled"` // Enable/disable Redis
+	RedisDBIndex             int    `toml:"RedisDBIndex"`
+	RedisAddr                string `toml:"RedisAddr"`
+	RedisPassword            string `toml:"RedisPassword"`
+	RedisHealthCheckInterval string `toml:"RedisHealthCheckInterval"` // e.g., "30s"
 
 	// Graceful Shutdown timeout
 	GracefulShutdownTimeout int `toml:"GracefulShutdownTimeout"`
@@ -103,23 +105,65 @@ type NetworkEvent struct {
 var (
 	conf          Config
 	versionString string = "v2.0.4"
-	log                  = logrus.New()
+	log           = logrus.New()
 	uploadQueue   chan UploadTask
 	networkEvents chan NetworkEvent
 	fileInfoCache *cache.Cache
 
 	// Prometheus metrics
-	uploadDuration      = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds.", Buckets: prometheus.DefBuckets})
-	uploadErrorsTotal   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
-	uploadsTotal        = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
-	downloadDuration    = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
-	downloadsTotal      = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
-	downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
-	memoryUsage         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
-	cpuUsage            = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
-	requestsTotal       = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
-	goroutines          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
-	uploadSizeBytes     = prometheus.NewHistogram(prometheus.HistogramOpts{
+	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac",
+		Name:      "file_server_upload_duration_seconds",
+		Help:      "Histogram of file upload duration in seconds.",
+		Buckets:   prometheus.DefBuckets,
+	})
+	uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_upload_errors_total",
+		Help:      "Total number of file upload errors.",
+	})
+	uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_uploads_total",
+		Help:      "Total number of successful file uploads.",
+	})
+	downloadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac",
+		Name:      "file_server_download_duration_seconds",
+		Help:      "Histogram of file download duration in seconds.",
+		Buckets:   prometheus.DefBuckets,
+	})
+	downloadsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_downloads_total",
+		Help:      "Total number of successful file downloads.",
+	})
+	downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "file_server_download_errors_total",
+		Help:      "Total number of file download errors.",
+	})
+	memoryUsage = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "hmac",
+		Name:      "memory_usage_bytes",
+		Help:      "Current memory usage in bytes.",
+	})
+	cpuUsage = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "hmac",
+		Name:      "cpu_usage_percent",
+		Help:      "Current CPU usage as a percentage.",
+	})
+	requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "hmac",
+		Name:      "http_requests_total",
+		Help:      "Total number of HTTP requests received, labeled by method and path.",
+	}, []string{"method", "path"})
+	goroutines = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "hmac",
+		Name:      "goroutines_count",
+		Help:      "Current number of goroutines.",
+	})
+	uploadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Namespace: "hmac",
 		Name:      "file_server_upload_size_bytes",
 		Help:      "Histogram of uploaded file sizes in bytes.",
@@ -151,6 +195,10 @@ var (
 	// Channels
 	scanQueue   chan ScanTask
 	ScanWorkers = 5 // Number of ClamAV scan workers
+
+	// Redis connection status
+	redisConnected bool = false
+	mu             sync.RWMutex
 )
 
 // Function to parse duration strings with h (hours), d (days), and y (years).
@@ -231,6 +279,11 @@ func initRedis() {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	log.Info("Connected to Redis successfully")
+
+	// Set initial connection status
+	mu.Lock()
+	redisConnected = true
+	mu.Unlock()
 }
 
 func main() {
@@ -306,6 +359,11 @@ func main() {
 
 	// Start file cleanup routine
 	go startFileCleanup(ctx, conf.StoreDir, fileTTLDuration)
+
+	// Start Redis health monitor if Redis is enabled
+	if conf.RedisEnabled && redisClient != nil {
+		go MonitorRedisHealth(ctx, redisClient, parseHealthCheckInterval(conf.RedisHealthCheckInterval))
+	}
 
 	// Setup router
 	router := setupRouter()
@@ -414,11 +472,26 @@ func readConfig(configFilename string, conf *Config) error {
 	}
 
 	// Ensure RedisDBIndex is set; default to 0 if not provided
-	if conf.RedisDBIndex == 0 {
+	if conf.RedisDBIndex == 0 && conf.RedisEnabled {
 		conf.RedisDBIndex = 0 // Default Redis DB
 	}
 
+	// Set default RedisHealthCheckInterval if not set
+	if conf.RedisHealthCheckInterval == "" && conf.RedisEnabled {
+		conf.RedisHealthCheckInterval = "30s" // Default health check interval
+	}
+
 	return nil
+}
+
+// Parse health check interval from config
+func parseHealthCheckInterval(intervalStr string) time.Duration {
+	dur, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		log.Warnf("Invalid RedisHealthCheckInterval '%s', defaulting to 30s", intervalStr)
+		return 30 * time.Second
+	}
+	return dur
 }
 
 // Setup logging
@@ -562,8 +635,10 @@ func versionFile(absFilename string) error {
 	}
 
 	log.WithFields(logrus.Fields{
-		"original":     absFilename,
-		"versioned_as": versionedFilename,
+		"original":      absFilename,
+		"versioned_as":  versionedFilename,
+		"version_dir":   versionDir,
+		"version_count": conf.MaxVersions,
 	}).Info("Versioned old file")
 	return cleanupOldVersions(versionDir)
 }
@@ -940,19 +1015,29 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	log.Debug("HMAC validation successful")
 
 	// Store HMAC Token in Redis if protocolVersion is "token"
-	if protocolVersion == "token" && conf.RedisEnabled && redisClient != nil {
-		token := a.Get("token")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	if protocolVersion == "token" {
+		mu.RLock()
+		connected := redisConnected
+		mu.RUnlock()
 
-		// Set token with an expiration time
-		err := redisClient.Set(ctx, token, "valid", 24*time.Hour).Err()
-		if err != nil {
-			log.WithError(err).Error("Failed to store HMAC token in Redis")
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		if conf.RedisEnabled && connected && redisClient != nil {
+			token := a.Get("token")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Set token with an expiration time
+			err := redisClient.Set(ctx, token, "valid", 24*time.Hour).Err()
+			if err != nil {
+				log.WithError(err).Error("Failed to store HMAC token in Redis")
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			log.Info("HMAC token stored in Redis successfully")
+		} else {
+			log.Warn("Cannot store HMAC token in Redis: Redis is not connected")
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		log.Info("HMAC token stored in Redis successfully")
 	}
 
 	// Validate file extension
@@ -997,16 +1082,24 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 
 	// Retrieve and delete HMAC Token from Redis after Successful Upload
 	if protocolVersion == "token" {
-		token := a.Get("token")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		mu.RLock()
+		connected := redisConnected
+		mu.RUnlock()
 
-		// Delete the token after use
-		err := redisClient.Del(ctx, token).Err()
-		if err != nil {
-			log.WithError(err).Error("Failed to delete HMAC token from Redis")
+		if conf.RedisEnabled && connected && redisClient != nil {
+			token := a.Get("token")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Delete the token after use
+			err := redisClient.Del(ctx, token).Err()
+			if err != nil {
+				log.WithError(err).Error("Failed to delete HMAC token from Redis")
+			}
+			log.Info("HMAC token deleted from Redis successfully")
+		} else {
+			log.Warn("Cannot delete HMAC token from Redis: Redis is not connected")
 		}
-		log.Info("HMAC token deleted from Redis successfully")
 	}
 
 	// Upload was successful
@@ -1341,6 +1434,42 @@ func getFileInfo(absFilename string) (os.FileInfo, error) {
 	return fileInfo, nil
 }
 
+// MonitorRedisHealth periodically checks Redis connectivity and logs the status.
+func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stopping Redis health monitor.")
+			return
+		case <-ticker.C:
+			err := client.Ping(ctx).Err()
+			if err != nil {
+				log.WithError(err).Error("Redis health check failed")
+				// Update connection status
+				mu.Lock()
+				if redisConnected {
+					redisConnected = false
+					log.Warn("Redis connection lost")
+				}
+				mu.Unlock()
+				// Optionally implement fallback logic here
+			} else {
+				log.Info("Redis health check succeeded")
+				// Update connection status
+				mu.Lock()
+				if !redisConnected {
+					redisConnected = true
+					log.Info("Redis connection restored")
+				}
+				mu.Unlock()
+			}
+		}
+	}
+}
+
 // Monitor network changes
 func monitorNetwork(ctx context.Context) {
 	currentIP := getCurrentIPAddress() // Placeholder for the current IP address
@@ -1508,3 +1637,38 @@ func cleanupFiles(storeDir string, ttl time.Duration) {
 		log.WithError(err).Error("Error during file cleanup")
 	}
 }
+
+// Example function that uses Redis
+func exampleRedisUsage() {
+	mu.RLock()
+	connected := redisConnected
+	mu.RUnlock()
+
+	if !connected {
+		log.Warn("Redis is not connected. Skipping Redis-dependent operation.")
+		// Implement fallback behavior here
+		return
+	}
+
+	// Proceed with Redis-dependent operation
+	// ...
+}
+
+// Example function showing conditional usage based on Redis connectivity
+func handleExampleFeature(w http.ResponseWriter, r *http.Request) {
+	mu.RLock()
+	connected := redisConnected
+	mu.RUnlock()
+
+	if !connected {
+		log.Warn("Cannot perform example feature: Redis is not connected.")
+		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Proceed with Redis-dependent feature
+	// ...
+}
+
+// Example: Using the connection status in a handler
+// You can integrate similar checks in your existing handlers as needed.
