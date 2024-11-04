@@ -66,6 +66,10 @@ type Config struct {
 	WriteTimeout string
 	IdleTimeout  string
 
+	// Port range
+	PortRangeStart int `toml:"PortRangeStart"`
+	PortRangeEnd   int `toml:"PortRangeEnd"`
+
 	// ClamAV Configuration
 	ClamAVSocket string // ClamAV socket
 
@@ -283,6 +287,20 @@ func initRedis() {
 	mu.Unlock()
 }
 
+// Function to find and bind to an available port within the specified range
+func getAvailablePortInRange(start, end int) (net.Listener, int, error) {
+	for port := start; port <= end; port++ {
+		addr := fmt.Sprintf(":%d", port)
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			// Successfully bound to the port
+			log.Infof("Bound to port %d", port)
+			return listener, port, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("no available port found in range %d-%d", start, end)
+}
+
 func main() {
 	// Flags for configuration file
 	var configFile string
@@ -381,9 +399,16 @@ func main() {
 		log.Fatalf("Invalid IdleTimeout value: %v", err)
 	}
 
+	// Try to get an available port within the specified range
+	listener, port, err := getAvailablePortInRange(conf.PortRangeStart, conf.PortRangeEnd)
+	if err != nil {
+		log.Fatalf("Failed to bind to an available port: %v", err)
+	}
+	defer listener.Close()
+
 	// Configure HTTP server
 	server := &http.Server{
-		Addr:         conf.ListenPort,
+		Addr:         fmt.Sprintf(":%d", port),
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
@@ -409,20 +434,13 @@ func main() {
 	setupGracefulShutdown(server, cancel)
 
 	// Start server
-	log.Infof("Starting HMAC file server %s...", versionString)
+	log.Infof("Starting HMAC file server %s on port %d...", versionString, port)
 	if conf.UnixSocket {
-		listener, err := net.Listen("unix", conf.ListenPort)
-		if err != nil {
-			log.WithError(err).Fatal("Could not open Unix socket")
-		}
-		defer listener.Close()
-		log.Infof("Server started on Unix socket %s. Waiting for requests.", conf.ListenPort)
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.WithError(err).Fatal("Server failed")
 		}
 	} else {
-		log.Infof("Server started on port %s. Waiting for requests.", conf.ListenPort)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.WithError(err).Fatal("Server failed")
 		}
 	}
