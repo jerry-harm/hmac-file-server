@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -15,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
@@ -90,6 +90,11 @@ type Config struct {
 	EnableRateLimiting bool   `toml:"EnableRateLimiting"` // Enable rate limiting
 	RequestsPerMinute  int    `toml:"RequestsPerMinute"`  // Allowed requests per minute per IP
 	RateLimitInterval  string `toml:"RateLimitInterval"`  // Rate limit interval (e.g., "1m")
+
+	// Fail2Ban settings
+	Fail2BanEnabled bool   `toml:"Enabled"` // Enable Fail2Ban
+	Fail2BanCommand string `toml:"Command"` // Path to the Fail2Ban command
+	Fail2BanJail    string `toml:"Jail"`    // Jail name for Fail2Ban
 }
 
 // UploadTask represents a file upload task
@@ -112,13 +117,12 @@ type NetworkEvent struct {
 }
 
 var (
-	conf             Config
-	versionString    string = "v2.0.4"
-	log                     = logrus.New()
-	uploadQueue      chan UploadTask
-	networkEvents    chan NetworkEvent
-	fileInfoCache    *cache.Cache
-	fileContentCache *cache.Cache // Cache for file content
+	conf          Config
+	versionString string = "v2.0.4"
+	log                  = logrus.New()
+	uploadQueue   chan UploadTask
+	networkEvents chan NetworkEvent
+	fileInfoCache *cache.Cache
 
 	// Prometheus metrics
 	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -305,6 +309,19 @@ func initRedis() {
 	mu.Unlock()
 }
 
+// Block an IP using Fail2Ban
+func blockIPFail2Ban(ip string) error {
+	if conf.Fail2BanEnabled {
+		cmd := exec.Command(conf.Fail2BanCommand, "set", conf.Fail2BanJail, "ban", ip)
+		if err := cmd.Run(); err != nil {
+			log.Errorf("Failed to block IP %s with Fail2Ban: %v", ip, err)
+			return err
+		}
+		log.Infof("Blocked IP %s using Fail2Ban", ip)
+	}
+	return nil
+}
+
 func main() {
 	// Flags for configuration file
 	var configFile string
@@ -327,9 +344,6 @@ func main() {
 
 	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
-
-	// Initialize file content cache
-	fileContentCache = cache.New(5*time.Minute, 10*time.Minute)
 
 	// Initialize request counters for rate limiting
 	if conf.EnableRateLimiting {
@@ -817,6 +831,7 @@ func uploadWorker(ctx context.Context, workerID int) {
 					"error":     err,
 				}).Error("Failed to process upload task")
 				uploadErrorsTotal.Inc()
+				blockIPFail2Ban(getClientIP(task.Request)) // Block IP after failed uploads
 			} else {
 				log.WithFields(logrus.Fields{
 					"worker_id": workerID,
@@ -1228,14 +1243,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 
 // Handle file downloads
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
-	if cachedContent, found := fileContentCache.Get(absFilename); found {
-		log.WithField("file", absFilename).Info("Serving cached file content")
-		http.ServeContent(w, r, absFilename, time.Now(), bytes.NewReader(cachedContent.([]byte)))
-		downloadSizeBytes.Observe(float64(len(cachedContent.([]byte))))
-		downloadsTotal.Inc()
-		return
-	}
-
 	fileInfo, err := getFileInfo(absFilename)
 	if err != nil {
 		log.WithError(err).Error("Failed to get file information")
@@ -1272,14 +1279,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 		downloadDuration.Observe(time.Since(startTime).Seconds())
 		downloadSizeBytes.Observe(float64(fileInfo.Size()))
 		downloadsTotal.Inc()
-
-		// Cache the file content for future downloads
-		content, err := os.ReadFile(absFilename)
-		if err != nil {
-			log.WithError(err).Error("Failed to read file content for caching")
-		} else {
-			fileContentCache.Set(absFilename, content, cache.DefaultExpiration)
-		}
 		return
 	}
 }
