@@ -78,6 +78,17 @@ type Config struct {
 
 	// Graceful Shutdown timeout
 	GracefulShutdownTimeout int `toml:"GracefulShutdownTimeout"`
+
+	// IP Management settings
+	EnableIPManagement bool     `toml:"EnableIPManagement"` // Enable IP management
+	AllowedIPs         []string `toml:"AllowedIPs"`         // Whitelist of allowed IPs
+	BlockedIPs         []string `toml:"BlockedIPs"`         // Blacklist of blocked IPs
+	IPCheckInterval    string   `toml:"IPCheckInterval"`    // Interval for IP check updates
+
+	// Rate Limiting settings
+	EnableRateLimiting bool   `toml:"EnableRateLimiting"` // Enable rate limiting
+	RequestsPerMinute  int    `toml:"RequestsPerMinute"`  // Allowed requests per minute per IP
+	RateLimitInterval  string `toml:"RateLimitInterval"`  // Rate limit interval (e.g., "1m")
 }
 
 // UploadTask represents a file upload task
@@ -196,7 +207,14 @@ var (
 	// Redis connection status
 	redisConnected bool = false
 	mu             sync.RWMutex
+
+	// Rate Limiting data structures
+	requestCounters     *cache.Cache
+	rateLimitInterval   time.Duration
+	requestsPerInterval int
 )
+
+const defaultRateLimitInterval = "1m"
 
 // Function to parse duration strings with h (hours), d (days), and y (years).
 func ParseCustomDuration(s string) (time.Duration, error) {
@@ -207,7 +225,7 @@ func ParseCustomDuration(s string) (time.Duration, error) {
 			number += string(char)
 			continue
 		}
-		if char == 'h' || char == 'd' || char == 'y' {
+		if char == 'h' || char == 'd' || char == 'y' || char == 'm' {
 			if number == "" {
 				return 0, fmt.Errorf("invalid duration format at position %d", i)
 			}
@@ -222,6 +240,8 @@ func ParseCustomDuration(s string) (time.Duration, error) {
 				totalDuration += time.Duration(value) * 24 * time.Hour
 			case 'y':
 				totalDuration += time.Duration(value) * 365 * 24 * time.Hour
+			case 'm':
+				totalDuration += time.Duration(value) * time.Minute
 			}
 			number = ""
 		} else {
@@ -305,6 +325,20 @@ func main() {
 
 	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
+
+	// Initialize request counters for rate limiting
+	if conf.EnableRateLimiting {
+		interval := conf.RateLimitInterval
+		if interval == "" {
+			interval = defaultRateLimitInterval
+		}
+		rateLimitInterval, err = ParseCustomDuration(interval)
+		if err != nil {
+			log.Fatalf("Invalid RateLimitInterval value: %v", err)
+		}
+		requestsPerInterval = conf.RequestsPerMinute
+		requestCounters = cache.New(rateLimitInterval, 2*rateLimitInterval)
+	}
 
 	// Create store directory
 	err = os.MkdirAll(conf.StoreDir, os.ModePerm)
@@ -478,6 +512,16 @@ func readConfig(configFilename string, conf *Config) error {
 		conf.RedisHealthCheckInterval = "30s" // Default health check interval
 	}
 
+	// Set default IPCheckInterval if not set
+	if conf.IPCheckInterval == "" && conf.EnableIPManagement {
+		conf.IPCheckInterval = "60s" // Default IP check interval
+	}
+
+	// Set default RateLimitInterval if not set
+	if conf.RateLimitInterval == "" && conf.EnableRateLimiting {
+		conf.RateLimitInterval = defaultRateLimitInterval
+	}
+
 	return nil
 }
 
@@ -485,7 +529,7 @@ func readConfig(configFilename string, conf *Config) error {
 func parseHealthCheckInterval(intervalStr string) time.Duration {
 	dur, err := time.ParseDuration(intervalStr)
 	if err != nil {
-		log.Warnf("Invalid RedisHealthCheckInterval '%s', defaulting to 30s", intervalStr)
+		log.Warnf("Invalid interval '%s', defaulting to 30s", intervalStr)
 		return 30 * time.Second
 	}
 	return dur
@@ -849,8 +893,8 @@ func setupRouter() http.Handler {
 	}
 
 	// Apply middleware
-	handler := loggingMiddleware(mux)     // CORS is handled by NGINX
-	handler = recoveryMiddleware(handler) // Add recovery middleware
+	handler := loggingMiddleware(mux)
+	handler = recoveryMiddleware(handler)
 	return handler
 }
 
@@ -879,15 +923,15 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Handle file uploads and downloads
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Get client IP address
-	clientIP := r.Header.Get("X-Real-IP")
+// Extract client IP considering proxy headers
+func getClientIP(r *http.Request) string {
+	// Attempt to get the real client IP from headers
+	clientIP := r.Header.Get("X-Forwarded-For")
 	if clientIP == "" {
-		clientIP = r.Header.Get("X-Forwarded-For")
+		clientIP = r.Header.Get("X-Real-IP")
 	}
 	if clientIP == "" {
-		// Fallback to RemoteAddr
+		// Fallback to RemoteAddr if no headers are present
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			log.WithError(err).Warn("Failed to parse RemoteAddr")
@@ -895,14 +939,82 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		} else {
 			clientIP = host
 		}
+	} else {
+		// If there are multiple IPs in X-Forwarded-For, take the first one
+		clientIP = strings.Split(clientIP, ",")[0]
 	}
+
+	return strings.TrimSpace(clientIP)
+}
+
+// Check if IP is allowed based on AllowedIPs and BlockedIPs
+func isIPAllowed(clientIP string) bool {
+	// Check against blocked IPs
+	for _, blockedIP := range conf.BlockedIPs {
+		if clientIP == blockedIP {
+			return false // Blocked IP
+		}
+	}
+
+	// Check against allowed IPs
+	if len(conf.AllowedIPs) > 0 {
+		for _, allowedIP := range conf.AllowedIPs {
+			if clientIP == allowedIP {
+				return true // Allowed IP
+			}
+		}
+		return false // Not in allowed IPs
+	}
+
+	return true // No restrictions
+}
+
+// Rate limiting based on client IP
+func isRateLimited(clientIP string) bool {
+	if !conf.EnableRateLimiting {
+		return false
+	}
+
+	count, found := requestCounters.Get(clientIP)
+	if !found {
+		requestCounters.Set(clientIP, 1, rateLimitInterval)
+		return false
+	}
+
+	requestCount := count.(int)
+	if requestCount >= requestsPerInterval {
+		return true
+	}
+
+	requestCounters.Increment(clientIP, 1)
+	return false
+}
+
+// Handle file uploads and downloads
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+	// Get client IP address
+	clientIP := getClientIP(r)
 
 	// Log the request with the client IP
 	log.WithFields(logrus.Fields{
-		"method": r.Method,
-		"url":    r.URL.String(),
-		"remote": clientIP,
+		"method":    r.Method,
+		"url":       r.URL.String(),
+		"client_ip": clientIP,
 	}).Info("Incoming request")
+
+	// Check if IP is allowed
+	if conf.EnableIPManagement && !isIPAllowed(clientIP) {
+		log.WithField("client_ip", clientIP).Warn("Unauthorized IP address")
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Check rate limiting
+	if isRateLimited(clientIP) {
+		log.WithField("client_ip", clientIP).Warn("Rate limit exceeded")
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
 
 	// Parse URL and query parameters
 	p := r.URL.Path
