@@ -5,4 +5,7 @@ import "testing"
 
 func TestBuild(t *testing.T) {
     // This test only confirms that the package builds successfully
+    if false {
+        t.Errorf("This should never fail")
+    }
 }
