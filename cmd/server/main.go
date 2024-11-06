@@ -111,12 +111,13 @@ type NetworkEvent struct {
 }
 
 var (
-	conf          Config
-	versionString string = "v2.0.4"
-	log                  = logrus.New()
-	uploadQueue   chan UploadTask
-	networkEvents chan NetworkEvent
-	fileInfoCache *cache.Cache
+	conf             Config
+	versionString    string = "v2.0.4"
+	log                     = logrus.New()
+	uploadQueue      chan UploadTask
+	networkEvents    chan NetworkEvent
+	fileInfoCache    *cache.Cache
+	fileContentCache *cache.Cache // New cache for file content
 
 	// Prometheus metrics
 	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -325,6 +326,9 @@ func main() {
 
 	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
+
+	// Initialize file content cache
+	fileContentCache = cache.New(5*time.Minute, 10*time.Minute)
 
 	// Initialize request counters for rate limiting
 	if conf.EnableRateLimiting {
