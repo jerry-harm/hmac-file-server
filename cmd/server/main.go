@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -117,7 +118,7 @@ var (
 	uploadQueue      chan UploadTask
 	networkEvents    chan NetworkEvent
 	fileInfoCache    *cache.Cache
-	fileContentCache *cache.Cache // New cache for file content
+	fileContentCache *cache.Cache // Cache for file content
 
 	// Prometheus metrics
 	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -1227,6 +1228,14 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 
 // Handle file downloads
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
+	if cachedContent, found := fileContentCache.Get(absFilename); found {
+		log.WithField("file", absFilename).Info("Serving cached file content")
+		http.ServeContent(w, r, absFilename, time.Now(), bytes.NewReader(cachedContent.([]byte)))
+		downloadSizeBytes.Observe(float64(len(cachedContent.([]byte))))
+		downloadsTotal.Inc()
+		return
+	}
+
 	fileInfo, err := getFileInfo(absFilename)
 	if err != nil {
 		log.WithError(err).Error("Failed to get file information")
@@ -1263,6 +1272,14 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 		downloadDuration.Observe(time.Since(startTime).Seconds())
 		downloadSizeBytes.Observe(float64(fileInfo.Size()))
 		downloadsTotal.Inc()
+
+		// Cache the file content for future downloads
+		content, err := os.ReadFile(absFilename)
+		if err != nil {
+			log.WithError(err).Error("Failed to read file content for caching")
+		} else {
+			fileContentCache.Set(absFilename, content, cache.DefaultExpiration)
+		}
 		return
 	}
 }
