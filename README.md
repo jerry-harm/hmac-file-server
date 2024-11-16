@@ -149,5 +149,7 @@ BanTime                   = "3600s"                              # Duration for 
 EnableIPManagement       = false                                 # Enable IP management
 AllowedIPs               = ["0.0.0.0/0"]                         # List of allowed IPs
 IPCheckInterval          = "60s"                                 # Interval for IP check updates
+# Deduplication settings
+DeduplicationEnabled = true                                      # Enable/disable deduplication based on checksum
 ```
 This configuration provides a detailed setup for the HMAC File Server, including how to handle security settings, limit rates, and integrate with system tools like Fail2Ban for enhanced security measures.
