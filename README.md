@@ -85,7 +85,7 @@ MetricsEnabled           = true                                 # Enable Prometh
 MetricsPort              = ":9090"                              # Port for Prometheus metrics server
 
 # Workers and connections
-NumWorkers               = 20                                   # Number of workers
+NumWorkers               = 5                                    # Number of workers
 UploadQueueSize          = 5000                                 # Upload queue size for handling multiple uploads
 
 # Graceful shutdown
@@ -103,15 +103,15 @@ ChunkedUploadsEnabled    = true                                 # Enable chunked
 ChunkSize                = 4096                                 # Size of each chunk in bytes (64 KB)
 
 # Redis settings
-RedisEnabled             = true                                 # Enable Redis for caching
+RedisEnabled             = false                                 # Enable Redis for caching
 RedisAddr                = "localhost:6379"                     # Redis server address
 RedisPassword            = ""                                   # Redis password (if any)
 RedisDBIndex             = 1                                    # Redis DBIndex
 
 # Server timeout settings
-ReadTimeout              = "480s"                                 # Server read timeout
-WriteTimeout             = "480s"                                 # Server write timeout
-IdleTimeout              = "480s"                                # Server idle timeout
+ReadTimeout              = "480s"                               # Server read timeout
+WriteTimeout             = "480s"                               # Server write timeout
+IdleTimeout              = "480s"                               # Server idle timeout
 
 # ClamAV Configuration
 ClamAVSocket             = "/var/run/clamav/clamd.ctl"          # Use UNIX socket; alternatively use TCP socket
