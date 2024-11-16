@@ -1,4 +1,3 @@
-
 # HMAC File Server
 
 **Secure File Handling with HMAC Authentication**
@@ -18,6 +17,7 @@ The **HMAC File Server** is a robust and secure solution for handling file uploa
 1. **HMAC Validation**
     - **Authentication Mechanism**: Validates requests using HMAC signatures to ensure secure access.
     - **Protocol Versions Support**: Supports multiple HMAC calculation protocols (`v`, `v2`, `token`) for flexibility.
+    - **Credits**: Basic HMAC function/validation by Thomas Leister from [trashserver.net](https://trashserver.net).
 
 2. **Event-Based Network Management**
     - **Event Types**: Handles events such as new connections, disconnections, request receptions, completions, errors, and shutdowns.
@@ -34,7 +34,7 @@ The **HMAC File Server** is a robust and secure solution for handling file uploa
 5. **Prometheus Metrics Integration**
     - **Comprehensive Metrics**: Tracks uploads/downloads, errors, system resource usage, active connections, and more.
     - **Metrics Endpoint**: Exposes metrics on the `/metrics` endpoint for Prometheus scraping.
-  
+
 6. **Graceful Shutdown**
     - **Signal Handling**: Listens for termination signals (`SIGINT`, `SIGTERM`) to initiate a graceful shutdown.
     - **Resource Cleanup**: Ensures all ongoing operations complete before terminating the server.
@@ -153,4 +153,5 @@ IPCheckInterval          = "60s"                                 # Interval for 
 # Deduplication settings
 DeduplicationEnabled = true                                      # Enable/disable deduplication based on checksum
 ```
+
 This configuration provides a detailed setup for the HMAC File Server, including how to handle security settings, limit rates, and integrate with system tools like Fail2Ban for enhanced security measures.
