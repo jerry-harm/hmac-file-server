@@ -2,7 +2,7 @@
 
 **Secure File Handling with HMAC Authentication**
 
-![HMAC FILE SERVER](https://github.com/user-attachments/assets/77a85b5d-7104-4e1c-a21f-0233ca22a8db)
+![image](https://github.com/user-attachments/assets/8459a101-27a6-408f-8265-29602f53b258)
 
 ---
 
