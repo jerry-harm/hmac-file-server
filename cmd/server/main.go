@@ -121,7 +121,7 @@ type NetworkEvent struct {
 
 var (
 	conf          Config
-	versionString string = "v2.0.4"
+	versionString string = "v2.0.5"
 	log                  = logrus.New()
 	uploadQueue   chan UploadTask
 	networkEvents chan NetworkEvent
