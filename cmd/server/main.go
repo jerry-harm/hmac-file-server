@@ -68,7 +68,9 @@ type Config struct {
 	IdleTimeout  string
 
 	// ClamAV Configuration
-	ClamAVSocket string // ClamAV socket
+	ClamAVEnabled bool   `toml:"ClamAVEnabled"` // New field to enable/disable ClamAV
+	ClamAVSocket  string `toml:"ClamAVSocket"`  // ClamAV socket
+	NumScanWorkers int    `toml:"NumScanWorkers"` // New field for number of scan workers
 
 	// Redis Configuration
 	RedisEnabled             bool   `toml:"RedisEnabled"` // Enable/disable Redis
@@ -211,7 +213,8 @@ var (
 
 	// Channels
 	scanQueue   chan ScanTask
-	ScanWorkers = 5 // Number of ClamAV scan workers
+	// Remove the constant and use configurable number of scan workers
+	// ScanWorkers = 5 // Removed
 
 	// Redis connection status
 	redisConnected bool = false
@@ -389,17 +392,22 @@ func main() {
 	go handleNetworkEvents(ctx)
 	go updateSystemMetrics(ctx)
 
-	// Initialize ClamAV client
-	clamClient, err = initClamAV(conf.ClamAVSocket)
-	if err != nil {
-		log.WithError(err).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+	// Initialize ClamAV client if enabled
+	if conf.ClamAVEnabled {
+		clamClient, err = initClamAV(conf.ClamAVSocket)
+		if err != nil {
+			log.WithError(err).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+			conf.ClamAVEnabled = false // Disable ClamAV if initialization fails
+		} else {
+			log.Info("ClamAV client initialized successfully")
+		}
 	} else {
-		log.Info("ClamAV client initialized successfully")
+		log.Info("ClamAV scanning is disabled in configuration.")
 	}
 
 	// Initialize worker pools
 	initializeUploadWorkerPool(ctx)
-	if clamClient != nil {
+	if conf.ClamAVEnabled && clamClient != nil {
 		initializeScanWorkerPool(ctx)
 	}
 
@@ -546,6 +554,12 @@ func readConfig(configFilename string, conf *Config) error {
 
 	// Set default DeduplicationEnabled if not set
 	// (default is false due to zero-value of bool)
+
+	// Set default number of scan workers if ClamAV is enabled but NumScanWorkers is not set
+	if conf.ClamAVEnabled && conf.NumScanWorkers <= 0 {
+		conf.NumScanWorkers = 5 // Default number of scan workers
+	}
+
 	return nil
 }
 
@@ -776,8 +790,8 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
-	// Perform ClamAV scan on the temporary file
-	if clamClient != nil {
+	// Perform ClamAV scan on the temporary file if ClamAV is enabled
+	if conf.ClamAVEnabled && clamClient != nil {
 		err := scanFileWithClamAV(tempFilename)
 		if err != nil {
 			log.WithFields(logrus.Fields{
@@ -898,8 +912,6 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
-	// Removed duplicate function definition
-
 	log.WithFields(logrus.Fields{
 		"file": absFilename,
 	}).Info("File uploaded and scanned successfully")
@@ -993,10 +1005,10 @@ func scanWorker(ctx context.Context, workerID int) {
 
 // Initialize scan worker pool
 func initializeScanWorkerPool(ctx context.Context) {
-	for i := 0; i < ScanWorkers; i++ {
+	for i := 0; i < conf.NumScanWorkers; i++ {
 		go scanWorker(ctx, i)
 	}
-	log.Infof("Initialized %d scan workers", ScanWorkers)
+	log.Infof("Initialized %d scan workers", conf.NumScanWorkers)
 }
 
 // Setup router with middleware
@@ -1854,7 +1866,9 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 		// Close the upload and scan queues and network events channel
 		close(uploadQueue)
-		close(scanQueue)
+		if conf.ClamAVEnabled {
+			close(scanQueue)
+		}
 		close(networkEvents)
 
 		log.Info("Server gracefully stopped.")
