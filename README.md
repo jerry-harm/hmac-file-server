@@ -95,12 +95,12 @@ GracefulShutdownTimeout  = 60                                   # Timeout for gr
 FileTTL                  = "90d"                                # TTL for file expiration
 ResumableUploadsEnabled  = true                                 # Enable resumable uploads
 ResumableDownloads       = true                                 # Enable resumable downloads
-MaxVersions              = 3                                    # Maximum number of file versions to keep
-EnableVersioning         = true                                 # Enable file versioning
+MaxVersions              = 1                                    # Maximum number of file versions to keep
+EnableVersioning         = false                                # Enable file versioning
 
 # Upload/Download settings
 ChunkedUploadsEnabled    = true                                 # Enable chunked uploads
-ChunkSize                = 65536                                # Size of each chunk in bytes (64 KB)
+ChunkSize                = 4096                                 # Size of each chunk in bytes (64 KB)
 
 # Redis settings
 RedisEnabled             = true                                 # Enable Redis for caching
@@ -109,9 +109,9 @@ RedisPassword            = ""                                   # Redis password
 RedisDBIndex             = 1                                    # Redis DBIndex
 
 # Server timeout settings
-ReadTimeout              = "1h"                                 # Server read timeout
-WriteTimeout             = "1h"                                 # Server write timeout
-IdleTimeout              = "30m"                                # Server idle timeout
+ReadTimeout              = "480s"                                 # Server read timeout
+WriteTimeout             = "480s"                                 # Server write timeout
+IdleTimeout              = "480s"                                # Server idle timeout
 
 # ClamAV Configuration
 ClamAVSocket             = "/var/run/clamav/clamd.ctl"          # Use UNIX socket; alternatively use TCP socket
