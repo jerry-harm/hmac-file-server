@@ -103,7 +103,7 @@ ChunkedUploadsEnabled    = true                                 # Enable chunked
 ChunkSize                = 4096                                 # Size of each chunk in bytes (64 KB)
 
 # Redis settings
-RedisEnabled             = false                                 # Enable Redis for caching
+RedisEnabled             = false                                # Enable Redis for caching
 RedisAddr                = "localhost:6379"                     # Redis server address
 RedisPassword            = ""                                   # Redis password (if any)
 RedisDBIndex             = 1                                    # Redis DBIndex
@@ -132,7 +132,7 @@ AllowedExtensions = [
 ]
 
 # Security settings
-RateLimitingEnabled      = true                                 # Enable rate limiting
+RateLimitingEnabled      = false                                # Enable rate limiting
 MaxRequestsPerMinute     = 60                                   # Maximum number of requests per minute
 RateLimitInterval        = "1m"                                 # Rate limiting interval
 BlockedUserAgents        = ["BadBot", "EvilCrawler"]            # List of blocked user agents
