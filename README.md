@@ -2,14 +2,15 @@
 
 **Secure File Handling with HMAC Authentication**
 
-![image](https://github.com/user-attachments/assets/1047ee79-f61c-471f-9c65-297cc350793a)
-
+![HMAC FILE SERVER](https://github.com/user-attachments/assets/1047ee79-f61c-471f-9c65-297cc350793a)
 
 ---
 
 ## Overview
 
 The **HMAC File Server** is a robust and secure solution for handling file uploads and downloads. It leverages **HMAC authentication** to ensure that only authorized users can access or modify files. The server supports advanced features like **resumable uploads/downloads**, **file versioning**, **event-based network management**, and comprehensive **Prometheus metrics** for monitoring.
+
+This server is specifically designed to integrate seamlessly with **ejabberd** and **Prosody XMPP servers** but can also be used as a standalone solution.
 
 ---
 
