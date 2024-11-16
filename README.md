@@ -149,6 +149,7 @@ BanTime                   = "3600s"                              # Duration for 
 EnableIPManagement       = false                                 # Enable IP management
 AllowedIPs               = ["0.0.0.0/0"]                         # List of allowed IPs
 IPCheckInterval          = "60s"                                 # Interval for IP check updates
+
 # Deduplication settings
 DeduplicationEnabled = true                                      # Enable/disable deduplication based on checksum
 ```
