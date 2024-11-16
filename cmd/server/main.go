@@ -92,9 +92,12 @@ type Config struct {
 	RateLimitInterval  string `toml:"RateLimitInterval"`  // Rate limit interval (e.g., "1m")
 
 	// Fail2Ban settings
-	Fail2BanEnabled bool   `toml:"Enabled"` // Enable Fail2Ban
-	Fail2BanCommand string `toml:"Command"` // Path to the Fail2Ban command
-	Fail2BanJail    string `toml:"Jail"`    // Jail name for Fail2Ban
+	Fail2BanEnabled bool   `toml:"Fail2BanEnabled"` // Enable Fail2Ban
+	Fail2BanCommand string `toml:"Fail2BanCommand"` // Path to the Fail2Ban command
+	Fail2BanJail    string `toml:"Fail2BanJail"`    // Jail name for Fail2Ban
+
+	// Deduplication settings
+	DeduplicationEnabled bool `toml:"DeduplicationEnabled"` // Enable deduplication based on checksum
 }
 
 // UploadTask represents a file upload task
@@ -167,7 +170,7 @@ var (
 		Name:      "cpu_usage_percent",
 		Help:      "Current CPU usage as a percentage.",
 	})
-	requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+	requestsTotalCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "hmac",
 		Name:      "http_requests_total",
 		Help:      "Total number of HTTP requests received, labeled by method and path.",
@@ -271,7 +274,7 @@ func initMetrics() {
 		prometheus.MustRegister(downloadErrorsTotal)
 		prometheus.MustRegister(memoryUsage)
 		prometheus.MustRegister(cpuUsage)
-		prometheus.MustRegister(requestsTotal)
+		prometheus.MustRegister(requestsTotalCounter)
 		prometheus.MustRegister(goroutines)
 		prometheus.MustRegister(uploadSizeBytes)
 		prometheus.MustRegister(downloadSizeBytes)
@@ -541,6 +544,8 @@ func readConfig(configFilename string, conf *Config) error {
 		conf.RateLimitInterval = defaultRateLimitInterval
 	}
 
+	// Set default DeduplicationEnabled if not set
+	// (default is false due to zero-value of bool)
 	return nil
 }
 
@@ -583,7 +588,7 @@ func logSystemInfo() {
 	log.Info("  Secure File Handling with HMAC Auth   ")
 	log.Info("========================================")
 
-	log.Info("Features: Prometheus Metrics, Chunked Uploads, ClamAV Scanning")
+	log.Info("Features: Prometheus Metrics, Chunked Uploads, ClamAV Scanning, Deduplication")
 	log.Info("Build Date: 2024-10-28")
 
 	log.Infof("Operating System: %s", runtime.GOOS)
@@ -724,7 +729,23 @@ func cleanupOldVersions(versionDir string) error {
 	return nil
 }
 
-// Process the upload task
+// CalculateChecksum calculates the SHA-256 checksum of a given file
+func CalculateChecksum(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("failed to calculate checksum: %w", err)
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// Process the upload task with deduplication
 func processUpload(task UploadTask) error {
 	absFilename := task.AbsFilename
 	tempFilename := absFilename + ".tmp"
@@ -769,6 +790,98 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
+	// Deduplication logic
+	if conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil {
+		// Calculate checksum
+		checksum, err := CalculateChecksum(tempFilename)
+		if err != nil {
+			log.WithError(err).Error("Failed to calculate checksum for deduplication")
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+
+		checksumKey := fmt.Sprintf("checksum:%s", checksum)
+		filenameKey := fmt.Sprintf("filename:%s", filepath.Base(absFilename))
+
+		// Check if checksum exists
+		exists, err := redisClient.Exists(context.Background(), checksumKey).Result()
+		if err != nil {
+			log.WithError(err).Error("Failed to check checksum in Redis")
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+
+		if exists > 0 {
+			// Duplicate found, map filename to existing checksum and remove temp file
+			err = redisClient.SAdd(context.Background(), checksumKey, filepath.Base(absFilename)).Err()
+			if err != nil {
+				log.WithError(err).Error("Failed to add filename to checksum set in Redis")
+				os.Remove(tempFilename)
+				uploadErrorsTotal.Inc()
+				return err
+			}
+
+			err = redisClient.Set(context.Background(), filenameKey, checksum, 0).Err()
+			if err != nil {
+				log.WithError(err).Error("Failed to map filename to checksum in Redis")
+				os.Remove(tempFilename)
+				uploadErrorsTotal.Inc()
+				return err
+			}
+
+			// Remove the temporary file as it's a duplicate
+			err = os.Remove(tempFilename)
+			if err != nil {
+				log.WithError(err).Error("Failed to remove duplicate temporary file")
+				uploadErrorsTotal.Inc()
+				return err
+			}
+
+			log.WithFields(logrus.Fields{
+				"file":      absFilename,
+				"checksum":  checksum,
+				"duplicate": true,
+			}).Info("Duplicate file detected. Mapped filename to existing checksum.")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			uploadsTotal.Inc()
+			return nil
+		} else {
+			// Unique file, rename temp file to checksum filename and map filename to checksum
+			checksumFilename := checksum
+			finalPath := filepath.Join(conf.StoreDir, checksumFilename)
+			err = os.Rename(tempFilename, finalPath)
+			if err != nil {
+				log.WithError(err).Error("Failed to rename temporary file to checksum filename")
+				os.Remove(tempFilename)
+				uploadErrorsTotal.Inc()
+				return err
+			}
+
+			// Add filename to checksum set and map filename to checksum
+			err = redisClient.SAdd(context.Background(), checksumKey, filepath.Base(absFilename)).Err()
+			if err != nil {
+				log.WithError(err).Error("Failed to add filename to checksum set in Redis")
+				return err
+			}
+
+			err = redisClient.Set(context.Background(), filenameKey, checksum, 0).Err()
+			if err != nil {
+				log.WithError(err).Error("Failed to map filename to checksum in Redis")
+				return err
+			}
+
+			log.WithFields(logrus.Fields{
+				"file":     absFilename,
+				"checksum": checksum,
+			}).Info("Unique file uploaded and stored with checksum.")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			uploadsTotal.Inc()
+			return nil
+		}
+	}
+
 	// Handle file versioning if enabled
 	if conf.EnableVersioning {
 		existing, _ := fileExists(absFilename)
@@ -785,17 +898,7 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
-	// Move the temporary file to the final destination
-	err := os.Rename(tempFilename, absFilename)
-	if err != nil {
-		log.WithFields(logrus.Fields{
-			"temp_file":  tempFilename,
-			"final_file": absFilename,
-			"error":      err,
-		}).Error("Failed to move file to final destination")
-		os.Remove(tempFilename)
-		return err
-	}
+	// Removed duplicate function definition
 
 	log.WithFields(logrus.Fields{
 		"file": absFilename,
@@ -921,7 +1024,7 @@ func setupRouter() http.Handler {
 // Middleware for logging
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestsTotal.WithLabelValues(r.Method, r.URL.Path).Inc()
+		requestsTotalCounter.WithLabelValues(r.Method, r.URL.Path).Inc()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1097,7 +1200,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Handle file uploads with extension restrictions and HMAC validation
+// Handle file uploads with extension restrictions, HMAC validation, and deduplication
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
 	// Determine protocol version based on query parameters
 	var protocolVersion string
@@ -1241,19 +1344,63 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	w.WriteHeader(http.StatusCreated)
 }
 
-// Handle file downloads
+// Handle file downloads with deduplication
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
-	fileInfo, err := getFileInfo(absFilename)
-	if err != nil {
-		log.WithError(err).Error("Failed to get file information")
-		http.Error(w, "Not Found", http.StatusNotFound)
-		downloadErrorsTotal.Inc()
-		return
-	} else if fileInfo.IsDir() {
-		log.Warn("Directory listing forbidden")
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		downloadErrorsTotal.Inc()
-		return
+	var actualFilePath string
+	var fileInfo os.FileInfo
+	var err error
+
+	if conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil {
+		// Map filename to checksum
+		filenameKey := fmt.Sprintf("filename:%s", filepath.Base(absFilename))
+		checksum, err := redisClient.Get(context.Background(), filenameKey).Result()
+		if err != nil {
+			if err == redis.Nil {
+				log.WithField("filename", filepath.Base(absFilename)).Warn("Filename not found in Redis")
+				http.Error(w, "Not Found", http.StatusNotFound)
+				downloadErrorsTotal.Inc()
+				return
+			}
+			log.WithError(err).Error("Failed to retrieve checksum from Redis")
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			downloadErrorsTotal.Inc()
+			return
+		}
+
+		// Construct the actual file path using checksum
+		actualFilePath = filepath.Join(conf.StoreDir, checksum)
+
+		// Check if the actual file exists
+		fileInfo, err = getFileInfo(actualFilePath)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  actualFilePath,
+				"error": err,
+			}).Error("Failed to get file information for checksum file")
+			http.Error(w, "Not Found", http.StatusNotFound)
+			downloadErrorsTotal.Inc()
+			return
+		} else if fileInfo.IsDir() {
+			log.Warn("Directory listing forbidden for checksum file")
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			downloadErrorsTotal.Inc()
+			return
+		}
+	} else {
+		// Standard download without deduplication
+		fileInfo, err = getFileInfo(absFilename)
+		if err != nil {
+			log.WithError(err).Error("Failed to get file information")
+			http.Error(w, "Not Found", http.StatusNotFound)
+			downloadErrorsTotal.Inc()
+			return
+		} else if fileInfo.IsDir() {
+			log.Warn("Directory listing forbidden")
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			downloadErrorsTotal.Inc()
+			return
+		}
+		actualFilePath = absFilename
 	}
 
 	contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
@@ -1264,7 +1411,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 
 	// Handle resumable downloads
 	if conf.ResumableDownloadsEnabled {
-		handleResumableDownload(absFilename, w, r, fileInfo.Size())
+		handleResumableDownload(actualFilePath, w, r, fileInfo.Size())
 		return
 	}
 
@@ -1275,7 +1422,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	} else {
 		// Measure download duration
 		startTime := time.Now()
-		http.ServeFile(w, r, absFilename)
+		http.ServeFile(w, r, actualFilePath)
 		downloadDuration.Observe(time.Since(startTime).Seconds())
 		downloadSizeBytes.Observe(float64(fileInfo.Size()))
 		downloadsTotal.Inc()
@@ -1732,7 +1879,7 @@ func startFileCleanup(ctx context.Context, storeDir string, ttl time.Duration) {
 	}
 }
 
-// Cleanup expired files
+// Cleanup expired files with deduplication consideration
 func cleanupFiles(storeDir string, ttl time.Duration) {
 	now := time.Now()
 	err := filepath.Walk(storeDir, func(path string, info os.FileInfo, err error) error {
@@ -1750,18 +1897,50 @@ func cleanupFiles(storeDir string, ttl time.Duration) {
 			return nil // Skip directories
 		}
 
-		// Skip versioned files if versioning is enabled and inside a "_versions" directory
-		if conf.EnableVersioning && strings.Contains(path, "_versions") {
-			return nil
-		}
+		// If deduplication is enabled, handle reference counting
+		if conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil {
+			// Assume that files in StoreDir are stored by checksum
+			checksum := info.Name()
+			checksumKey := fmt.Sprintf("checksum:%s", checksum)
 
-		if now.Sub(info.ModTime()) > ttl {
-			err := os.Remove(path)
-			if err != nil {
-				log.WithError(err).Errorf("Failed to delete file %s", path)
-			} else {
-				log.WithField("file", path).Info("Deleted expired file")
-				deletedFilesTotal.Inc() // Increment Prometheus counter
+			// Check the last modified time of the stored file
+			if now.Sub(info.ModTime()) > ttl {
+				// Remove the checksum mapping and check reference count
+				// Get the number of filenames referencing this checksum
+				refCount, err := redisClient.SCard(context.Background(), checksumKey).Result()
+				if err != nil {
+					log.WithError(err).Errorf("Failed to get reference count for checksum %s", checksum)
+					return nil
+				}
+
+				if refCount == 0 {
+					// No references, safe to delete the stored file
+					err := os.Remove(path)
+					if err != nil {
+						log.WithError(err).Errorf("Failed to delete stored file %s", path)
+					} else {
+						log.WithField("file", path).Info("Deleted expired stored file")
+						deletedFilesTotal.Inc()
+					}
+				} else {
+					log.WithFields(logrus.Fields{
+						"checksum":    checksum,
+						"ref_count":   refCount,
+						"file":        path,
+						"expiry_time": info.ModTime().Add(ttl),
+					}).Info("Stored file has active references; skipping deletion")
+				}
+			}
+		} else {
+			// Standard cleanup without deduplication
+			if now.Sub(info.ModTime()) > ttl {
+				err := os.Remove(path)
+				if err != nil {
+					log.WithError(err).Errorf("Failed to delete file %s", path)
+				} else {
+					log.WithField("file", path).Info("Deleted expired file")
+					deletedFilesTotal.Inc() // Increment Prometheus counter
+				}
 			}
 		}
 
@@ -1809,6 +1988,8 @@ func exampleRedisUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info("Value successfully stored in Redis")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Value stored successfully"))
+	w.Header().Set("Content-Type", "text/plain")
+	if _, err := w.Write([]byte("Value stored successfully")); err != nil {
+		log.WithError(err).Error("Failed to write response")
+	}
 }

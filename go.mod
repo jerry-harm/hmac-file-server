@@ -3,7 +3,6 @@ module github.com/PlusOne/hmac-file-server
 go 1.21
 
 require (
-	github.com/BurntSushi/toml v1.4.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/prometheus/client_golang v1.20.5
 	github.com/shirou/gopsutil v3.21.11+incompatible
@@ -13,6 +12,7 @@ require (
 require github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 
 require (
+	github.com/BurntSushi/toml v1.4.0
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dutchcoders/go-clamd v0.0.0-20170520113014-b970184f4d9e
