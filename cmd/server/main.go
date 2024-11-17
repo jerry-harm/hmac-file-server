@@ -44,6 +44,7 @@ type Config struct {
 	Secret                    string   `toml:"Secret"`
 	StoreDir                  string   `toml:"StoreDir"`
 	UploadSubDir              string   `toml:"UploadSubDir"`
+	LoggingEnabled            bool     `toml:"LoggingEnabled"`
 	LogLevel                  string   `toml:"LogLevel"`
 	LogFile                   string   `toml:"LogFile"`
 	MetricsEnabled            bool     `toml:"MetricsEnabled"`
