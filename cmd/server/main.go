@@ -46,6 +46,7 @@ type Config struct {
 	UploadSubDir              string   `toml:"UploadSubDir"`
 	LogLevel                  string   `toml:"LogLevel"`
 	LogFile                   string   `toml:"LogFile"`
+	LoggingEnabled            bool     `toml:"LoggingEnabled"` // Added this line
 	MetricsEnabled            bool     `toml:"MetricsEnabled"`
 	MetricsPort               string   `toml:"MetricsPort"`
 	FileTTL                   string   `toml:"FileTTL"`
@@ -305,6 +306,9 @@ func readConfig(path string, conf *Config) error {
 	if conf.ClamAVEnabled && conf.NumScanWorkers <= 0 {
 		conf.NumScanWorkers = 5
 	}
+	// Set default for LoggingEnabled if not specified (optional)
+	// Uncomment the next line to set a default value
+	// conf.LoggingEnabled = true // or false, depending on your preference
 	return nil
 }
 
@@ -314,6 +318,12 @@ func setupLogging() {
 		log.Fatalf("Invalid log level: %v", err)
 	}
 	log.SetLevel(level)
+
+	if !conf.LoggingEnabled {
+		// Disable logging by discarding all log outputs
+		log.SetOutput(io.Discard)
+		return // Exit the function as no further setup is needed
+	}
 
 	if conf.LogFile != "" {
 		file, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -327,6 +337,12 @@ func setupLogging() {
 
 	log.Infof("Logging initialized. Level: %s, Output: %s", conf.LogLevel, conf.LogFile)
 }
+
+// Rest of your code remains the same...
+
+// Include all your functions below this point, unchanged from your original code.
+// For brevity, I'm not including the rest of the functions here, but you should
+// copy and paste all the remaining functions from your original code.
 
 func initMetrics() {
 	if conf.MetricsEnabled {
