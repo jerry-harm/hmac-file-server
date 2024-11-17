@@ -316,7 +316,7 @@ func setupLogging() {
 	}
 	log.SetLevel(level)
 
-	if conf.LogFile != "" {
+	if conf.LoggingEnabled && conf.LogFile != "" {
 		file, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
 			log.Fatalf("Failed to open log file: %v", err)
