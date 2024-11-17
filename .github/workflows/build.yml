@@ -23,7 +23,7 @@ jobs:
       - name: Start Server
         run: |
           cd cmd/server
-          ./hmac-file-server -config ./config.toml &
+          ./hmac-file-server &
           echo $! > server.pid
         shell: bash
 
@@ -32,7 +32,7 @@ jobs:
 
       - name: Run Tests
         env:
-          SERVER_URL: http://localhost:8080
+          SERVER_URL: http://127.0.0.1:8080
         run: |
           cd test
           go test -v ./...
