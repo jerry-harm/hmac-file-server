@@ -1,12 +1,8 @@
+![image](https://github.com/user-attachments/assets/08d22622-b250-49b7-9de7-2792f3113ab2)
+
 # HMAC File Server
 
 **Secure File Handling with HMAC Authentication**
-
-![HMAC FILE SERVER](https://github.com/user-attachments/assets/1047ee79-f61c-471f-9c65-297cc350793a)
-
----
-
-## Overview
 
 The **HMAC File Server** is a robust and secure solution for handling file uploads and downloads. It leverages **HMAC authentication** to ensure that only authorized users can access or modify files. The server supports advanced features like **resumable uploads/downloads**, **file versioning**, **event-based network management**, and comprehensive **Prometheus metrics** for monitoring.
 
