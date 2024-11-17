@@ -37,6 +37,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func initClamAV(socket string) (*clamd.Clamd, error) {
+	var client *clamd.Clamd
+	if strings.HasPrefix(socket, "/") {
+		// UNIX socket
+		client = clamd.NewClamd("unix:" + socket)
+	} else {
+		// TCP socket
+		client = clamd.NewClamd("tcp:" + socket)
+	}
+
+	if client == nil {
+		return nil, fmt.Errorf("failed to create ClamAV client")
+	}
+	if err := client.Ping(); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
 // Config holds the server configuration.
 type Config struct {
 	ListenPort                string   `toml:"ListenPort"`
@@ -366,17 +385,6 @@ func initRedis() error {
 	mu.Unlock()
 	log.Info("Connected to Redis.")
 	return nil
-}
-
-func initClamAV(socket string) (*clamd.Clamd, error) {
-	client := clamd.NewClamd(socket)
-	if client == nil {
-		return nil, fmt.Errorf("failed to create ClamAV client")
-	}
-	if err := client.Ping(); err != nil {
-		return nil, err
-	}
-	return client, nil
 }
 
 func logSystemInfo() {
