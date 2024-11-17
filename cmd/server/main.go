@@ -338,12 +338,6 @@ func setupLogging() {
 	log.Infof("Logging initialized. Level: %s, Output: %s", conf.LogLevel, conf.LogFile)
 }
 
-// Rest of your code remains the same...
-
-// Include all your functions below this point, unchanged from your original code.
-// For brevity, I'm not including the rest of the functions here, but you should
-// copy and paste all the remaining functions from your original code.
-
 func initMetrics() {
 	if conf.MetricsEnabled {
 		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal, downloadDuration, downloadsTotal, downloadErrorsTotal,
