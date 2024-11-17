@@ -6,6 +6,7 @@ UnixSocket               = false                                # Use Unix socke
 Secret                   = "your-secret-key"                    # HMAC secret for securing uploads
 StoreDir                 = "./test/TestUpload"                  # Directory for storing uploaded files
 UploadSubDir             = "upload"                             # Subdirectory for uploads
+LoggingEnabled           = false                                # Set to false to disable logging
 LogLevel                 = "info"                               # Logging level: "debug", "info", "warn", "error"
 LogFile                  = "./test/hmac-file-server.log"      # Log file path
 MetricsEnabled           = true                                 # Enable Prometheus metrics
