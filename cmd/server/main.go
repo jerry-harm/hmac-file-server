@@ -1,437 +1,449 @@
 package main
 
 import (
-	"bufio"
-	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"flag"
-	"fmt"
-	"io"
-	"mime"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
-	"os/exec"
-	"os/signal"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
-	"sync"
-	"syscall"
-	"time"
+    "bufio"
+    "context"
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "flag"
+    "fmt"
+    "io"
+    "mime"
+    "net"
+    "net/http"
+    "net/url"
+    "os"
+    "os/exec"
+    "os/signal"
+    "path/filepath"
+    "runtime"
+    "strconv"
+    "strings"
+    "sync"
+    "syscall"
+    "time"
 
-	"github.com/BurntSushi/toml"
-	"github.com/dutchcoders/go-clamd"
-	"github.com/go-redis/redis/v8"
-	"github.com/patrickmn/go-cache"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/disk"
-	"github.com/shirou/gopsutil/host"
-	"github.com/shirou/gopsutil/mem"
-	"github.com/sirupsen/logrus"
+    "github.com/BurntSushi/toml"
+    "github.com/dutchcoders/go-clamd"
+    "github.com/go-redis/redis/v8"
+    "github.com/patrickmn/go-cache"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+    "github.com/shirou/gopsutil/cpu"
+    "github.com/shirou/gopsutil/disk"
+    "github.com/shirou/gopsutil/host"
+    "github.com/shirou/gopsutil/mem"
+    "github.com/sirupsen/logrus"
 )
 
 // Config holds the server configuration.
 type Config struct {
-	ListenPort                string   `toml:"ListenPort"`
-	UnixSocket                bool     `toml:"UnixSocket"`
-	Secret                    string   `toml:"Secret"`
-	StoreDir                  string   `toml:"StoreDir"`
-	UploadSubDir              string   `toml:"UploadSubDir"`
-	LogLevel                  string   `toml:"LogLevel"`
-	LogFile                   string   `toml:"LogFile"`
-	LoggingEnabled            bool     `toml:"LoggingEnabled"` // Added this line
-	MetricsEnabled            bool     `toml:"MetricsEnabled"`
-	MetricsPort               string   `toml:"MetricsPort"`
-	FileTTL                   string   `toml:"FileTTL"`
-	ResumableUploadsEnabled   bool     `toml:"ResumableUploadsEnabled"`
-	ResumableDownloadsEnabled bool     `toml:"ResumableDownloadsEnabled"`
-	EnableVersioning          bool     `toml:"EnableVersioning"`
-	MaxVersions               int      `toml:"MaxVersions"`
-	ChunkedUploadsEnabled     bool     `toml:"ChunkedUploadsEnabled"`
-	ChunkSize                 int64    `toml:"ChunkSize"`
-	AllowedExtensions         []string `toml:"AllowedExtensions"`
-	NumWorkers                int      `toml:"NumWorkers"`
-	UploadQueueSize           int      `toml:"UploadQueueSize"`
-	ReadTimeout               string   `toml:"ReadTimeout"`
-	WriteTimeout              string   `toml:"WriteTimeout"`
-	IdleTimeout               string   `toml:"IdleTimeout"`
-	ClamAVEnabled             bool     `toml:"ClamAVEnabled"`
-	ClamAVSocket              string   `toml:"ClamAVSocket"`
-	NumScanWorkers            int      `toml:"NumScanWorkers"`
-	RedisEnabled              bool     `toml:"RedisEnabled"`
-	RedisDBIndex              int      `toml:"RedisDBIndex"`
-	RedisAddr                 string   `toml:"RedisAddr"`
-	RedisPassword             string   `toml:"RedisPassword"`
-	RedisHealthCheckInterval  string   `toml:"RedisHealthCheckInterval"`
-	GracefulShutdownTimeout   int      `toml:"GracefulShutdownTimeout"`
-	EnableIPManagement        bool     `toml:"EnableIPManagement"`
-	AllowedIPs                []string `toml:"AllowedIPs"`
-	BlockedIPs                []string `toml:"BlockedIPs"`
-	IPCheckInterval           string   `toml:"IPCheckInterval"`
-	EnableRateLimiting        bool     `toml:"EnableRateLimiting"`
-	RequestsPerMinute         int      `toml:"RequestsPerMinute"`
-	RateLimitInterval         string   `toml:"RateLimitInterval"`
-	Fail2BanEnabled           bool     `toml:"Fail2BanEnabled"`
-	Fail2BanCommand           string   `toml:"Fail2BanCommand"`
-	Fail2BanJail              string   `toml:"Fail2BanJail"`
-	DeduplicationEnabled      bool     `toml:"DeduplicationEnabled"`
+    ListenPort                string   `toml:"ListenPort"`
+    UnixSocket                bool     `toml:"UnixSocket"`
+    Secret                    string   `toml:"Secret"`
+    StoreDir                  string   `toml:"StoreDir"`
+    UploadSubDir              string   `toml:"UploadSubDir"`
+    LogLevel                  string   `toml:"LogLevel"`
+    LogFile                   string   `toml:"LogFile"`
+    LoggingEnabled            bool     `toml:"LoggingEnabled"`
+    MetricsEnabled            bool     `toml:"MetricsEnabled"`
+    MetricsPort               string   `toml:"MetricsPort"`
+    FileTTL                   string   `toml:"FileTTL"`
+    ResumableUploadsEnabled   bool     `toml:"ResumableUploadsEnabled"`
+    ResumableDownloadsEnabled bool     `toml:"ResumableDownloadsEnabled"`
+    EnableVersioning          bool     `toml:"EnableVersioning"`
+    MaxVersions               int      `toml:"MaxVersions"`
+    ChunkedUploadsEnabled     bool     `toml:"ChunkedUploadsEnabled"`
+    ChunkSize                 int64    `toml:"ChunkSize"`
+    AllowedExtensions         []string `toml:"AllowedExtensions"`
+    NumWorkers                int      `toml:"NumWorkers"`
+    UploadQueueSize           int      `toml:"UploadQueueSize"`
+    ReadTimeout               string   `toml:"ReadTimeout"`
+    WriteTimeout              string   `toml:"WriteTimeout"`
+    IdleTimeout               string   `toml:"IdleTimeout"`
+    ClamAVEnabled             bool     `toml:"ClamAVEnabled"`
+    ClamAVSocket              string   `toml:"ClamAVSocket"`
+    NumScanWorkers            int      `toml:"NumScanWorkers"`
+    RedisEnabled              bool     `toml:"RedisEnabled"`
+    RedisDBIndex              int      `toml:"RedisDBIndex"`
+    RedisAddr                 string   `toml:"RedisAddr"`
+    RedisPassword             string   `toml:"RedisPassword"`
+    RedisHealthCheckInterval  string   `toml:"RedisHealthCheckInterval"`
+    GracefulShutdownTimeout   int      `toml:"GracefulShutdownTimeout"`
+    EnableIPManagement        bool     `toml:"EnableIPManagement"`
+    AllowedIPs                []string `toml:"AllowedIPs"`
+    BlockedIPs                []string `toml:"BlockedIPs"`
+    IPCheckInterval           string   `toml:"IPCheckInterval"`
+    EnableRateLimiting        bool     `toml:"EnableRateLimiting"`
+    RequestsPerMinute         int      `toml:"RequestsPerMinute"`
+    RateLimitInterval         string   `toml:"RateLimitInterval"`
+    Fail2BanEnabled           bool     `toml:"Fail2BanEnabled"`
+    Fail2BanCommand           string   `toml:"Fail2BanCommand"`
+    Fail2BanJail              string   `toml:"Fail2BanJail"`
+    DeduplicationEnabled      bool     `toml:"DeduplicationEnabled"`
 }
 
 // UploadTask represents a file upload task.
 type UploadTask struct {
-	AbsFilename string
-	Request     *http.Request
-	Result      chan error
+    AbsFilename string
+    Request     *http.Request
+    Result      chan error
 }
 
 // ScanTask represents a file scan task.
 type ScanTask struct {
-	AbsFilename string
-	Result      chan error
+    AbsFilename string
+    Result      chan error
 }
 
 // NetworkEvent represents a network-related event.
 type NetworkEvent struct {
-	Type    string
-	Details string
+    Type    string
+    Details string
 }
 
 var (
-	conf          Config
-	versionString = "v2.0.5"
-	log           = logrus.New()
+    conf          Config
+    versionString = "v2.0.5"
+    log           = logrus.New()
 
-	// Channels
-	uploadQueue   chan UploadTask
-	scanQueue     chan ScanTask
-	networkEvents chan NetworkEvent
+    // Channels
+    uploadQueue   chan UploadTask
+    scanQueue     chan ScanTask
+    networkEvents chan NetworkEvent
 
-	// Caches and Clients
-	fileInfoCache   *cache.Cache
-	requestCounters *cache.Cache
-	redisClient     *redis.Client
-	clamClient      *clamd.Clamd
+    // Caches and Clients
+    fileInfoCache   *cache.Cache
+    requestCounters *cache.Cache
+    redisClient     *redis.Client
+    clamClient      *clamd.Clamd
 
-	// Metrics
-	uploadDuration            = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds."})
-	uploadErrorsTotal         = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
-	uploadsTotal              = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
-	downloadDuration          = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds."})
-	downloadsTotal            = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
-	downloadErrorsTotal       = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
-	memoryUsage               = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
-	cpuUsage                  = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
-	requestsTotalCounter      = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
-	goroutines                = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
-	uploadSizeBytes           = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_size_bytes", Help: "Histogram of uploaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
-	downloadSizeBytes         = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_size_bytes", Help: "Histogram of downloaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
-	infectedFilesTotal        = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "infected_files_total", Help: "Total number of infected files detected."})
-	deletedFilesTotal         = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_deletions_total", Help: "Total number of files deleted based on FileTTL."})
-	uploadQueueLength         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "upload_queue_length", Help: "Current length of the upload queue."})
-	scanQueueLength           = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "scan_queue_length", Help: "Current length of the scan queue."})
-	redisConnected       bool = false
-	mu                   sync.RWMutex
-	rateLimitInterval    time.Duration
+    // Metrics
+    uploadDuration       = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds."})
+    uploadErrorsTotal    = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
+    uploadsTotal         = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
+    downloadDuration     = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds."})
+    downloadsTotal       = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
+    downloadErrorsTotal  = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
+    memoryUsage          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
+    cpuUsage             = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
+    requestsTotalCounter = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
+    goroutines           = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
+    uploadSizeBytes      = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_size_bytes", Help: "Histogram of uploaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
+    downloadSizeBytes    = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_size_bytes", Help: "Histogram of downloaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
+    infectedFilesTotal   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "infected_files_total", Help: "Total number of infected files detected."})
+    deletedFilesTotal    = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_deletions_total", Help: "Total number of files deleted based on FileTTL."})
+    uploadQueueLength    = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "upload_queue_length", Help: "Current length of the upload queue."})
+    scanQueueLength      = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "scan_queue_length", Help: "Current length of the scan queue."})
+    redisConnected       bool = false
+    mu                   sync.RWMutex
+    rateLimitInterval    time.Duration
 )
 
 const defaultRateLimitInterval = "1m"
 
 func main() {
-	flag.Parse()
-	if err := readConfig("./config.toml", &conf); err != nil {
-		log.Fatalf("Error reading config: %v", err)
-	}
+    flag.Parse()
+    if err := readConfig("./config.toml", &conf); err != nil {
+        log.Fatalf("Error reading config: %v", err)
+    }
 
-	setupLogging()
-	logSystemInfo()
-	initMetrics()
+    setupLogging()
+    logSystemInfo()
+    initMetrics()
 
-	if conf.RedisEnabled {
-		if err := initRedisWithRetry(3, 5*time.Second); err != nil {
-			log.Warnf("Redis not initialized: %v", err)
-		}
-	}
+    if conf.RedisEnabled {
+        if err := initRedisWithRetry(3, 5*time.Second); err != nil {
+            log.Warnf("Redis not initialized: %v", err)
+        }
+    }
 
-	if conf.ClamAVEnabled {
-		if c, err := initClamAV(conf.ClamAVSocket); err != nil {
-			log.WithError(err).Warn("ClamAV initialization failed.")
-			conf.ClamAVEnabled = false
-		} else {
-			clamClient = c
-			log.Info("ClamAV initialized.")
-		}
-	}
+    if conf.ClamAVEnabled {
+        if c, err := initClamAV(conf.ClamAVSocket); err != nil {
+            log.WithError(err).Warn("ClamAV initialization failed.")
+            conf.ClamAVEnabled = false
+        } else {
+            clamClient = c
+            log.Info("ClamAV initialized.")
+        }
+    }
 
-	if err := os.MkdirAll(conf.StoreDir, os.ModePerm); err != nil {
-		log.Fatalf("StoreDir creation failed: %v", err)
-	}
+    if err := os.MkdirAll(conf.StoreDir, os.ModePerm); err != nil {
+        log.Fatalf("StoreDir creation failed: %v", err)
+    }
 
-	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
+    fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 
-	if conf.EnableRateLimiting {
-		var err error
-		rateLimitInterval, err = ParseCustomDuration(conf.RateLimitInterval)
-		if err != nil {
-			log.Fatalf("Invalid RateLimitInterval: %v", err)
-		}
-		requestCounters = cache.New(rateLimitInterval, 2*rateLimitInterval)
-	}
+    if conf.EnableRateLimiting {
+        var err error
+        rateLimitInterval, err = ParseCustomDuration(conf.RateLimitInterval)
+        if err != nil {
+            log.Fatalf("Invalid RateLimitInterval: %v", err)
+        }
+        requestCounters = cache.New(rateLimitInterval, 2*rateLimitInterval)
+    }
 
-	uploadQueue = make(chan UploadTask, conf.UploadQueueSize)
-	if conf.ClamAVEnabled {
-		scanQueue = make(chan ScanTask, conf.UploadQueueSize)
-	}
-	networkEvents = make(chan NetworkEvent, 100)
+    uploadQueue = make(chan UploadTask, conf.UploadQueueSize)
+    if conf.ClamAVEnabled {
+        scanQueue = make(chan ScanTask, conf.UploadQueueSize)
+    }
+    networkEvents = make(chan NetworkEvent, 100)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
 
-	go monitorNetwork(ctx)
-	go handleNetworkEvents(ctx)
-	go updateSystemMetrics(ctx)
-	go monitorQueueLengths(ctx)
+    go monitorNetwork(ctx)
+    go handleNetworkEvents(ctx)
+    go updateSystemMetrics(ctx)
+    go monitorQueueLengths(ctx)
 
-	if conf.RedisEnabled && redisClient != nil {
-		interval, err := parseHealthCheckInterval(conf.RedisHealthCheckInterval)
-		if err != nil {
-			log.Fatalf("Invalid RedisHealthCheckInterval: %v", err)
-		}
-		go MonitorRedisHealth(ctx, redisClient, interval)
-	}
+    if conf.RedisEnabled && redisClient != nil {
+        interval, err := parseHealthCheckInterval(conf.RedisHealthCheckInterval)
+        if err != nil {
+            log.Fatalf("Invalid RedisHealthCheckInterval: %v", err)
+        }
+        go MonitorRedisHealth(ctx, redisClient, interval)
+    }
 
-	initializeWorkerPools(ctx)
+    initializeWorkerPools(ctx)
 
-	fileTTLDuration, err := ParseCustomDuration(conf.FileTTL)
-	if err != nil {
-		log.Fatalf("Invalid FileTTL: %v", err)
-	}
-	log.Infof("FileTTL set to %v", fileTTLDuration)
-	go startFileCleanup(ctx, conf.StoreDir, fileTTLDuration)
+    fileTTLDuration, err := ParseCustomDuration(conf.FileTTL)
+    if err != nil {
+        log.Fatalf("Invalid FileTTL: %v", err)
+    }
+    log.Infof("FileTTL set to %v", fileTTLDuration)
+    go startFileCleanup(ctx, conf.StoreDir, fileTTLDuration)
 
-	router := setupRouter()
+    router := setupRouter()
 
-	readTimeout, err := time.ParseDuration(conf.ReadTimeout)
-	if err != nil {
-		log.Fatalf("Invalid ReadTimeout: %v", err)
-	}
-	writeTimeout, err := time.ParseDuration(conf.WriteTimeout)
-	if err != nil {
-		log.Fatalf("Invalid WriteTimeout: %v", err)
-	}
-	idleTimeout, err := time.ParseDuration(conf.IdleTimeout)
-	if err != nil {
-		log.Fatalf("Invalid IdleTimeout: %v", err)
-	}
+    readTimeout, err := time.ParseDuration(conf.ReadTimeout)
+    if err != nil {
+        log.Fatalf("Invalid ReadTimeout: %v", err)
+    }
+    writeTimeout, err := time.ParseDuration(conf.WriteTimeout)
+    if err != nil {
+        log.Fatalf("Invalid WriteTimeout: %v", err)
+    }
+    idleTimeout, err := time.ParseDuration(conf.IdleTimeout)
+    if err != nil {
+        log.Fatalf("Invalid IdleTimeout: %v", err)
+    }
 
-	server := &http.Server{
-		Addr:         conf.ListenPort,
-		Handler:      router,
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout,
-		IdleTimeout:  idleTimeout,
-	}
+    server := &http.Server{
+        Addr:         conf.ListenPort,
+        Handler:      router,
+        ReadTimeout:  readTimeout,
+        WriteTimeout: writeTimeout,
+        IdleTimeout:  idleTimeout,
+    }
 
-	if conf.MetricsEnabled {
-		go func() {
-			log.Infof("Metrics server running on %s", conf.MetricsPort)
-			http.Handle("/metrics", promhttp.Handler())
-			if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
-				log.WithError(err).Fatal("Metrics server failed")
-			}
-		}()
-	}
+    if conf.MetricsEnabled {
+        go func() {
+            log.Infof("Metrics server running on %s", conf.MetricsPort)
+            http.Handle("/metrics", promhttp.Handler())
+            if err := http.ListenAndServe(conf.MetricsPort, nil); err != nil {
+                log.WithError(err).Fatal("Metrics server failed")
+            }
+        }()
+    }
 
-	setupGracefulShutdown(server, cancel)
+    setupGracefulShutdown(server, cancel)
 
-	log.Infof("Starting HMAC file server %s...", versionString)
-	if conf.UnixSocket {
-		listener, err := net.Listen("unix", conf.ListenPort)
-		if err != nil {
-			log.WithError(err).Fatal("Unix socket listen failed.")
-		}
-		defer listener.Close()
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Fatal("Server failed.")
-		}
-	} else {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Fatal("Server failed.")
-		}
-	}
+    log.Infof("Starting HMAC file server %s...", versionString)
+    if conf.UnixSocket {
+        listener, err := net.Listen("unix", conf.ListenPort)
+        if err != nil {
+            log.WithError(err).Fatal("Unix socket listen failed.")
+        }
+        defer listener.Close()
+        if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+            log.WithError(err).Fatal("Server failed.")
+        }
+    } else {
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.WithError(err).Fatal("Server failed.")
+        }
+    }
 }
 
 func readConfig(path string, conf *Config) error {
-	if _, err := toml.DecodeFile(path, conf); err != nil {
-		return err
-	}
+    if _, err := toml.DecodeFile(path, conf); err != nil {
+        return err
+    }
 
-	// Set defaults
-	if conf.MaxVersions == 0 {
-		conf.MaxVersions = 0
-	}
-	if conf.ChunkSize == 0 {
-		conf.ChunkSize = 1 << 20 // 1MB
-	}
-	if conf.ReadTimeout == "" {
-		conf.ReadTimeout = "2h"
-	}
-	if conf.WriteTimeout == "" {
-		conf.WriteTimeout = "2h"
-	}
-	if conf.IdleTimeout == "" {
-		conf.IdleTimeout = "2h"
-	}
-	if conf.FileTTL == "" {
-		conf.FileTTL = "7d"
-	}
-	if conf.RedisEnabled && conf.RedisDBIndex == 0 {
-		conf.RedisDBIndex = 0
-	}
-	if conf.RedisEnabled && conf.RedisHealthCheckInterval == "" {
-		conf.RedisHealthCheckInterval = "30s"
-	}
-	if conf.EnableIPManagement && conf.IPCheckInterval == "" {
-		conf.IPCheckInterval = "60s"
-	}
-	if conf.EnableRateLimiting && conf.RateLimitInterval == "" {
-		conf.RateLimitInterval = defaultRateLimitInterval
-	}
-	if conf.ClamAVEnabled && conf.NumScanWorkers <= 0 {
-		conf.NumScanWorkers = 5
-	}
-	// Set default for LoggingEnabled if not specified (optional)
-	// Uncomment the next line to set a default value
-	// conf.LoggingEnabled = true // or false, depending on your preference
-	return nil
+    // Set defaults
+    if conf.MaxVersions == 0 {
+        conf.MaxVersions = 0
+    }
+    if conf.ChunkSize == 0 {
+        conf.ChunkSize = 1 << 20 // 1MB
+    }
+    if conf.ReadTimeout == "" {
+        conf.ReadTimeout = "2h"
+    }
+    if conf.WriteTimeout == "" {
+        conf.WriteTimeout = "2h"
+    }
+    if conf.IdleTimeout == "" {
+        conf.IdleTimeout = "2h"
+    }
+    if conf.FileTTL == "" {
+        conf.FileTTL = "7d"
+    }
+    if conf.RedisEnabled && conf.RedisDBIndex == 0 {
+        conf.RedisDBIndex = 0
+    }
+    if conf.RedisEnabled && conf.RedisHealthCheckInterval == "" {
+        conf.RedisHealthCheckInterval = "30s"
+    }
+    if conf.EnableIPManagement && conf.IPCheckInterval == "" {
+        conf.IPCheckInterval = "60s"
+    }
+    if conf.EnableRateLimiting && conf.RateLimitInterval == "" {
+        conf.RateLimitInterval = defaultRateLimitInterval
+    }
+    if conf.ClamAVEnabled && conf.NumScanWorkers <= 0 {
+        conf.NumScanWorkers = 5
+    }
+    // Set default for LoggingEnabled if not specified
+	if !conf.LoggingEnabled {
+        // Assume logging is enabled by default if not specified in config.toml
+        conf.LoggingEnabled = true
+    }
+    return nil
 }
 
 func setupLogging() {
-	level, err := logrus.ParseLevel(conf.LogLevel)
-	if err != nil {
-		log.Fatalf("Invalid log level: %v", err)
-	}
-	log.SetLevel(level)
+    level, err := logrus.ParseLevel(conf.LogLevel)
+    if err != nil {
+        log.Fatalf("Invalid log level: %v", err)
+    }
+    log.SetLevel(level)
 
-	if !conf.LoggingEnabled {
-		// Disable logging by discarding all log outputs
-		log.SetOutput(io.Discard)
-		return // Exit the function as no further setup is needed
-	}
+    if !conf.LoggingEnabled {
+        // Disable logging by discarding all log outputs
+        log.SetOutput(io.Discard)
+        return // Exit the function as no further setup is needed
+    }
 
-	if conf.LogFile != "" {
-		file, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			log.Fatalf("Failed to open log file: %v", err)
-		}
-		log.SetOutput(file)
-	} else {
-		log.SetOutput(os.Stdout)
-	}
+    if conf.LogFile != "" {
+        file, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+        if err != nil {
+            log.Fatalf("Failed to open log file: %v", err)
+        }
+        log.SetOutput(file)
+    } else {
+        log.SetOutput(os.Stdout)
+    }
 
-	log.Infof("Logging initialized. Level: %s, Output: %s", conf.LogLevel, conf.LogFile)
+    log.Infof("Logging initialized. Level: %s, Output: %s", conf.LogLevel, conf.LogFile)
 }
 
+// Rest of your code remains the same...
+
+// Include all your functions below this point, unchanged from your original code.
+
 func initMetrics() {
-	if conf.MetricsEnabled {
-		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal, downloadDuration, downloadsTotal, downloadErrorsTotal,
-			memoryUsage, cpuUsage, requestsTotalCounter, goroutines, uploadSizeBytes, downloadSizeBytes, infectedFilesTotal, deletedFilesTotal, uploadQueueLength, scanQueueLength)
-	}
+    if conf.MetricsEnabled {
+        prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal, downloadDuration, downloadsTotal, downloadErrorsTotal,
+            memoryUsage, cpuUsage, requestsTotalCounter, goroutines, uploadSizeBytes, downloadSizeBytes, infectedFilesTotal, deletedFilesTotal, uploadQueueLength, scanQueueLength)
+    }
 }
 
 func initRedisWithRetry(maxRetries int, delay time.Duration) error {
-	for i := 0; i < maxRetries; i++ {
-		if err := initRedis(); err == nil {
-			return nil
-		}
-		log.Warnf("Redis init failed, retrying in %v...", delay)
-		time.Sleep(delay)
-	}
-	return fmt.Errorf("failed to initialize Redis after %d attempts", maxRetries)
+    for i := 0; i < maxRetries; i++ {
+        if err := initRedis(); err == nil {
+            return nil
+        }
+        log.Warnf("Redis init failed, retrying in %v...", delay)
+        time.Sleep(delay)
+    }
+    return fmt.Errorf("failed to initialize Redis after %d attempts", maxRetries)
 }
 
 func initRedis() error {
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     conf.RedisAddr,
-		Password: conf.RedisPassword,
-		DB:       conf.RedisDBIndex,
-	})
+    redisClient = redis.NewClient(&redis.Options{
+        Addr:     conf.RedisAddr,
+        Password: conf.RedisPassword,
+        DB:       conf.RedisDBIndex,
+    })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
 
-	if _, err := redisClient.Ping(ctx).Result(); err != nil {
-		return err
-	}
+    if _, err := redisClient.Ping(ctx).Result(); err != nil {
+        return err
+    }
 
-	mu.Lock()
-	redisConnected = true
-	mu.Unlock()
-	log.Info("Connected to Redis.")
-	return nil
+    mu.Lock()
+    redisConnected = true
+    mu.Unlock()
+    log.Info("Connected to Redis.")
+    return nil
 }
 
 func initClamAV(socket string) (*clamd.Clamd, error) {
-	client := clamd.NewClamd(socket)
-	if client == nil {
-		return nil, fmt.Errorf("failed to create ClamAV client")
-	}
-	if err := client.Ping(); err != nil {
-		return nil, err
-	}
-	return client, nil
+    client := clamd.NewClamd(socket)
+    if client == nil {
+        return nil, fmt.Errorf("failed to create ClamAV client")
+    }
+    if err := client.Ping(); err != nil {
+        return nil, err
+    }
+    return client, nil
 }
 
 func logSystemInfo() {
-	log.Info("========================================")
-	log.Infof("       HMAC File Server - %s          ", versionString)
-	log.Info("  Secure File Handling with HMAC Auth   ")
-	log.Info("========================================")
+    log.Info("========================================")
+    log.Infof("       HMAC File Server - %s          ", versionString)
+    log.Info("  Secure File Handling with HMAC Auth   ")
+    log.Info("========================================")
 
-	log.Info("Features: Prometheus Metrics, Chunked Uploads, ClamAV Scanning, Deduplication")
-	log.Info("Build Date: 2024-10-28")
+    log.Info("Features: Prometheus Metrics, Chunked Uploads, ClamAV Scanning, Deduplication")
+    log.Info("Build Date: 2024-10-28")
 
-	log.Infof("OS: %s, Arch: %s, CPUs: %d, Go: %s", runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.Version())
+    log.Infof("OS: %s, Arch: %s, CPUs: %d, Go: %s", runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.Version())
 
-	v, _ := mem.VirtualMemory()
-	log.Infof("Memory - Total: %v MB, Free: %v MB, Used: %v MB", v.Total/1024/1024, v.Free/1024/1024, v.Used/1024/1024)
+    v, _ := mem.VirtualMemory()
+    log.Infof("Memory - Total: %v MB, Free: %v MB, Used: %v MB", v.Total/1024/1024, v.Free/1024/1024, v.Used/1024/1024)
 
-	cpuInfo, _ := cpu.Info()
-	for _, info := range cpuInfo {
-		log.Infof("CPU: %s, Cores: %d, MHz: %.2f", info.ModelName, info.Cores, info.Mhz)
-	}
+    cpuInfo, _ := cpu.Info()
+    for _, info := range cpuInfo {
+        log.Infof("CPU: %s, Cores: %d, MHz: %.2f", info.ModelName, info.Cores, info.Mhz)
+    }
 
-	partitions, _ := disk.Partitions(false)
-	for _, p := range partitions {
-		usage, _ := disk.Usage(p.Mountpoint)
-		log.Infof("Disk: %s, Total: %v GB, Free: %v GB, Used: %v GB", p.Mountpoint, usage.Total/1e9, usage.Free/1e9, usage.Used/1e9)
-	}
+    partitions, _ := disk.Partitions(false)
+    for _, p := range partitions {
+        usage, _ := disk.Usage(p.Mountpoint)
+        log.Infof("Disk: %s, Total: %v GB, Free: %v GB, Used: %v GB", p.Mountpoint, usage.Total/1e9, usage.Free/1e9, usage.Used/1e9)
+    }
 
-	hInfo, _ := host.Info()
-	log.Infof("Hostname: %s, Uptime: %v seconds, Boot Time: %v, Platform: %s %s %s, Kernel: %s",
-		hInfo.Hostname, hInfo.Uptime, time.Unix(int64(hInfo.BootTime), 0),
-		hInfo.Platform, hInfo.PlatformFamily, hInfo.PlatformVersion, hInfo.KernelVersion)
+    hInfo, _ := host.Info()
+    log.Infof("Hostname: %s, Uptime: %v seconds, Boot Time: %v, Platform: %s %s %s, Kernel: %s",
+        hInfo.Hostname, hInfo.Uptime, time.Unix(int64(hInfo.BootTime), 0),
+        hInfo.Platform, hInfo.PlatformFamily, hInfo.PlatformVersion, hInfo.KernelVersion)
 }
 
 func initializeWorkerPools(ctx context.Context) {
-	for i := 0; i < conf.NumWorkers; i++ {
-		go uploadWorker(ctx, i)
-	}
-	log.Infof("Initialized %d upload workers", conf.NumWorkers)
+    for i := 0; i < conf.NumWorkers; i++ {
+        go uploadWorker(ctx, i)
+    }
+    log.Infof("Initialized %d upload workers", conf.NumWorkers)
 
-	if conf.ClamAVEnabled && clamClient != nil {
-		for i := 0; i < conf.NumScanWorkers; i++ {
-			go scanWorker(ctx, i)
-		}
-		log.Infof("Initialized %d scan workers", conf.NumScanWorkers)
-	}
+    if conf.ClamAVEnabled && clamClient != nil {
+        for i := 0; i < conf.NumScanWorkers; i++ {
+            go scanWorker(ctx, i)
+        }
+        log.Infof("Initialized %d scan workers", conf.NumScanWorkers)
+    }
 }
+
+// ... Continue with the rest of your original functions ...
+
+// Ensure to include all functions from your original code in this file.
+
+
 
 func uploadWorker(ctx context.Context, id int) {
 	log.WithField("worker_id", id).Info("Upload worker started")
