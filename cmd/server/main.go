@@ -3,7 +3,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
@@ -36,6 +39,46 @@ import (
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
 )
+
+// EncryptStream encrypts data using AES-CTR mode.
+func EncryptStream(key []byte, in io.Reader, out io.Writer) error {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+
+	iv := make([]byte, aes.BlockSize)
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return err
+	}
+
+	stream := cipher.NewCTR(block, iv)
+	if _, err := out.Write(iv); err != nil {
+		return err
+	}
+	writer := &cipher.StreamWriter{S: stream, W: out}
+	_, err = io.Copy(writer, in)
+	return err
+}
+
+// DecryptStream decrypts data using AES-CTR mode.
+func DecryptStream(key []byte, in io.Reader, out io.Writer) error {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+
+	iv := make([]byte, aes.BlockSize)
+	if _, err := io.ReadFull(in, iv); err != nil {
+		return err
+	}
+
+	stream := cipher.NewCTR(block, iv)
+	reader := &cipher.StreamReader{S: stream, R: in}
+	_, err = io.Copy(out, reader)
+	return err
+}
+
 
 func initClamAV(socket string) (*clamd.Clamd, error) {
 	var client *clamd.Clamd
