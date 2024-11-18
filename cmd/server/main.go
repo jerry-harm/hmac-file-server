@@ -41,6 +41,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Config holds the server configuration.
+// Removed duplicate Config struct and redundant import statements
+
 // DetectFileType uses libmagic to determine the file type.
 func DetectFileType(filePath string) (string, error) {
 	mimeType, err := magicmime.TypeByFile(filePath)
