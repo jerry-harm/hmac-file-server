@@ -1,4 +1,4 @@
-// 'package main' is already present. No changes needed.
+package main
 
 import (
 	"bufio"
@@ -27,13 +27,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rakyll/magicmime"
 	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd"
 	"github.com/go-redis/redis/v8"
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rakyll/magicmime"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/host"
