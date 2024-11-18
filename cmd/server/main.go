@@ -40,6 +40,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+import (
+	"github.com/rakyll/magicmime"
+)
+
+// DetectFileType uses libmagic to determine the file type.
+func DetectFileType(filePath string) (string, error) {
+	mimeType, err := magicmime.TypeByFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return mimeType, nil
+}
+
 // EncryptStream encrypts data using AES-CTR mode.
 func EncryptStream(key []byte, in io.Reader, out io.Writer) error {
 	block, err := aes.NewCipher(key)
