@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rakyll/magicmime"
 	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd"
 	"github.com/go-redis/redis/v8"
@@ -38,10 +39,6 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
-)
-
-import (
-	"github.com/rakyll/magicmime"
 )
 
 // DetectFileType uses libmagic to determine the file type.
