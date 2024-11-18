@@ -202,7 +202,7 @@ type NetworkEvent struct {
 
 var (
 	conf          Config
-	versionString = "v2.0.5"
+	versionString = "2.1.0pre"
 	log           = logrus.New()
 
 	// Channels
