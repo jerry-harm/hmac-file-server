@@ -1,4 +1,4 @@
-package main
+// 'package main' is already present. No changes needed.
 
 import (
 	"bufio"
@@ -40,8 +40,6 @@ import (
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
 )
-
-
 
 // DetectFileType uses libmagic to determine the file type.
 func DetectFileType(filePath string) (string, error) {
@@ -90,7 +88,6 @@ func DecryptStream(key []byte, in io.Reader, out io.Writer) error {
 	_, err = io.Copy(out, reader)
 	return err
 }
-
 
 func initClamAV(socket string) (*clamd.Clamd, error) {
 	var client *clamd.Clamd
