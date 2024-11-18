@@ -41,6 +41,28 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Removed duplicate Config struct
+
+// Removed duplicate readConfig function
+
+func EncryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
+	if !conf.AESEnabled {
+		// Pass through the data unencrypted
+		_, err := io.Copy(out, in)
+		return err
+	}
+	return EncryptStream(key, in, out)
+}
+
+func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
+	if !conf.AESEnabled {
+		// Pass through the data unencrypted
+		_, err := io.Copy(out, in)
+		return err
+	}
+	return DecryptStream(key, in, out)
+}
+
 // Config holds the server configuration.
 // Removed duplicate Config struct and redundant import statements
 
@@ -136,6 +158,7 @@ type Config struct {
 	ReadTimeout               string   `toml:"ReadTimeout"`
 	WriteTimeout              string   `toml:"WriteTimeout"`
 	IdleTimeout               string   `toml:"IdleTimeout"`
+	AESEnabled                bool     `toml:"AESEnabled"`
 	ClamAVEnabled             bool     `toml:"ClamAVEnabled"`
 	ClamAVSocket              string   `toml:"ClamAVSocket"`
 	NumScanWorkers            int      `toml:"NumScanWorkers"`
