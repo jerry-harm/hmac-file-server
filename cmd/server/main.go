@@ -41,6 +41,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+
+
 // DetectFileType uses libmagic to determine the file type.
 func DetectFileType(filePath string) (string, error) {
 	mimeType, err := magicmime.TypeByFile(filePath)
