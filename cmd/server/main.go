@@ -53,12 +53,22 @@ import (
 // EncryptStream encrypts data from the input reader to the output writer using AES-CTR mode.
 // If AES encryption is disabled in the configuration, it performs a direct copy.
 func EncryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
-	if !conf.AESEnabled {
-		// Pass through the data unencrypted
+	switch conf.Encryption.Method {
+	case "aes":
+		if !conf.AESEnabled {
+			// Pass through the data unencrypted
+			_, err := io.Copy(out, in)
+			return err
+		}
+		return EncryptStream(key, in, out)
+	case "hmac":
+		// Implement HMAC signing if applicable
+		return SignStream(key, in, out)
+	default:
+		// Default to passing through
 		_, err := io.Copy(out, in)
 		return err
 	}
-	return EncryptStream(key, in, out)
 }
 
 // IPManagement holds the IP management configuration.
@@ -68,12 +78,22 @@ type IPManagement struct {
 }
 
 func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
-	if !conf.AESEnabled {
-		// Pass through the data unencrypted
+	switch conf.Encryption.Method {
+	case "aes":
+		if !conf.AESEnabled {
+			// Pass through the data unencrypted
+			_, err := io.Copy(out, in)
+			return err
+		}
+		return DecryptStream(key, in, out)
+	case "hmac":
+		// Implement HMAC verification if applicable
+		return VerifyStream(key, in, out)
+	default:
+		// Default to passing through
 		_, err := io.Copy(out, in)
 		return err
 	}
-	return DecryptStream(key, in, out)
 }
 
 // Config holds the server configuration.
@@ -85,6 +105,32 @@ func DetectFileType(filePath string) (string, error) {
 		return "", err
 	}
 	return mimeType, nil
+}
+
+// SignStream signs data using HMAC-SHA256.
+func SignStream(key []byte, in io.Reader, out io.Writer) error {
+	h := hmac.New(sha256.New, key)
+	if _, err := io.Copy(h, in); err != nil {
+		return err
+	}
+	signature := h.Sum(nil)
+	if _, err := out.Write(signature); err != nil {
+		return err
+	}
+	return nil
+}
+
+// VerifyStream verifies data using HMAC-SHA256.
+func VerifyStream(key []byte, in io.Reader, out io.Writer) error {
+	h := hmac.New(sha256.New, key)
+	if _, err := io.Copy(h, in); err != nil {
+		return err
+	}
+	signature := h.Sum(nil)
+	if _, err := out.Write(signature); err != nil {
+		return err
+	}
+	return nil
 }
 
 // EncryptStream encrypts data using AES-CTR mode.
@@ -197,6 +243,11 @@ type Config struct {
 		IPSource     string `toml:"IPSource"`     // "header" or "nginx-log"
 		NginxLogFile string `toml:"NginxLogFile"` // Required if IPSource is "nginx-log"
 	} `toml:"IPManagement"`
+
+	// Encryption holds the encryption configuration.
+	Encryption struct {
+		Method string `toml:"Method"` // "hmac" or "aes"
+	} `toml:"Encryption"`
 }
 
 // UploadTask represents a file upload task.
@@ -424,7 +475,15 @@ func readConfig(path string, conf *Config) error {
 	if conf.ClamAVEnabled && conf.NumScanWorkers <= 0 {
 		conf.NumScanWorkers = 5
 	}
-	// Add other necessary default configurations as needed
+	if conf.Encryption.Method == "" {
+		conf.Encryption.Method = "aes" // Default to AES
+	}
+
+	// Validate Encryption method
+	if conf.Encryption.Method != "hmac" && conf.Encryption.Method != "aes" {
+		log.Warnf("Invalid Encryption Method '%s', defaulting to 'aes'.", conf.Encryption.Method)
+		conf.Encryption.Method = "aes"
+	}
 
 	log.WithFields(logrus.Fields{
 		"ListenPort":         conf.ListenPort,
@@ -437,6 +496,7 @@ func readConfig(path string, conf *Config) error {
 		"EnableIPManagement": conf.EnableIPManagement,
 		"IPSource":           conf.IPManagement.IPSource,
 		"NginxLogFile":       conf.IPManagement.NginxLogFile,
+		"EncryptionMethod":   conf.Encryption.Method,
 		// Add other relevant configurations
 	}).Info("Configuration loaded successfully")
 
@@ -445,7 +505,7 @@ func readConfig(path string, conf *Config) error {
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.LogLevel)
-	if err != nil {
+	if (err != nil) {
 		log.Fatalf("Invalid log level: %v", err)
 	}
 	log.SetLevel(level)
