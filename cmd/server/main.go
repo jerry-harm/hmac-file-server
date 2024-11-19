@@ -1493,11 +1493,16 @@ func parseIPFromNginxLog(logFile, urlPath string) string {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Adjust this based on your NGINX log format.
-		fields := strings.Fields(line)
-		if len(fields) > 1 && strings.Contains(line, urlPath) {
-			ip = fields[0] // Assuming the first field is the IP address.
-			break
+		if strings.Contains(line, urlPath) { // Check if the line corresponds to the requested URL path
+			fields := strings.Fields(line)
+			if len(fields) > 1 { // Ensure there are enough fields
+				ip = fields[0] // First field is the IP address
+				log.WithFields(logrus.Fields{
+					"url_path": urlPath,
+					"ip":       ip,
+				}).Info("Extracted IP from NGINX logs")
+				break
+			}
 		}
 	}
 
@@ -1506,7 +1511,7 @@ func parseIPFromNginxLog(logFile, urlPath string) string {
 	}
 
 	if ip == "" {
-		log.Warnf("No matching IP found for path '%s' in NGINX logs.", urlPath)
+		log.Warnf("No matching IP found in NGINX logs for path '%s'.", urlPath)
 	}
 
 	return ip
