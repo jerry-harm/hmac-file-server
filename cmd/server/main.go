@@ -25,6 +25,9 @@ import (
 	"syscall"
 	"time"
 
+	"os/exec"
+	"runtime"
+
 	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd"
 	"github.com/go-redis/redis/v8"
@@ -37,8 +40,6 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
-	"runtime"
-	"os/exec"
 )
 
 // Removed duplicate validateConfig function
@@ -253,12 +254,13 @@ var (
 
 const defaultRateLimitInterval = "1m"
 
+// Updated main function to conditionally start file cleanup based on FileTTL
 func main() {
 	flag.Parse()
-	validateConfig()
 	if err := readConfig("./config.toml", &conf); err != nil {
 		log.Fatalf("Error reading config: %v", err)
 	}
+	validateConfig()
 
 	setupLogging()
 	logSystemInfo()
@@ -323,8 +325,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Invalid FileTTL: %v", err)
 	}
-	log.Infof("FileTTL set to %v", fileTTLDuration)
-	go startFileCleanup(ctx, conf.StoreDir, fileTTLDuration)
+	if fileTTLDuration > 0 {
+		log.Infof("FileTTL set to %v, starting file cleanup routine.", fileTTLDuration)
+		go startFileCleanup(ctx, conf.StoreDir, fileTTLDuration)
+	} else {
+		log.Info("FileTTL is disabled. Files will not be deleted.")
+	}
 
 	router := setupRouter()
 
@@ -378,6 +384,7 @@ func main() {
 	}
 }
 
+// Updated readConfig function to handle FileTTL correctly
 func readConfig(path string, conf *Config) error {
 	if _, err := toml.DecodeFile(path, conf); err != nil {
 		return err
@@ -390,6 +397,10 @@ func readConfig(path string, conf *Config) error {
 	if conf.ChunkSize == 0 {
 		conf.ChunkSize = 1 << 20 // 1MB
 	}
+	// Removed default for FileTTL to allow disabling file deletion
+	// if conf.FileTTL == "" {
+	// 	conf.FileTTL = "7d"
+	// }
 	if conf.ReadTimeout == "" {
 		conf.ReadTimeout = "2h"
 	}
@@ -398,9 +409,6 @@ func readConfig(path string, conf *Config) error {
 	}
 	if conf.IdleTimeout == "" {
 		conf.IdleTimeout = "2h"
-	}
-	if conf.FileTTL == "" {
-		conf.FileTTL = "7d"
 	}
 	if conf.RedisEnabled && conf.RedisDBIndex == 0 {
 		conf.RedisDBIndex = 0
