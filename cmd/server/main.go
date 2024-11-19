@@ -391,16 +391,9 @@ func readConfig(path string, conf *Config) error {
 	}
 
 	// Set defaults
-	if conf.MaxVersions == 0 {
-		conf.MaxVersions = 0
-	}
 	if conf.ChunkSize == 0 {
 		conf.ChunkSize = 1 << 20 // 1MB
 	}
-	// Removed default for FileTTL to allow disabling file deletion
-	// if conf.FileTTL == "" {
-	// 	conf.FileTTL = "7d"
-	// }
 	if conf.ReadTimeout == "" {
 		conf.ReadTimeout = "2h"
 	}
@@ -410,11 +403,11 @@ func readConfig(path string, conf *Config) error {
 	if conf.IdleTimeout == "" {
 		conf.IdleTimeout = "2h"
 	}
-	if conf.RedisEnabled && conf.RedisDBIndex == 0 {
-		conf.RedisDBIndex = 0
-	}
-	if conf.RedisEnabled && conf.RedisHealthCheckInterval == "" {
-		conf.RedisHealthCheckInterval = "30s"
+	if conf.RedisEnabled {
+		if conf.RedisHealthCheckInterval == "" {
+			conf.RedisHealthCheckInterval = "30s"
+		}
+		// RedisDBIndex defaults to 0 if not set
 	}
 	if conf.EnableIPManagement && conf.IPCheckInterval == "" {
 		conf.IPCheckInterval = "60s"
@@ -425,6 +418,7 @@ func readConfig(path string, conf *Config) error {
 	if conf.ClamAVEnabled && conf.NumScanWorkers <= 0 {
 		conf.NumScanWorkers = 5
 	}
+	// Add other necessary default configurations as needed
 	return nil
 }
 
@@ -1671,4 +1665,60 @@ func validateConfig() {
 			log.Fatalf("NginxLogFile does not exist: %s", conf.IPManagement.NginxLogFile)
 		}
 	}
+}
+
+var (
+	nginxLogCache = cache.New(10*time.Minute, 15*time.Minute)
+	muIP          sync.Mutex
+)
+
+func parseIPFromNginxLog(logFile, urlPath string) string {
+	cacheKey := fmt.Sprintf("%s:%s", logFile, urlPath)
+	if cachedIP, found := nginxLogCache.Get(cacheKey); found {
+		return cachedIP.(string)
+	}
+
+	muIP.Lock()
+	defer muIP.Unlock()
+
+	// Recheck after acquiring lock
+	if cachedIP, found := nginxLogCache.Get(cacheKey); found {
+		return cachedIP.(string)
+	}
+
+	file, err := os.Open(logFile)
+	if err != nil {
+		log.WithError(err).Errorf("Failed to open NGINX log file: %s", logFile)
+		return ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var ip string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, urlPath) {
+			fields := strings.Fields(line)
+			if len(fields) > 1 {
+				ip = fields[0]
+				log.WithFields(logrus.Fields{
+					"url_path": urlPath,
+					"ip":       ip,
+				}).Info("Extracted IP from NGINX logs")
+				nginxLogCache.Set(cacheKey, ip, cache.DefaultExpiration)
+				break
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.WithError(err).Error("Error reading NGINX log file.")
+	}
+
+	if ip == "" {
+		log.Warnf("No matching IP found in NGINX logs for path '%s'.", urlPath)
+	}
+
+	return ip
 }
