@@ -8,7 +8,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"				
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -28,6 +28,8 @@ import (
 	"os/exec"
 	"runtime"
 
+	"testing"
+
 	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd"
 	"github.com/go-redis/redis/v8"
@@ -40,7 +42,6 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
-	"testing"
 )
 
 // Removed duplicate validateConfig function
@@ -67,7 +68,7 @@ type IPManagement struct {
 }
 
 func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
-	if (!conf.AESEnabled) {
+	if !conf.AESEnabled {
 		// Pass through the data unencrypted
 		_, err := io.Copy(out, in)
 		return err
@@ -80,7 +81,7 @@ func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 
 func DetectFileType(filePath string) (string, error) {
 	mimeType, err := magicmime.TypeByFile(filePath)
-	if (err != nil) {
+	if err != nil {
 		return "", err
 	}
 	return mimeType, nil
@@ -89,7 +90,7 @@ func DetectFileType(filePath string) (string, error) {
 // EncryptStream encrypts data using AES-CTR mode.
 func EncryptStream(key []byte, in io.Reader, out io.Writer) error {
 	block, err := aes.NewCipher(key)
-	if (err != nil) {
+	if err != nil {
 		return err
 	}
 
@@ -110,7 +111,7 @@ func EncryptStream(key []byte, in io.Reader, out io.Writer) error {
 // DecryptStream decrypts data using AES-CTR mode.
 func DecryptStream(key []byte, in io.Reader, out io.Writer) error {
 	block, err := aes.NewCipher(key)
-	if (err != nil) {
+	if err != nil {
 		return err
 	}
 
@@ -127,7 +128,7 @@ func DecryptStream(key []byte, in io.Reader, out io.Writer) error {
 
 func initClamAV(socket string) (*clamd.Clamd, error) {
 	var client *clamd.Clamd
-	if (strings.HasPrefix(socket, "/")) {
+	if strings.HasPrefix(socket, "/") {
 		// UNIX socket
 		client = clamd.NewClamd("unix:" + socket)
 	} else {
@@ -135,7 +136,7 @@ func initClamAV(socket string) (*clamd.Clamd, error) {
 		client = clamd.NewClamd("tcp:" + socket)
 	}
 
-	if (client == nil) {
+	if client == nil {
 		return nil, fmt.Errorf("failed to create ClamAV client")
 	}
 	if err := client.Ping(); err != nil {
@@ -234,22 +235,22 @@ var (
 	clamClient      *clamd.Clamd
 
 	// Metrics
-	uploadDuration            = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds."})
-	uploadErrorsTotal         = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
-	uploadsTotal              = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
-	downloadDuration          = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds."})
-	downloadsTotal            = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
-	downloadErrorsTotal       = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
-	memoryUsage               = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
-	cpuUsage                  = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
-	requestsTotalCounter      = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
-	goroutines                = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
-	uploadSizeBytes           = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_size_bytes", Help: "Histogram of uploaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
-	downloadSizeBytes         = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_size_bytes", Help: "Histogram of downloaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
-	infectedFilesTotal        = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "infected_files_total", Help: "Total number of infected files detected."})
-	deletedFilesTotal         = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_deletions_total", Help: "Total number of files deleted based on FileTTL."})
-	uploadQueueLength         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "upload_queue_length", Help: "Current length of the upload queue."})
-	scanQueueLength           = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "scan_queue_length", Help: "Current length of the scan queue."})
+	uploadDuration       = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds."})
+	uploadErrorsTotal    = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
+	uploadsTotal         = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
+	downloadDuration     = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds."})
+	downloadsTotal       = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
+	downloadErrorsTotal  = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
+	memoryUsage          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
+	cpuUsage             = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
+	requestsTotalCounter = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
+	goroutines           = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
+	uploadSizeBytes      = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_size_bytes", Help: "Histogram of uploaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
+	downloadSizeBytes    = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_size_bytes", Help: "Histogram of downloaded file sizes in bytes.", Buckets: prometheus.ExponentialBuckets(100, 10, 8)})
+	infectedFilesTotal   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "infected_files_total", Help: "Total number of infected files detected."})
+	deletedFilesTotal    = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_deletions_total", Help: "Total number of files deleted based on FileTTL."})
+	uploadQueueLength    = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "upload_queue_length", Help: "Current length of the upload queue."})
+	scanQueueLength      = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "scan_queue_length", Help: "Current length of the scan queue."})
 	rateLimitInterval    time.Duration
 )
 
@@ -267,14 +268,14 @@ func main() {
 	logSystemInfo()
 	initMetrics()
 
-	if (conf.RedisEnabled) {
+	if conf.RedisEnabled {
 		err := initRedisWithRetry(3, 5*time.Second)
 		if err != nil {
 			log.Warnf("Redis not initialized: %v", err)
 		}
 	}
 
-	if (conf.ClamAVEnabled) {
+	if conf.ClamAVEnabled {
 		if c, err := initClamAV(conf.ClamAVSocket); err != nil {
 			log.WithError(err).Warn("ClamAV initialization failed.")
 			conf.ClamAVEnabled = false
@@ -290,17 +291,17 @@ func main() {
 
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 
-	if (conf.EnableRateLimiting) {
+	if conf.EnableRateLimiting {
 		var err error
 		rateLimitInterval, err = ParseCustomDuration(conf.RateLimitInterval)
-		if (err != nil) {
+		if err != nil {
 			log.Fatalf("Invalid RateLimitInterval: %v", err)
 		}
 		requestCounters = cache.New(rateLimitInterval, 2*rateLimitInterval)
 	}
 
 	uploadQueue = make(chan UploadTask, conf.UploadQueueSize)
-	if (conf.ClamAVEnabled) {
+	if conf.ClamAVEnabled {
 		scanQueue = make(chan ScanTask, conf.UploadQueueSize)
 	}
 	networkEvents = make(chan NetworkEvent, 100)
@@ -313,9 +314,9 @@ func main() {
 	go updateSystemMetrics(ctx)
 	go monitorQueueLengths(ctx)
 
-	if (conf.RedisEnabled && redisClient != nil) {
+	if conf.RedisEnabled && redisClient != nil {
 		interval, err := parseHealthCheckInterval(conf.RedisHealthCheckInterval)
-		if (err != nil) {
+		if err != nil {
 			log.Fatalf("Invalid RedisHealthCheckInterval: %v", err)
 		}
 		go MonitorRedisHealth(ctx, redisClient, interval)
@@ -324,10 +325,10 @@ func main() {
 	initializeWorkerPools(ctx)
 
 	fileTTLDuration, err := ParseCustomDuration(conf.FileTTL)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid FileTTL: %v", err)
 	}
-	if (fileTTLDuration > 0) {
+	if fileTTLDuration > 0 {
 		log.Infof("FileTTL set to %v, starting file cleanup routine.", fileTTLDuration)
 		go startFileCleanup(ctx, conf.StoreDir, fileTTLDuration)
 	} else {
@@ -337,15 +338,15 @@ func main() {
 	router := setupRouter()
 
 	readTimeout, err := time.ParseDuration(conf.ReadTimeout)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid ReadTimeout: %v", err)
 	}
 	writeTimeout, err := time.ParseDuration(conf.WriteTimeout)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid WriteTimeout: %v", err)
 	}
 	idleTimeout, err := time.ParseDuration(conf.IdleTimeout)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid IdleTimeout: %v", err)
 	}
 
@@ -357,7 +358,7 @@ func main() {
 		IdleTimeout:  idleTimeout,
 	}
 
-	if (conf.MetricsEnabled) {
+	if conf.MetricsEnabled {
 		go func() {
 			log.Infof("Metrics server running on %s", conf.MetricsPort)
 			http.Handle("/metrics", promhttp.Handler())
@@ -371,9 +372,9 @@ func main() {
 	setupGracefulShutdown(server, cancel)
 
 	log.Infof("Starting HMAC file server %s...", versionString)
-	if (conf.UnixSocket) {
+	if conf.UnixSocket {
 		listener, err := net.Listen("unix", conf.ListenPort)
-		if (err != nil) {
+		if err != nil {
 			log.WithError(err).Fatal("Unix socket listen failed.")
 		}
 		defer listener.Close()
@@ -396,46 +397,46 @@ func readConfig(path string, conf *Config) error {
 	}
 
 	// Set defaults
-	if (conf.ChunkSize == 0) {
+	if conf.ChunkSize == 0 {
 		conf.ChunkSize = 1 << 20 // 1MB
 	}
-	if (conf.ReadTimeout == "") {
+	if conf.ReadTimeout == "" {
 		conf.ReadTimeout = "2h"
 	}
-	if (conf.WriteTimeout == "") {
+	if conf.WriteTimeout == "" {
 		conf.WriteTimeout = "2h"
 	}
-	if (conf.IdleTimeout == "") {
+	if conf.IdleTimeout == "" {
 		conf.IdleTimeout = "2h"
 	}
-	if (conf.RedisEnabled) {
-		if (conf.RedisHealthCheckInterval == "") {
+	if conf.RedisEnabled {
+		if conf.RedisHealthCheckInterval == "" {
 			conf.RedisHealthCheckInterval = "30s"
 		}
 		// RedisDBIndex defaults to 0 if not set
 	}
-	if (conf.EnableIPManagement && conf.IPCheckInterval == "") {
+	if conf.EnableIPManagement && conf.IPCheckInterval == "" {
 		conf.IPCheckInterval = "60s"
 	}
-	if (conf.EnableRateLimiting && conf.RateLimitInterval == "") {
+	if conf.EnableRateLimiting && conf.RateLimitInterval == "" {
 		conf.RateLimitInterval = defaultRateLimitInterval
 	}
-	if (conf.ClamAVEnabled && conf.NumScanWorkers <= 0) {
+	if conf.ClamAVEnabled && conf.NumScanWorkers <= 0 {
 		conf.NumScanWorkers = 5
 	}
 	// Add other necessary default configurations as needed
 
 	log.WithFields(logrus.Fields{
-		"ListenPort":                conf.ListenPort,
-		"UnixSocket":                conf.UnixSocket,
-		"StoreDir":                  conf.StoreDir,
-		"LoggingEnabled":            conf.LoggingEnabled,
-		"LogLevel":                  conf.LogLevel,
-		"MetricsEnabled":            conf.MetricsEnabled,
-		"FileTTL":                   conf.FileTTL,
-		"EnableIPManagement":        conf.EnableIPManagement,
-		"IPSource":                  conf.IPManagement.IPSource,
-		"NginxLogFile":              conf.IPManagement.NginxLogFile,
+		"ListenPort":         conf.ListenPort,
+		"UnixSocket":         conf.UnixSocket,
+		"StoreDir":           conf.StoreDir,
+		"LoggingEnabled":     conf.LoggingEnabled,
+		"LogLevel":           conf.LogLevel,
+		"MetricsEnabled":     conf.MetricsEnabled,
+		"FileTTL":            conf.FileTTL,
+		"EnableIPManagement": conf.EnableIPManagement,
+		"IPSource":           conf.IPManagement.IPSource,
+		"NginxLogFile":       conf.IPManagement.NginxLogFile,
 		// Add other relevant configurations
 	}).Info("Configuration loaded successfully")
 
@@ -444,14 +445,14 @@ func readConfig(path string, conf *Config) error {
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.LogLevel)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %v", err)
 	}
 	log.SetLevel(level)
 
-	if (conf.LoggingEnabled && conf.LogFile != "") {
+	if conf.LoggingEnabled && conf.LogFile != "" {
 		file, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if (err != nil) {
+		if err != nil {
 			log.Fatalf("Failed to open log file: %v", err)
 		}
 		log.SetOutput(file)
@@ -463,7 +464,7 @@ func setupLogging() {
 }
 
 func initMetrics() {
-	if (conf.MetricsEnabled) {
+	if conf.MetricsEnabled {
 		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal, downloadDuration, downloadsTotal, downloadErrorsTotal,
 			memoryUsage, cpuUsage, requestsTotalCounter, goroutines, uploadSizeBytes, downloadSizeBytes, infectedFilesTotal, deletedFilesTotal, uploadQueueLength, scanQueueLength)
 	}
@@ -481,8 +482,8 @@ func initRedisWithRetry(maxRetries int, delay time.Duration) error {
 }
 
 var (
-    muRedis sync.RWMutex
-    redisConnected bool = false
+	muRedis        sync.RWMutex
+	redisConnected bool = false
 )
 
 func initRedis() error {
@@ -538,17 +539,17 @@ func logSystemInfo() {
 }
 
 func initializeWorkerPools(ctx context.Context) {
-    for i := 0; i < conf.NumWorkers; i++ {
-        go uploadWorker(ctx, i)
-    }
-    log.Infof("Initialized %d upload workers", conf.NumWorkers)
+	for i := 0; i < conf.NumWorkers; i++ {
+		go uploadWorker(ctx, i)
+	}
+	log.Infof("Initialized %d upload workers", conf.NumWorkers)
 
-    if conf.ClamAVEnabled && clamClient != nil {
-        for i := 0; i < conf.NumScanWorkers; i++ {
-            go scanWorker(ctx, i)
-        }
-        log.Infof("Initialized %d scan workers", conf.NumScanWorkers)
-    }
+	if conf.ClamAVEnabled && clamClient != nil {
+		for i := 0; i < conf.NumScanWorkers; i++ {
+			go scanWorker(ctx, i)
+		}
+		log.Infof("Initialized %d scan workers", conf.NumScanWorkers)
+	}
 }
 
 func uploadWorker(ctx context.Context, id int) {
@@ -559,7 +560,7 @@ func uploadWorker(ctx context.Context, id int) {
 			log.WithField("worker_id", id).Info("Upload worker stopping")
 			return
 		case task, ok := <-uploadQueue:
-			if (!ok) {
+			if !ok {
 				log.WithField("worker_id", id).Info("Upload queue closed")
 				return
 			}
@@ -593,7 +594,7 @@ func scanWorker(ctx context.Context, id int) {
 			log.WithField("worker_id", id).Info("Scan worker stopping")
 			return
 		case task, ok := <-scanQueue:
-			if (!ok) {
+			if !ok {
 				log.WithField("worker_id", id).Info("Scan queue closed")
 				return
 			}
@@ -610,108 +611,108 @@ func scanWorker(ctx context.Context, id int) {
 }
 
 func processUpload(task UploadTask) error {
-    absFilename := task.AbsFilename
-    tempFilename := absFilename + ".tmp"
-    r := task.Request
+	absFilename := task.AbsFilename
+	tempFilename := absFilename + ".tmp"
+	r := task.Request
 
-    startTime := time.Now()
-    var err error
+	startTime := time.Now()
+	var err error
 
-    defer func() {
-        if err != nil {
-            os.Remove(tempFilename)
-        }
-    }()
+	defer func() {
+		if err != nil {
+			os.Remove(tempFilename)
+		}
+	}()
 
-    if conf.ChunkedUploadsEnabled {
-        err = handleChunkedUpload(tempFilename, r)
-    } else {
-        err = createFile(tempFilename, r)
-    }
-    if err != nil {
-        uploadDuration.Observe(time.Since(startTime).Seconds())
-        return err
-    }
+	if conf.ChunkedUploadsEnabled {
+		err = handleChunkedUpload(tempFilename, r)
+	} else {
+		err = createFile(tempFilename, r)
+	}
+	if err != nil {
+		uploadDuration.Observe(time.Since(startTime).Seconds())
+		return err
+	}
 
-    if (conf.ClamAVEnabled && clamClient != nil) {
+	if conf.ClamAVEnabled && clamClient != nil {
 		if err = scanFileWithClamAV(tempFilename); err != nil {
-            os.Remove(tempFilename)
-            uploadErrorsTotal.Inc()
-            return err
-        }
-    }
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+	}
 
-    if (conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil) {
-        checksum, err := CalculateChecksum(tempFilename)
-        if (err != nil) {
-            os.Remove(tempFilename)
-            uploadErrorsTotal.Inc()
-            return err
-        }
-        checksumKey := fmt.Sprintf("checksum:%s", checksum)
-        filenameKey := fmt.Sprintf("filename:%s", filepath.Base(absFilename))
+	if conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil {
+		checksum, err := CalculateChecksum(tempFilename)
+		if err != nil {
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		checksumKey := fmt.Sprintf("checksum:%s", checksum)
+		filenameKey := fmt.Sprintf("filename:%s", filepath.Base(absFilename))
 
-        exists, err := redisClient.Exists(context.Background(), checksumKey).Result()
-        if (err != nil) {
-            os.Remove(tempFilename)
-            uploadErrorsTotal.Inc()
-            return err
-        }
+		exists, err := redisClient.Exists(context.Background(), checksumKey).Result()
+		if err != nil {
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
 
-        if (exists > 0) {
+		if exists > 0 {
 			err = redisClient.SAdd(context.Background(), checksumKey, filepath.Base(absFilename)).Err()
 			if err != nil {
-                os.Remove(tempFilename)
-                uploadErrorsTotal.Inc()
-                return err
-            }
+				os.Remove(tempFilename)
+				uploadErrorsTotal.Inc()
+				return err
+			}
 			err = redisClient.Set(context.Background(), filenameKey, checksum, 0).Err()
 			if err != nil {
-                os.Remove(tempFilename)
-                uploadErrorsTotal.Inc()
-                return err
-            }
-            os.Remove(tempFilename)
-            uploadDuration.Observe(time.Since(startTime).Seconds())
-            uploadsTotal.Inc()
-            return nil
-        }
+				os.Remove(tempFilename)
+				uploadErrorsTotal.Inc()
+				return err
+			}
+			os.Remove(tempFilename)
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			uploadsTotal.Inc()
+			return nil
+		}
 
-        finalPath := filepath.Join(conf.StoreDir, checksum)
+		finalPath := filepath.Join(conf.StoreDir, checksum)
 		err = os.Rename(tempFilename, finalPath)
 		if err != nil {
-            os.Remove(tempFilename)
-            uploadErrorsTotal.Inc()
-            return err
-        }
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
 
 		err = redisClient.SAdd(context.Background(), checksumKey, filepath.Base(absFilename)).Err()
 		if err != nil {
-            return err
-        }
+			return err
+		}
 		err = redisClient.Set(context.Background(), filenameKey, checksum, 0).Err()
 		if err != nil {
-            return err
-        }
-        uploadDuration.Observe(time.Since(startTime).Seconds())
-        uploadsTotal.Inc()
-        return nil
-    }
+			return err
+		}
+		uploadDuration.Observe(time.Since(startTime).Seconds())
+		uploadsTotal.Inc()
+		return nil
+	}
 
-    if (conf.EnableVersioning) {
+	if conf.EnableVersioning {
 		exists, _ := fileExists(absFilename)
 		if exists {
 			err := versionFile(absFilename)
 			if err != nil {
-                os.Remove(tempFilename)
-                return err
-            }
-        }
-    }
+				os.Remove(tempFilename)
+				return err
+			}
+		}
+	}
 
-    uploadDuration.Observe(time.Since(startTime).Seconds())
-    uploadsTotal.Inc()
-    return nil
+	uploadDuration.Observe(time.Since(startTime).Seconds())
+	uploadsTotal.Inc()
+	return nil
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
@@ -719,24 +720,24 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	var fileInfo os.FileInfo
 	var err error
 
-	if (conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil) {
+	if conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil {
 		filenameKey := fmt.Sprintf("filename:%s", filepath.Base(absFilename))
 		checksum, err := redisClient.Get(context.Background(), filenameKey).Result()
-		if (err != nil) {
+		if err != nil {
 			http.Error(w, "Not Found", http.StatusNotFound)
 			downloadErrorsTotal.Inc()
 			return
 		}
 		actualFilePath = filepath.Join(conf.StoreDir, checksum)
 		fileInfo, err = getFileInfo(actualFilePath)
-		if (err != nil || fileInfo.IsDir()) {
+		if err != nil || fileInfo.IsDir() {
 			http.Error(w, "Not Found", http.StatusNotFound)
 			downloadErrorsTotal.Inc()
 			return
 		}
 	} else {
 		fileInfo, err = getFileInfo(absFilename)
-		if (err != nil || fileInfo.IsDir()) {
+		if err != nil || fileInfo.IsDir() {
 			http.Error(w, "Not Found", http.StatusNotFound)
 			downloadErrorsTotal.Inc()
 			return
@@ -745,17 +746,17 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	}
 
 	contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-	if (contentType == "") {
+	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
 
-	if (conf.ResumableDownloadsEnabled) {
+	if conf.ResumableDownloadsEnabled {
 		handleResumableDownload(actualFilePath, w, r, fileInfo.Size())
 		return
 	}
 
-	if (r.Method == http.MethodHead) {
+	if r.Method == http.MethodHead {
 		w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 		downloadsTotal.Inc()
 		return
@@ -774,7 +775,7 @@ func createFile(tempFilename string, r *http.Request) error {
 	}
 
 	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if (err != nil) {
+	if err != nil {
 		return fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
@@ -785,14 +786,14 @@ func createFile(tempFilename string, r *http.Request) error {
 
 	for {
 		n, err := r.Body.Read(buffer)
-		if (n > 0) {
+		if n > 0 {
 			totalBytes += int64(n)
 			if _, writeErr := writer.Write(buffer[:n]); writeErr != nil {
 				return fmt.Errorf("write file: %w", writeErr)
 			}
 		}
-		if (err != nil) {
-			if (err == io.EOF) {
+		if err != nil {
+			if err == io.EOF {
 				break
 			}
 			return fmt.Errorf("read body: %w", err)
@@ -815,7 +816,7 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 	}
 
 	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if (err != nil) {
+	if err != nil {
 		return fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
@@ -826,14 +827,14 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 
 	for {
 		n, err := r.Body.Read(buffer)
-		if (n > 0) {
+		if n > 0 {
 			totalBytes += int64(n)
 			if _, writeErr := writer.Write(buffer[:n]); writeErr != nil {
 				return fmt.Errorf("write chunk: %w", writeErr)
 			}
 		}
-		if (err != nil) {
-			if (err == io.EOF) {
+		if err != nil {
+			if err == io.EOF {
 				break
 			}
 			return fmt.Errorf("read body: %w", err)
@@ -856,7 +857,7 @@ func fileExists(path string) (bool, int64) {
 	}
 
 	fi, err := os.Stat(path)
-	if (err != nil) {
+	if err != nil {
 		return false, 0
 	}
 	fileInfoCache.Set(path, fi, cache.DefaultExpiration)
@@ -864,7 +865,7 @@ func fileExists(path string) (bool, int64) {
 }
 func scanFileWithClamAV(path string) error {
 	resultChannel, err := clamClient.ScanFile(path)
-	if (err != nil) {
+	if err != nil {
 		return fmt.Errorf("scan error: %w", err)
 	}
 
@@ -873,7 +874,7 @@ func scanFileWithClamAV(path string) error {
 		scanResult = result
 	}
 
-	if (scanResult == nil) {
+	if scanResult == nil {
 		return fmt.Errorf("no scan result")
 	}
 
@@ -890,29 +891,29 @@ func scanFileWithClamAV(path string) error {
 
 func handleResumableDownload(filePath string, w http.ResponseWriter, r *http.Request, size int64) {
 	rangeHeader := r.Header.Get("Range")
-	if (rangeHeader == "") {
+	if rangeHeader == "" {
 		serveFile(w, r, filePath, size)
 		return
 	}
 
 	ranges := strings.Split(strings.TrimPrefix(rangeHeader, "bytes="), "-")
-	if (len(ranges) != 2) {
+	if len(ranges) != 2 {
 		http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
 		downloadErrorsTotal.Inc()
 		return
 	}
 
 	start, err := strconv.ParseInt(ranges[0], 10, 64)
-	if (err != nil) {
+	if err != nil {
 		http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
 		downloadErrorsTotal.Inc()
 		return
 	}
 
 	end := size - 1
-	if (ranges[1] != "") {
+	if ranges[1] != "" {
 		end, err = strconv.ParseInt(ranges[1], 10, 64)
-		if (err != nil || start > end) {
+		if err != nil || start > end {
 			http.Error(w, "Invalid Range", http.StatusRequestedRangeNotSatisfiable)
 			downloadErrorsTotal.Inc()
 			return
@@ -925,7 +926,7 @@ func handleResumableDownload(filePath string, w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusPartialContent)
 
 	file, err := os.Open(filePath)
-	if (err != nil) {
+	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		downloadErrorsTotal.Inc()
 		return
@@ -943,19 +944,19 @@ func handleResumableDownload(filePath string, w http.ResponseWriter, r *http.Req
 	startTime := time.Now()
 
 	for remaining > 0 {
-		if (int64(len(buffer)) > remaining) {
+		if int64(len(buffer)) > remaining {
 			buffer = buffer[:remaining]
 		}
 		n, err := file.Read(buffer)
-		if (n > 0) {
+		if n > 0 {
 			if _, writeErr := w.Write(buffer[:n]); writeErr != nil {
 				downloadErrorsTotal.Inc()
 				return
 			}
 			remaining -= int64(n)
 		}
-		if (err != nil) {
-			if (err != io.EOF) {
+		if err != nil {
+			if err != io.EOF {
 				downloadErrorsTotal.Inc()
 			}
 			break
@@ -969,12 +970,12 @@ func handleResumableDownload(filePath string, w http.ResponseWriter, r *http.Req
 
 func serveFile(w http.ResponseWriter, r *http.Request, filePath string, size int64) {
 	contentType := mime.TypeByExtension(filepath.Ext(filePath))
-	if (contentType == "") {
+	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
 
-	if (r.Method == http.MethodHead) {
+	if r.Method == http.MethodHead {
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 		downloadsTotal.Inc()
 		return
@@ -988,31 +989,31 @@ func serveFile(w http.ResponseWriter, r *http.Request, filePath string, size int
 }
 
 func blockIPFail2Ban(ip string) {
-    if conf.Fail2BanEnabled {
-        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-        defer cancel()
-        cmd := exec.CommandContext(ctx, conf.Fail2BanCommand, "set", conf.Fail2BanJail, "ban", ip)
-        if err := cmd.Run(); err != nil {
-            log.Errorf("Fail2Ban block failed for IP %s: %v", ip, err)
-            return
-        }
-        log.Infof("IP %s blocked via Fail2Ban", ip)
-    }
+	if conf.Fail2BanEnabled {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, conf.Fail2BanCommand, "set", conf.Fail2BanJail, "ban", ip)
+		if err := cmd.Run(); err != nil {
+			log.Errorf("Fail2Ban block failed for IP %s: %v", ip, err)
+			return
+		}
+		log.Infof("IP %s blocked via Fail2Ban", ip)
+	}
 }
 
 func getCurrentIPAddress() string {
 	interfaces, err := net.Interfaces()
-	if (err != nil) {
+	if err != nil {
 		log.WithError(err).Error("GetInterfaces failed")
 		return ""
 	}
 
 	for _, iface := range interfaces {
-		if (iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0) {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
 		addrs, err := iface.Addrs()
-		if (err != nil) {
+		if err != nil {
 			log.WithError(err).Errorf("GetAddrs failed for interface %s", iface.Name)
 			continue
 		}
@@ -1026,30 +1027,30 @@ func getCurrentIPAddress() string {
 }
 
 func monitorNetwork(ctx context.Context) {
-    defer func() {
-        if rec := recover(); rec != nil {
-            log.WithField("panic", rec).Error("Recovered from panic in monitorNetwork")
-        }
-    }()
-    currentIP := getCurrentIPAddress()
-    for {
-        select {
-        case <-ctx.Done():
-            log.Info("Network monitor stopping.")
-            return
-        case <-time.After(10 * time.Second):
-            newIP := getCurrentIPAddress()
-            if (newIP != currentIP && newIP != "") {
-                currentIP = newIP
-                select {
-                case networkEvents <- NetworkEvent{Type: "IP_CHANGE", Details: currentIP}:
-                    log.Infof("IP changed to %s", currentIP)
-                default:
-                    log.Warn("NetworkEvents channel full, dropping IP_CHANGE event.")
-                }
-            }
-        }
-    }
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.WithField("panic", rec).Error("Recovered from panic in monitorNetwork")
+		}
+	}()
+	currentIP := getCurrentIPAddress()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Network monitor stopping.")
+			return
+		case <-time.After(10 * time.Second):
+			newIP := getCurrentIPAddress()
+			if newIP != currentIP && newIP != "" {
+				currentIP = newIP
+				select {
+				case networkEvents <- NetworkEvent{Type: "IP_CHANGE", Details: currentIP}:
+					log.Infof("IP changed to %s", currentIP)
+				default:
+					log.Warn("NetworkEvents channel full, dropping IP_CHANGE event.")
+				}
+			}
+		}
+	}
 }
 
 func handleNetworkEvents(ctx context.Context) {
@@ -1059,7 +1060,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Network event handler stopping.")
 			return
 		case event, ok := <-networkEvents:
-			if (!ok) {
+			if !ok {
 				log.Info("NetworkEvents channel closed.")
 				return
 			}
@@ -1083,14 +1084,14 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, interval time
 		case <-ticker.C:
 			if err := client.Ping(ctx).Err(); err != nil {
 				muRedis.Lock()
-				if (redisConnected) {
+				if redisConnected {
 					redisConnected = false
 					log.Warn("Redis connection lost.")
 				}
 				muRedis.Unlock()
 			} else {
 				muRedis.Lock()
-				if (!redisConnected) {
+				if !redisConnected {
 					redisConnected = true
 					log.Info("Redis connection restored.")
 				}
@@ -1101,53 +1102,53 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, interval time
 }
 
 func rateLimitingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        clientIP := getClientIP(r)
-        if isRateLimited(clientIP) {
-            http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-            return
-        }
-        next.ServeHTTP(w, r)
-    })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := getClientIP(r)
+		if isRateLimited(clientIP) {
+			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func setupRouter() http.Handler {
-    mux := http.NewServeMux()
-    subpath := filepath.Join("/", conf.UploadSubDir) + "/"
-    mux.HandleFunc(subpath, handleRequest)
-    mux.HandleFunc("/example", exampleRedisUsage)
+	mux := http.NewServeMux()
+	subpath := filepath.Join("/", conf.UploadSubDir) + "/"
+	mux.HandleFunc(subpath, handleRequest)
+	mux.HandleFunc("/example", exampleRedisUsage)
 
-    if conf.MetricsEnabled {
-        mux.Handle("/metrics", promhttp.Handler())
-    }
+	if conf.MetricsEnabled {
+		mux.Handle("/metrics", promhttp.Handler())
+	}
 
-			return loggingMiddleware(recoveryMiddleware(rateLimitingMiddleware(mux)))
-		}
-		
-		// recoveryMiddleware recovers from panics and logs the error.
-		func recoveryMiddleware(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				defer func() {
-					if rec := recover(); rec != nil {
-						log.WithField("panic", rec).Error("Recovered from panic")
-						http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					}
-				}()
-				next.ServeHTTP(w, r)
-			})
-		}
-	
-	// loggingMiddleware logs the details of each HTTP request.
-	func loggingMiddleware(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-			next.ServeHTTP(w, r)
-			log.WithFields(logrus.Fields{
-				"method": r.Method,
-				"url":    r.URL.String(),
-				"time":   time.Since(start),
-			}).Info("Handled request")
-		})
+	return loggingMiddleware(recoveryMiddleware(rateLimitingMiddleware(mux)))
+}
+
+// recoveryMiddleware recovers from panics and logs the error.
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.WithField("panic", rec).Error("Recovered from panic")
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// loggingMiddleware logs the details of each HTTP request.
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.WithFields(logrus.Fields{
+			"method": r.Method,
+			"url":    r.URL.String(),
+			"time":   time.Since(start),
+		}).Info("Handled request")
+	})
 }
 
 // Updated getClientIP function to utilize IPManagement
@@ -1165,12 +1166,12 @@ func getClientIP(r *http.Request) string {
 
 func getClientIPFromHeader(r *http.Request) string {
 	clientIP := r.Header.Get("X-Forwarded-For")
-	if (clientIP == "") {
+	if clientIP == "" {
 		clientIP = r.Header.Get("X-Real-IP")
 	}
-	if (clientIP == "") {
+	if clientIP == "" {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if (err != nil) {
+		if err != nil {
 			log.WithError(err).Warn("SplitHostPort failed")
 			return r.RemoteAddr
 		}
@@ -1183,13 +1184,13 @@ func getClientIPFromHeader(r *http.Request) string {
 
 func isIPAllowed(ip string) bool {
 	for _, blocked := range conf.BlockedIPs {
-		if (ip == blocked) {
+		if ip == blocked {
 			return false
 		}
 	}
-	if (len(conf.AllowedIPs) > 0) {
+	if len(conf.AllowedIPs) > 0 {
 		for _, allowed := range conf.AllowedIPs {
-			if (ip == allowed) {
+			if ip == allowed {
 				return true
 			}
 		}
@@ -1199,17 +1200,17 @@ func isIPAllowed(ip string) bool {
 }
 
 func isRateLimited(ip string) bool {
-	if (!conf.EnableRateLimiting) {
+	if !conf.EnableRateLimiting {
 		return false
 	}
 	muRedis.RLock()
 	defer muRedis.RUnlock()
 	count, found := requestCounters.Get(ip)
-	if (!found) {
+	if !found {
 		requestCounters.Set(ip, 1, rateLimitInterval)
 		return false
 	}
-	if (count.(int) >= conf.RequestsPerMinute) {
+	if count.(int) >= conf.RequestsPerMinute {
 		return true
 	}
 	requestCounters.Increment(ip, 1)
@@ -1217,12 +1218,12 @@ func isRateLimited(ip string) bool {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-    clientIP := getClientIP(r)
-    log.WithFields(logrus.Fields{
-        "method":    r.Method,
-        "url":       r.URL.String(),
-        "client_ip": clientIP,
-    }).Info("Incoming request")
+	clientIP := getClientIP(r)
+	log.WithFields(logrus.Fields{
+		"method":    r.Method,
+		"url":       r.URL.String(),
+		"client_ip": clientIP,
+	}).Info("Incoming request")
 
 	if conf.EnableIPManagement && !isIPAllowed(clientIP) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -1235,68 +1236,68 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    absFilename := filepath.Join(conf.StoreDir, fileStorePath)
-    if err := validateFilePath(absFilename); err != nil {
-        http.Error(w, err.Error(), http.StatusForbidden)
-        downloadErrorsTotal.Inc()
-        return
-    }
+	absFilename := filepath.Join(conf.StoreDir, fileStorePath)
+	if err := validateFilePath(absFilename); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		downloadErrorsTotal.Inc()
+		return
+	}
 
-    switch r.Method {
-    case http.MethodPut:
-        handleUpload(w, r, absFilename, fileStorePath, r.URL.Query())
-    case http.MethodHead, http.MethodGet:
-        handleDownload(w, r, absFilename, fileStorePath)
-    case http.MethodOptions:
-        w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
-    default:
-        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-    }
+	switch r.Method {
+	case http.MethodPut:
+		handleUpload(w, r, absFilename, fileStorePath, r.URL.Query())
+	case http.MethodHead, http.MethodGet:
+		handleDownload(w, r, absFilename, fileStorePath)
+	case http.MethodOptions:
+		w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func parseFilePath(path string) (string, string, error) {
-    subDir := filepath.Join("/", conf.UploadSubDir)
-    fileStorePath := strings.TrimPrefix(path, subDir)
-    if fileStorePath == "" || fileStorePath == "/" {
-        return "", "", fmt.Errorf("forbidden path")
-    }
-    fileStorePath = strings.TrimPrefix(fileStorePath, "/")
-    fileStorePath, err := url.PathUnescape(fileStorePath)
-    if err != nil {
-        return "", "", fmt.Errorf("invalid file path")
-    }
-    return subDir, fileStorePath, nil
+	subDir := filepath.Join("/", conf.UploadSubDir)
+	fileStorePath := strings.TrimPrefix(path, subDir)
+	if fileStorePath == "" || fileStorePath == "/" {
+		return "", "", fmt.Errorf("forbidden path")
+	}
+	fileStorePath = strings.TrimPrefix(fileStorePath, "/")
+	fileStorePath, err := url.PathUnescape(fileStorePath)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid file path")
+	}
+	return subDir, fileStorePath, nil
 }
 
 func validateFilePath(absFilename string) error {
-    absStoreDir, err := filepath.Abs(conf.StoreDir)
-    if err != nil {
-        return fmt.Errorf("internal server error")
-    }
-    absPath, err := filepath.Abs(absFilename)
-    if err != nil || !strings.HasPrefix(absPath, absStoreDir+string(os.PathSeparator)) {
-        return fmt.Errorf("forbidden path")
-    }
-    return nil
+	absStoreDir, err := filepath.Abs(conf.StoreDir)
+	if err != nil {
+		return fmt.Errorf("internal server error")
+	}
+	absPath, err := filepath.Abs(absFilename)
+	if err != nil || !strings.HasPrefix(absPath, absStoreDir+string(os.PathSeparator)) {
+		return fmt.Errorf("forbidden path")
+	}
+	return nil
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
 	protocolVersion := determineProtocolVersion(a)
-	if (protocolVersion == "") {
+	if protocolVersion == "" {
 		http.Error(w, "Invalid HMAC parameters", http.StatusForbidden)
 		return
 	}
 
-	if (!validateHMAC(protocolVersion, fileStorePath, r, a)) {
+	if !validateHMAC(protocolVersion, fileStorePath, r, a) {
 		http.Error(w, "Invalid MAC", http.StatusForbidden)
 		return
 	}
 
-	if (protocolVersion == "token") {
+	if protocolVersion == "token" {
 		handleTokenProtocol(a.Get("token"))
 	}
 
-	if (!isExtensionAllowed(fileStorePath)) {
+	if !isExtensionAllowed(fileStorePath) {
 		http.Error(w, "Disallowed file extension", http.StatusForbidden)
 		uploadErrorsTotal.Inc()
 		return
@@ -1321,7 +1322,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		return
 	}
 
-	if (protocolVersion == "token") {
+	if protocolVersion == "token" {
 		deleteToken(a.Get("token"))
 	}
 
@@ -1329,13 +1330,13 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 }
 
 func determineProtocolVersion(a url.Values) string {
-	if (a.Get("v2") != "") {
+	if a.Get("v2") != "" {
 		return "v2"
 	}
-	if (a.Get("token") != "") {
+	if a.Get("token") != "" {
 		return "token"
 	}
-	if (a.Get("v") != "") {
+	if a.Get("v") != "" {
 		return "v"
 	}
 	return ""
@@ -1348,7 +1349,7 @@ func validateHMAC(version, path string, r *http.Request, a url.Values) bool {
 		mac.Write([]byte(fmt.Sprintf("%s %d", path, r.ContentLength)))
 	case "v2", "token":
 		contentType := mime.TypeByExtension(filepath.Ext(path))
-		if (contentType == "") {
+		if contentType == "" {
 			contentType = "application/octet-stream"
 		}
 		mac.Write([]byte(fmt.Sprintf("%s\x00%d\x00%s", path, r.ContentLength, contentType)))
@@ -1357,14 +1358,14 @@ func validateHMAC(version, path string, r *http.Request, a url.Values) bool {
 	calculatedMAC := mac.Sum(nil)
 	providedMACHex := a.Get(version)
 	providedMAC, err := hex.DecodeString(providedMACHex)
-	if (err != nil) {
+	if err != nil {
 		return false
 	}
 	return hmac.Equal(calculatedMAC, providedMAC)
 }
 
 func handleTokenProtocol(token string) {
-	if (conf.RedisEnabled && redisConnected && redisClient != nil) {
+	if conf.RedisEnabled && redisConnected && redisClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := redisClient.Set(ctx, token, "valid", 24*time.Hour).Err(); err != nil {
@@ -1374,7 +1375,7 @@ func handleTokenProtocol(token string) {
 }
 
 func deleteToken(token string) {
-	if (conf.RedisEnabled && redisConnected && redisClient != nil) {
+	if conf.RedisEnabled && redisConnected && redisClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := redisClient.Del(ctx, token).Err(); err != nil {
@@ -1384,12 +1385,12 @@ func deleteToken(token string) {
 }
 
 func isExtensionAllowed(filename string) bool {
-	if (len(conf.AllowedExtensions) == 0) {
+	if len(conf.AllowedExtensions) == 0 {
 		return true
 	}
 	ext := strings.ToLower(filepath.Ext(filename))
 	for _, allowed := range conf.AllowedExtensions {
-		if (ext == strings.ToLower(allowed)) {
+		if ext == strings.ToLower(allowed) {
 			return true
 		}
 	}
@@ -1398,7 +1399,7 @@ func isExtensionAllowed(filename string) bool {
 
 func CalculateChecksum(filePath string) (string, error) {
 	file, err := os.Open(filePath)
-	if (err != nil) {
+	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
@@ -1429,27 +1430,27 @@ func startFileCleanup(ctx context.Context, storeDir string, ttl time.Duration) {
 func cleanupFiles(storeDir string, ttl time.Duration) {
 	now := time.Now()
 	err := filepath.Walk(storeDir, func(path string, info os.FileInfo, err error) error {
-		if (err != nil) {
+		if err != nil {
 			log.WithError(err).Errorf("Access error: %s", path)
 			return nil
 		}
-		if (info.IsDir() && conf.EnableVersioning && strings.HasSuffix(info.Name(), "_versions")) {
+		if info.IsDir() && conf.EnableVersioning && strings.HasSuffix(info.Name(), "_versions") {
 			return filepath.SkipDir
 		}
-		if (info.IsDir()) {
+		if info.IsDir() {
 			return nil
 		}
 
-		if (conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil) {
-			if (now.Sub(info.ModTime()) > ttl) {
+		if conf.DeduplicationEnabled && conf.RedisEnabled && redisConnected && redisClient != nil {
+			if now.Sub(info.ModTime()) > ttl {
 				checksum := info.Name()
 				checksumKey := fmt.Sprintf("checksum:%s", checksum)
 				refCount, err := redisClient.SCard(context.Background(), checksumKey).Result()
-				if (err != nil) {
+				if err != nil {
 					log.WithError(err).Errorf("Failed SCard for %s", checksum)
 					return nil
 				}
-				if (refCount == 0) {
+				if refCount == 0 {
 					if err := os.Remove(path); err != nil {
 						log.WithError(err).Errorf("Remove failed: %s", path)
 					} else {
@@ -1459,7 +1460,7 @@ func cleanupFiles(storeDir string, ttl time.Duration) {
 				}
 			}
 		} else {
-			if (now.Sub(info.ModTime()) > ttl) {
+			if now.Sub(info.ModTime()) > ttl {
 				if err := os.Remove(path); err != nil {
 					log.WithError(err).Errorf("Remove failed: %s", path)
 				} else {
@@ -1470,17 +1471,17 @@ func cleanupFiles(storeDir string, ttl time.Duration) {
 		}
 		return nil
 	})
-	if (err != nil) {
+	if err != nil {
 		log.WithError(err).Error("File cleanup error")
 	}
 }
 
 func cleanupOldVersions(versionDir string) error {
 	files, err := os.ReadDir(versionDir)
-	if (err != nil) {
+	if err != nil {
 		return fmt.Errorf("read dir: %w", err)
 	}
-	if (conf.MaxVersions > 0 && len(files) > conf.MaxVersions) {
+	if conf.MaxVersions > 0 && len(files) > conf.MaxVersions {
 		for _, file := range files[:len(files)-conf.MaxVersions] {
 			if err := os.Remove(filepath.Join(versionDir, file.Name())); err != nil {
 				return fmt.Errorf("remove old version: %w", err)
@@ -1492,19 +1493,19 @@ func cleanupOldVersions(versionDir string) error {
 }
 
 func versionFile(absFilename string) error {
-    versionDir := filepath.Join(absFilename, "_versions")
+	versionDir := filepath.Join(absFilename, "_versions")
 	if err := os.MkdirAll(versionDir, os.ModePerm); err != nil {
-        return fmt.Errorf("mkdir versions: %w", err)
-    }
+		return fmt.Errorf("mkdir versions: %w", err)
+	}
 
-    timestamp := time.Now().Format("20060102-150405")
-    versionedFilename := filepath.Join(versionDir, fmt.Sprintf("%s.%s", filepath.Base(absFilename), timestamp))
+	timestamp := time.Now().Format("20060102-150405")
+	versionedFilename := filepath.Join(versionDir, fmt.Sprintf("%s.%s", filepath.Base(absFilename), timestamp))
 	if err := os.Rename(absFilename, versionedFilename); err != nil {
-        return fmt.Errorf("rename file: %w", err)
-    }
+		return fmt.Errorf("rename file: %w", err)
+	}
 
-    log.Infof("Versioned file to %s", versionedFilename)
-    return cleanupOldVersions(versionDir)
+	log.Infof("Versioned file to %s", versionedFilename)
+	return cleanupOldVersions(versionDir)
 }
 
 func getFileInfo(path string) (os.FileInfo, error) {
@@ -1514,7 +1515,7 @@ func getFileInfo(path string) (os.FileInfo, error) {
 		}
 	}
 	fi, err := os.Stat(path)
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 	fileInfoCache.Set(path, fi, cache.DefaultExpiration)
@@ -1522,13 +1523,13 @@ func getFileInfo(path string) (os.FileInfo, error) {
 }
 
 func exampleRedisUsage(w http.ResponseWriter, r *http.Request) {
-	if (!redisConnected) {
+	if !redisConnected {
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
 	exampleParam := r.URL.Query().Get("example")
-	if (exampleParam == "") {
+	if exampleParam == "" {
 		http.Error(w, "Missing 'example' parameter", http.StatusBadRequest)
 		return
 	}
@@ -1547,7 +1548,7 @@ func exampleRedisUsage(w http.ResponseWriter, r *http.Request) {
 // Refactored parseIPFromNginxLog for improved robustness
 func parseIPFromNginxLog(logFile, urlPath string) string {
 	file, err := os.Open(logFile)
-	if (err != nil) {
+	if err != nil {
 		log.WithError(err).Errorf("Failed to open NGINX log file: %s", logFile)
 		return ""
 	}
@@ -1558,9 +1559,9 @@ func parseIPFromNginxLog(logFile, urlPath string) string {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if (strings.Contains(line, urlPath)) { // Check if the line corresponds to the requested URL path
+		if strings.Contains(line, urlPath) { // Check if the line corresponds to the requested URL path
 			fields := strings.Fields(line)
-			if (len(fields) > 1) { // Ensure there are enough fields
+			if len(fields) > 1 { // Ensure there are enough fields
 				ip = fields[0] // First field is the IP address
 				log.WithFields(logrus.Fields{
 					"url_path": urlPath,
@@ -1575,7 +1576,7 @@ func parseIPFromNginxLog(logFile, urlPath string) string {
 		log.WithError(err).Error("Error reading NGINX log file.")
 	}
 
-	if (ip == "") {
+	if ip == "" {
 		log.Warnf("No matching IP found in NGINX logs for path '%s'.", urlPath)
 	}
 
@@ -1585,14 +1586,14 @@ func parseIPFromNginxLog(logFile, urlPath string) string {
 // Enhanced getClientIPFromNginxLog with logging and fallback
 func getClientIPFromNginxLog(r *http.Request) string {
 	logFile := conf.IPManagement.NginxLogFile
-	if (logFile == "") {
+	if logFile == "" {
 		log.Error("NginxLogFile is not configured.")
 		return getClientIPFromHeader(r) // Fallback
 	}
 
 	urlPath := r.URL.Path
 	ip := parseIPFromNginxLog(logFile, urlPath)
-	if (ip == "") {
+	if ip == "" {
 		log.WithFields(logrus.Fields{
 			"url_path": urlPath,
 			"log_file": logFile,
@@ -1615,12 +1616,12 @@ func ParseCustomDuration(s string) (time.Duration, error) {
 	var total time.Duration
 	var num string
 	for _, char := range s {
-		if (char >= '0' && char <= '9') {
+		if char >= '0' && char <= '9' {
 			num += string(char)
 			continue
 		}
 		val, err := strconv.Atoi(num)
-		if (err != nil) {
+		if err != nil {
 			return 0, fmt.Errorf("invalid number: %s", num)
 		}
 		switch char {
@@ -1637,7 +1638,7 @@ func ParseCustomDuration(s string) (time.Duration, error) {
 		}
 		num = ""
 	}
-	if (num != "") {
+	if num != "" {
 		return 0, fmt.Errorf("trailing number without unit: %s", num)
 	}
 	return total, nil
@@ -1658,7 +1659,7 @@ func monitorQueueLengths(ctx context.Context) {
 			return
 		case <-ticker.C:
 			uploadQueueLength.Set(float64(len(uploadQueue)))
-			if (conf.ClamAVEnabled) {
+			if conf.ClamAVEnabled {
 				scanQueueLength.Set(float64(len(scanQueue)))
 			}
 			goroutines.Set(float64(runtime.NumGoroutine()))
@@ -1688,48 +1689,48 @@ func updateSystemMetrics(ctx context.Context) {
 }
 
 func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
-    quit := make(chan os.Signal, 1)
-    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-    go func() {
-        <-quit
-        log.Info("Shutting down server...")
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-quit
+		log.Info("Shutting down server...")
 
-        ctxShutdown, shutdownCancel := context.WithTimeout(context.Background(), time.Duration(conf.GracefulShutdownTimeout)*time.Second)
-        defer shutdownCancel()
+		ctxShutdown, shutdownCancel := context.WithTimeout(context.Background(), time.Duration(conf.GracefulShutdownTimeout)*time.Second)
+		defer shutdownCancel()
 
-        if err := server.Shutdown(ctxShutdown); err != nil {
-            log.WithError(err).Fatal("Server Shutdown Failed")
-        }
+		if err := server.Shutdown(ctxShutdown); err != nil {
+			log.WithError(err).Fatal("Server Shutdown Failed")
+		}
 
-        if redisClient != nil {
-            if err := redisClient.Close(); err != nil {
-                log.WithError(err).Error("Redis client close failed")
-            } else {
-                log.Info("Redis client closed.")
-            }
-        }
+		if redisClient != nil {
+			if err := redisClient.Close(); err != nil {
+				log.WithError(err).Error("Redis client close failed")
+			} else {
+				log.Info("Redis client closed.")
+			}
+		}
 
-        cancel()
-        close(uploadQueue)
-        if conf.ClamAVEnabled {
-            close(scanQueue)
-        }
-        close(networkEvents)
+		cancel()
+		close(uploadQueue)
+		if conf.ClamAVEnabled {
+			close(scanQueue)
+		}
+		close(networkEvents)
 
-        log.Info("Server gracefully stopped.")
-        // Removed os.Exit(0)
-    }()
+		log.Info("Server gracefully stopped.")
+		// Removed os.Exit(0)
+	}()
 }
 
 // Updated validateConfig function
 func validateConfig() {
-	if (conf.IPManagement.IPSource != "header" && conf.IPManagement.IPSource != "nginx-log") {
+	if conf.IPManagement.IPSource != "header" && conf.IPManagement.IPSource != "nginx-log" {
 		log.Warnf("Invalid IPSource '%s', defaulting to 'header'.", conf.IPManagement.IPSource)
 		conf.IPManagement.IPSource = "header"
 	}
 
-	if (conf.IPManagement.IPSource == "nginx-log") {
-		if (conf.IPManagement.NginxLogFile == "") {
+	if conf.IPManagement.IPSource == "nginx-log" {
+		if conf.IPManagement.NginxLogFile == "" {
 			log.Fatalf("NginxLogFile must be specified when IPSource is 'nginx-log'.")
 		}
 		if _, err := os.Stat(conf.IPManagement.NginxLogFile); os.IsNotExist(err) {
@@ -1744,21 +1745,21 @@ func validateConfig() {
 
 // Example using Go's testing package
 func TestValidateHMAC(t *testing.T) {
-    conf.Secret = "testsecret"
-    path := "/testpath"
-    contentLength := int64(1234)
-    version := "v"
-    r := &http.Request{
-        ContentLength: contentLength,
-    }
-    a := url.Values{}
-    
-    mac := hmac.New(sha256.New, []byte(conf.Secret))
-    mac.Write([]byte(fmt.Sprintf("%s %d", path, contentLength)))
-    expectedMAC := hex.EncodeToString(mac.Sum(nil))
-    a.Set(version, expectedMAC)
-    
-    if !validateHMAC(version, path, r, a) {
-        t.Error("HMAC validation failed")
-    }
+	conf.Secret = "testsecret"
+	path := "/testpath"
+	contentLength := int64(1234)
+	version := "v"
+	r := &http.Request{
+		ContentLength: contentLength,
+	}
+	a := url.Values{}
+
+	mac := hmac.New(sha256.New, []byte(conf.Secret))
+	mac.Write([]byte(fmt.Sprintf("%s %d", path, contentLength)))
+	expectedMAC := hex.EncodeToString(mac.Sum(nil))
+	a.Set(version, expectedMAC)
+
+	if !validateHMAC(version, path, r, a) {
+		t.Error("HMAC validation failed")
+	}
 }
