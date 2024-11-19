@@ -54,6 +54,12 @@ func EncryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 	return EncryptStream(key, in, out)
 }
 
+// IPManagement holds the IP management configuration.
+type IPManagement struct {
+	IPSource     string `toml:"IPSource"`
+	NginxLogFile string `toml:"NginxLogFile"`
+}
+
 func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 	if !conf.AESEnabled {
 		// Pass through the data unencrypted
@@ -179,6 +185,12 @@ type Config struct {
 	Fail2BanCommand           string   `toml:"Fail2BanCommand"`
 	Fail2BanJail              string   `toml:"Fail2BanJail"`
 	DeduplicationEnabled      bool     `toml:"DeduplicationEnabled"`
+
+	// IPManagement holds the IP management configuration.
+	IPManagement struct {
+		IPSource     string `toml:"IPSource"`     // "header" or "nginx-log"
+		NginxLogFile string `toml:"NginxLogFile"` // Required if IPSource is "nginx-log"
+	} `toml:"IPManagement"`
 }
 
 // UploadTask represents a file upload task.
@@ -242,6 +254,7 @@ const defaultRateLimitInterval = "1m"
 
 func main() {
 	flag.Parse()
+	validateConfig()
 	if err := readConfig("./config.toml", &conf); err != nil {
 		log.Fatalf("Error reading config: %v", err)
 	}
@@ -1067,7 +1080,20 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// Updated getClientIP function to utilize IPManagement
 func getClientIP(r *http.Request) string {
+	switch conf.IPManagement.IPSource {
+	case "header":
+		return getClientIPFromHeader(r)
+	case "nginx-log":
+		return getClientIPFromNginxLog(r)
+	default:
+		log.Warn("Unknown IPSource configuration, defaulting to headers.")
+		return getClientIPFromHeader(r)
+	}
+}
+
+func getClientIPFromHeader(r *http.Request) string {
 	clientIP := r.Header.Get("X-Forwarded-For")
 	if clientIP == "" {
 		clientIP = r.Header.Get("X-Real-IP")
@@ -1140,7 +1166,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	subDir := filepath.Join("/", conf.UploadSubDir)
-	fileStorePath := strings.TrimPrefix(p, subDir)
+	var fileStorePath string
+	fileStorePath = strings.TrimPrefix(p, subDir)
 	if fileStorePath == "" || fileStorePath == "/" {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
@@ -1443,6 +1470,66 @@ func exampleRedisUsage(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Value stored successfully"))
 }
 
+// Refactored parseIPFromNginxLog for improved robustness
+func parseIPFromNginxLog(logFile, urlPath string) string {
+	file, err := os.Open(logFile)
+	if err != nil {
+		log.WithError(err).Errorf("Failed to open NGINX log file: %s", logFile)
+		return ""
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var ip string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Adjust this based on your NGINX log format.
+		fields := strings.Fields(line)
+		if len(fields) > 1 && strings.Contains(line, urlPath) {
+			ip = fields[0] // Assuming the first field is the IP address.
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.WithError(err).Error("Error reading NGINX log file.")
+	}
+
+	if ip == "" {
+		log.Warnf("No matching IP found for path '%s' in NGINX logs.", urlPath)
+	}
+
+	return ip
+}
+
+// Enhanced getClientIPFromNginxLog with logging and fallback
+func getClientIPFromNginxLog(r *http.Request) string {
+	logFile := conf.IPManagement.NginxLogFile
+	if logFile == "" {
+		log.Error("NginxLogFile is not configured.")
+		return getClientIPFromHeader(r) // Fallback
+	}
+
+	urlPath := r.URL.Path
+	ip := parseIPFromNginxLog(logFile, urlPath)
+	if ip == "" {
+		log.WithFields(logrus.Fields{
+			"url_path": urlPath,
+			"log_file": logFile,
+		}).Warn("Failed to find IP in NGINX logs. Falling back to headers.")
+		return getClientIPFromHeader(r)
+	} else {
+		log.WithFields(logrus.Fields{
+			"url_path": urlPath,
+			"log_file": logFile,
+			"ip":       ip,
+		}).Info("Successfully parsed IP from NGINX logs")
+	}
+
+	return ip
+}
+
 // Removed duplicate setupGracefulShutdown function
 
 func ParseCustomDuration(s string) (time.Duration, error) {
@@ -1553,4 +1640,21 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 		log.Info("Server gracefully stopped.")
 		os.Exit(0)
 	}()
+}
+
+// Updated validateConfig function
+func validateConfig() {
+	if conf.IPManagement.IPSource != "header" && conf.IPManagement.IPSource != "nginx-log" {
+		log.Warnf("Invalid IPSource '%s', defaulting to 'header'.", conf.IPManagement.IPSource)
+		conf.IPManagement.IPSource = "header"
+	}
+
+	if conf.IPManagement.IPSource == "nginx-log" {
+		if conf.IPManagement.NginxLogFile == "" {
+			log.Fatalf("NginxLogFile must be specified when IPSource is 'nginx-log'.")
+		}
+		if _, err := os.Stat(conf.IPManagement.NginxLogFile); os.IsNotExist(err) {
+			log.Fatalf("NginxLogFile does not exist: %s", conf.IPManagement.NginxLogFile)
+		}
+	}
 }
