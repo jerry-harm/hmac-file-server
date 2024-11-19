@@ -172,23 +172,30 @@ func DecryptStream(key []byte, in io.Reader, out io.Writer) error {
 	return err
 }
 
-func initClamAV(socket string) (*clamd.Clamd, error) {
-	var client *clamd.Clamd
-	if strings.HasPrefix(socket, "/") {
-		// UNIX socket
-		client = clamd.NewClamd("unix:" + socket)
-	} else {
-		// TCP socket
-		client = clamd.NewClamd("tcp:" + socket)
-	}
+func initClamAV() (*clamd.Clamd, error) {
+	socket := conf.ClamAVSocket
+    var client *clamd.Clamd
 
-	if client == nil {
-		return nil, fmt.Errorf("failed to create ClamAV client")
-	}
-	if err := client.Ping(); err != nil {
-		return nil, err
-	}
-	return client, nil
+    if strings.HasPrefix(socket, "/") {
+        // UNIX socket
+        client = clamd.NewClamd("unix:" + socket)
+    } else if strings.HasPrefix(socket, "tcp:") {
+        // TCP socket
+        client = clamd.NewClamd(socket)
+    } else {
+        return nil, fmt.Errorf("invalid ClamAV socket format")
+    }
+
+    if client == nil {
+        return nil, fmt.Errorf("failed to create ClamAV client")
+    }
+
+    if err := client.Ping(); err != nil {
+        return nil, fmt.Errorf("ClamAV ping failed: %w", err)
+    }
+
+    log.Info("ClamAV initialized successfully.")
+    return client, nil
 }
 
 // Config holds the server configuration.
@@ -327,7 +334,7 @@ func main() {
 	}
 
 	if conf.ClamAVEnabled {
-		if c, err := initClamAV(conf.ClamAVSocket); err != nil {
+		if c, err := initClamAV(); err != nil {
 			log.WithError(err).Warn("ClamAV initialization failed.")
 			conf.ClamAVEnabled = false
 		} else {
@@ -830,42 +837,43 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 }
 
 func createFile(tempFilename string, r *http.Request) error {
-	if err := os.MkdirAll(filepath.Dir(tempFilename), os.ModePerm); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
+    if err := os.MkdirAll(filepath.Dir(tempFilename), os.ModePerm); err != nil {
+        return fmt.Errorf("create dir: %w", err)
+    }
 
-	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return fmt.Errorf("open file: %w", err)
-	}
-	defer file.Close()
+    // Change permissions from 0600 to 0644
+    file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+    if err != nil {
+        return fmt.Errorf("open file: %w", err)
+    }
+    defer file.Close()
 
-	writer := bufio.NewWriterSize(file, 4<<20) // 4MB buffer
-	totalBytes := int64(0)
-	buffer := make([]byte, 4<<20)
+    writer := bufio.NewWriterSize(file, 4<<20) // 4MB buffer
+    totalBytes := int64(0)
+    buffer := make([]byte, 4<<20)
 
-	for {
-		n, err := r.Body.Read(buffer)
-		if n > 0 {
-			totalBytes += int64(n)
-			if _, writeErr := writer.Write(buffer[:n]); writeErr != nil {
-				return fmt.Errorf("write file: %w", writeErr)
-			}
-		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("read body: %w", err)
-		}
-	}
+    for {
+        n, err := r.Body.Read(buffer)
+        if n > 0 {
+            totalBytes += int64(n)
+            if _, writeErr := writer.Write(buffer[:n]); writeErr != nil {
+                return fmt.Errorf("write file: %w", writeErr)
+            }
+        }
+        if err != nil {
+            if err == io.EOF {
+                break
+            }
+            return fmt.Errorf("read body: %w", err)
+        }
+    }
 
-	if err := writer.Flush(); err != nil {
-		return fmt.Errorf("flush writer: %w", err)
-	}
+    if err := writer.Flush(); err != nil {
+        return fmt.Errorf("flush writer: %w", err)
+    }
 
-	uploadSizeBytes.Observe(float64(totalBytes))
-	return nil
+    uploadSizeBytes.Observe(float64(totalBytes))
+    return nil
 }
 
 func handleChunkedUpload(tempFilename string, r *http.Request) error {
@@ -875,7 +883,8 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
-	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	// Change permissions from 0600 to 0644
+	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
 	}
