@@ -320,7 +320,7 @@ func main() {
 	if err := readConfig("./config.toml", &conf); err != nil {
 		log.Fatalf("Error reading config: %v", err)
 	}
-	validateConfig()
+	validateConfig(&conf)
 
 	setupLogging()
 	logSystemInfo()
@@ -1792,21 +1792,6 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 }
 
 // Updated validateConfig function
-func validateConfig() {
-	if conf.IPManagement.IPSource != "header" && conf.IPManagement.IPSource != "nginx-log" {
-		log.Warnf("Invalid IPSource '%s', defaulting to 'header'.", conf.IPManagement.IPSource)
-		conf.IPManagement.IPSource = "header"
-	}
-
-	if conf.IPManagement.IPSource == "nginx-log" {
-		if conf.IPManagement.NginxLogFile == "" {
-			log.Fatalf("NginxLogFile must be specified when IPSource is 'nginx-log'.")
-		}
-		if _, err := os.Stat(conf.IPManagement.NginxLogFile); os.IsNotExist(err) {
-			log.Fatalf("NginxLogFile does not exist: %s", conf.IPManagement.NginxLogFile)
-		}
-	}
-}
 
 // Removed unused variable muIP
 
@@ -1831,4 +1816,12 @@ func TestValidateHMAC(t *testing.T) {
 	if !validateHMAC(version, path, r, a) {
 		t.Error("HMAC validation failed")
 	}
+}
+
+func validateConfig(config *Config) {
+    if config.IPManagement.IPSource == "" {
+        logrus.Warning("Invalid IPSource '', defaulting to 'header'.")
+        config.IPManagement.IPSource = "header"
+    }
+    // Add other validation checks as needed
 }
