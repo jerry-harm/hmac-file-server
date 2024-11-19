@@ -17,10 +17,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,7 +37,11 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
+	"runtime"
+	"os/exec"
 )
+
+// Removed duplicate validateConfig function
 
 // Removed duplicate Config struct
 
@@ -72,7 +74,6 @@ func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 // Config holds the server configuration.
 // Removed duplicate Config struct and redundant import statements
 
-// DetectFileType uses libmagic to determine the file type.
 func DetectFileType(filePath string) (string, error) {
 	mimeType, err := magicmime.TypeByFile(filePath)
 	if err != nil {
