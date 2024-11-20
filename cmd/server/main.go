@@ -50,6 +50,8 @@ import (
 
 // Removed duplicate readConfig function
 
+// var conf Config
+
 // EncryptStream encrypts data from the input reader to the output writer using AES-CTR mode.
 // If AES encryption is disabled in the configuration, it performs a direct copy.
 func EncryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
@@ -589,7 +591,7 @@ func logSystemInfo() {
 	log.Info("========================================")
 
 	log.Info("Features: Prometheus Metrics, Chunked Uploads, ClamAV Scanning, Deduplication")
-	log.Info("Build Date: 2024-10-28")
+	log.Info("Build Date: 2024-11-20")
 
 	log.Infof("OS: %s, Arch: %s, CPUs: %d, Go: %s", runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.Version())
 
