@@ -11,7 +11,7 @@ The HMAC File Server is a secure solution for file uploads and downloads. It fea
 
 - **Authentication**: HMAC-based authentication with multiple protocols (`v`, `v2`, `token`).
 - **File Handling**: Resumable uploads/downloads, deduplication, and file versioning.
-- **Security**: AES encryption, ClamAV virus scanning, and IP rate limiting.
+- **Security**: AES encryption, ClamAV virus scanning, IP rate limiting, and Fail2Ban integration.
 - **Monitoring**: Prometheus metrics to monitor performance and resource usage.
 
 ---
@@ -34,12 +34,12 @@ The HMAC File Server is a secure solution for file uploads and downloads. It fea
 
 1. **Software**:
    - Go 1.20+
-   - Redis (optional, for deduplication and token storage).
-   - ClamAV (optional, for virus scanning).
+   - Redis (optional, for deduplication and token storage)
+   - ClamAV (optional, for virus scanning)
 
 2. **Environment**:
-   - Adequate storage space for file storage and logs.
-   - Network configuration for IP management (optional).
+   - Adequate storage space for file storage and logs
+   - Network configuration for IP management (optional)
 
 ---
 
@@ -72,82 +72,77 @@ go build -o hmac-file-server main.go
 
 ```toml
 # Server settings
-ListenPort               = ":8080"                  # Port for the file server
-UnixSocket               = false                    # Use Unix sockets if true
-Secret                   = "your-secret-hmac-key"   # HMAC secret for authentication
-StoreDir                 = "/var/lib/hmac-files"    # Directory for storing files
-UploadSubDir             = "upload"                # Subdirectory for uploads
-LoggingEnabled           = true
-LogLevel                 = "info"                  # Log level: "debug", "info", "warn", "error"
-LogFile                  = "/var/log/hmac.log"     # Log file path
-MetricsEnabled           = true                    # Enable Prometheus metrics
-MetricsPort              = ":9090"                 # Port for metrics server
+ListenIP                  = "0.0.0.0"                 # IP address to bind the server to
+ListenPort                = "8080"                    # Port for the file server
+UnixSocket                = false                     # Use Unix sockets if true
+Secret                    = "your-secret-hmac-key"    # HMAC secret for authentication
+StoreDir                  = "/var/lib/hmac-files"     # Directory for storing files
+UploadSubDir              = "upload"                  # Subdirectory for uploads
+LoggingEnabled            = true
+LogLevel                  = "info"                    # Log level: "debug", "info", "warn", "error"
+LogFile                   = "/var/log/hmac.log"       # Log file path
+MetricsEnabled            = true                      # Enable Prometheus metrics
+MetricsPort               = ":9090"                   # Port for metrics server
+FileTTL                   = "365d"                    # Time-to-live for files (e.g., "30d", "24h")
+ResumableUploadsEnabled   = true                      # Allow resumable uploads
+ResumableDownloadsEnabled = true                      # Allow resumable downloads
+EnableVersioning          = false                     # Enable file versioning
+MaxVersions               = 5                         # Max file versions to keep
+ChunkedUploadsEnabled     = true                      # Enable chunked uploads
+ChunkSize                 = 1048576                   # Chunk size in bytes (e.g., 1MB)
+AllowedExtensions         = [".txt", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".mp3", ".mp4", ".avi", ".mkv", ".wav"]
+NumWorkers                = 5                         # Number of upload workers
+UploadQueueSize           = 50                        # Upload queue size
+ReadTimeout               = "4800s"                   # Read timeout
+WriteTimeout              = "4800s"                   # Write timeout
+IdleTimeout               = "65s"                     # Idle timeout
+GracefulShutdownTimeout   = 10                        # Timeout for graceful shutdown in seconds
 
 # Encryption settings
-Method                   = "hmac"                  # Encryption method: "hmac" or "aes"
-AESEnabled               = false
-AESKey                   = "32-character-secret-key-for-aes"
+AESEnabled                = false                     # Enable AES encryption
+[Encryption]
+Method                    = "aes"                     # Encryption method: "hmac" or "aes"
 
 # TLS settings
-EnableTLS                = false                   # Enable TLS
-CertDir                  = "/etc/ssl/certs"        # Directory for certificates
-Hostnames                = ["example.com"]         # Domain names
-UseStaging               = false                   # Use staging certificates
-
-# Upload/download settings
-ResumableUploadsEnabled  = true                    # Allow resumable uploads
-ResumableDownloads       = true                    # Allow resumable downloads
-ChunkedUploadsEnabled    = true                    # Enable chunked uploads
-ChunkSize                = 8192                   # Chunk size in bytes
-MaxVersions              = 1                       # Max file versions to keep
-EnableVersioning         = false                   # Enable file versioning
-FileTTL                  = "365d"                  # Time-to-live for files
-
-# Worker and connection settings
-NumWorkers               = 5                       # Number of workers
-UploadQueueSize          = 50                      # Upload queue size
-ReadTimeout              = "4800s"                 # Read timeout
-WriteTimeout             = "4800s"                 # Write timeout
-IdleTimeout              = "65s"                   # Idle timeout
-
-# Deduplication
-DeduplicationEnabled     = true                    # Enable deduplication
-
-# Redis settings
-RedisEnabled             = true                    # Enable Redis for caching
-RedisAddr                = "localhost:6379"        # Redis address
-RedisPassword            = ""                      # Redis password
-RedisDBIndex             = 0                       # Redis database index
-RedisHealthCheckInterval = "120s"                  # Health check interval
+[TLS]
+EnableTLS                 = false                     # Enable TLS
+CertDir                   = "/etc/ssl/certs"          # Directory for certificates
+Hostnames                 = ["example.com"]           # Domain names
+UseStaging                = false                     # Use staging certificates
 
 # ClamAV settings
-ClamAVEnabled            = true                    # Enable virus scanning
-NumScanWorkers           = 5                       # Number of ClamAV workers
-ClamAVSocket             = "/var/run/clamav/clamd.ctl" # Path to ClamAV socket
+ClamAVEnabled             = true                      # Enable virus scanning
+ClamAVSocket              = "/var/run/clamav/clamd.ctl" # Path to ClamAV socket
+NumScanWorkers            = 5                         # Number of ClamAV scan workers
+
+# Redis settings
+RedisEnabled              = true                      # Enable Redis for caching
+RedisAddr                 = "localhost:6379"          # Redis address
+RedisPassword             = ""                        # Redis password
+RedisDBIndex              = 0                         # Redis database index
+RedisHealthCheckInterval  = "30s"                     # Health check interval
 
 # IP management
-EnableIPManagement       = false                   # Enable IP management
-AllowedIPs               = ["0.0.0.0/0"]           # List of allowed IPs
-IPCheckInterval          = "65s"                   # Interval for IP checks
+EnableIPManagement        = false                     # Enable IP management
+AllowedIPs                = ["0.0.0.0/0"]             # List of allowed IPs
+BlockedIPs                = []                        # List of blocked IPs
+IPCheckInterval           = "60s"                     # Interval for IP checks
+[IPManagement]
+IPSource                  = "header"                  # "header" or "nginx-log"
+NginxLogFile              = "/var/log/nginx/access.log" # Required if IPSource is "nginx-log"
 
 # Rate limiting
-RateLimitingEnabled      = false                   # Enable rate limiting
-MaxRequestsPerMinute     = 60                      # Max requests per minute
-RateLimitInterval        = "1m"                    # Rate limit interval
+EnableRateLimiting        = false                     # Enable rate limiting
+RequestsPerMinute         = 60                        # Max requests per minute
+RateLimitInterval         = "1m"                      # Rate limit interval
 
 # Fail2Ban settings
-Enable                   = true                    # Enable Fail2Ban
-Jail                     = "hmac-auth"             # Fail2Ban jail name
-BlockCommand             = "/usr/bin/fail2ban-client set hmac-auth <IP>"
-UnblockCommand           = "/usr/bin/fail2ban-client set hmac-auth unban <IP>"
-MaxRetries               = 3                       # Max retries before banning
-BanTime                  = "3600s"                 # Ban time in seconds
+Fail2BanEnabled           = true                      # Enable Fail2Ban
+Fail2BanCommand           = "/usr/bin/fail2ban-client" # Fail2Ban command
+Fail2BanJail              = "hmac-auth"               # Fail2Ban jail name
 
-# Allowed file extensions
-AllowedExtensions = [
-    ".txt", ".pdf", ".jpg", ".jpeg", ".png", ".gif",
-    ".mp3", ".mp4", ".avi", ".mkv", ".wav"
-]
+# Deduplication
+DeduplicationEnabled      = true                      # Enable deduplication
 ```
 
 ---
@@ -157,23 +152,42 @@ AllowedExtensions = [
 ### Upload File
 
 ```bash
-curl -X PUT "http://localhost:8080/upload/myfile.txt?hmac=<HMAC>" --data-binary @myfile.txt
+# Generate HMAC for protocol version 'v'
+CONTENT_LENGTH=$(stat -c%s "myfile.txt")
+HMAC=$(printf "/upload/myfile.txt %d" "$CONTENT_LENGTH" | openssl dgst -sha256 -hmac "your-secret-hmac-key" | awk '{print $2}')
+curl -X PUT "http://localhost:8080/upload/myfile.txt?v=$HMAC" --data-binary @myfile.txt
 ```
 
 ### Download File
 
 ```bash
-curl -X GET "http://localhost:8080/upload/myfile.txt?hmac=<HMAC>"
+curl -X GET "http://localhost:8080/upload/myfile.txt"
 ```
 
 ---
 
 ## Prometheus Metrics
 
-- **System**: CPU, memory, and goroutine count.
-- **Uploads**: Duration, errors, and success metrics.
-- **Downloads**: Duration and success metrics.
-- **Errors**: Tracks upload/download errors.
+- **System**:
+  - `memory_usage_bytes`: Current memory usage.
+  - `cpu_usage_percent`: Current CPU usage.
+  - `goroutines_count`: Number of active goroutines.
+
+- **Uploads**:
+  - `file_server_upload_duration_seconds`: Upload duration histogram.
+  - `file_server_upload_errors_total`: Total upload errors.
+  - `file_server_uploads_total`: Total successful uploads.
+  - `file_server_upload_size_bytes`: Uploaded file size histogram.
+
+- **Downloads**:
+  - `file_server_download_duration_seconds`: Download duration histogram.
+  - `file_server_download_errors_total`: Total download errors.
+  - `file_server_downloads_total`: Total successful downloads.
+  - `file_server_download_size_bytes`: Downloaded file size histogram.
+
+- **Security**:
+  - `infected_files_total`: Total number of infected files detected.
+  - `file_deletions_total`: Total number of files deleted based on FileTTL.
 
 ---
 
@@ -196,7 +210,8 @@ go mod tidy
 ## Known Limitations
 
 - **Integrity Protection**: AES-CTR encrypts data but doesn't prevent tampering. Use HMAC for integrity.
-- **Heavy Redis Use**: Redis performance may degrade under heavy workloads.
+- **Redis Performance**: Redis performance may degrade under heavy workloads. Ensure proper configuration and resources.
+- **Fail2Ban Integration**: Ensure that Fail2Ban is correctly configured on your system to work with the provided commands.
 
 ---
 
