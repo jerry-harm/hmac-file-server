@@ -45,7 +45,7 @@ import (
 )
 
 var (
-	conf         Config
+	conf Config
 
 	// Add your Prometheus metrics here
 	// uploadsTotal is already declared later in the code
@@ -438,7 +438,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         conf.ListenPort,
+		Addr:         net.JoinHostPort(conf.ListenIP, strings.TrimPrefix(conf.ListenPort, ":")),
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
