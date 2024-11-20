@@ -44,6 +44,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	conf         Config
+
+	// Add your Prometheus metrics here
+	// uploadsTotal is already declared later in the code
+)
+
 // Removed duplicate validateConfig function
 
 // Removed duplicate Config struct
@@ -287,7 +294,6 @@ type NetworkEvent struct {
 }
 
 var (
-	conf          Config
 	versionString = "2.1.0pre"
 	log           = logrus.New()
 
