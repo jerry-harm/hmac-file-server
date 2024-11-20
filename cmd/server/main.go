@@ -183,6 +183,11 @@ func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 	case "hmac":
 		// Implement HMAC verification if applicable
 		return VerifyStream(key, in, out)
+	case "xor":
+		if len(key) == 0 {
+			return fmt.Errorf("XOR key is not set")
+		}
+		return xorTransform(key, in, out) // XOR is symmetric
 	default:
 		// Default to passing through
 		_, err := io.Copy(out, in)
@@ -348,8 +353,9 @@ type Config struct {
 
 	// Encryption holds the encryption configuration.
 	Encryption struct {
-		Method string `toml:"Method"` // "hmac" or "aes"
+		Method string `toml:"Method"` // "hmac", "aes", or "xor"
 		AESKey string `toml:"AESKey"` // Derived AES key
+		XORKey string `toml:"XORKey"` // Key for XOR encryption
 	} `toml:"Encryption"`
 
 	// TLS holds the TLS configuration.
@@ -1967,4 +1973,32 @@ func validateConfig(config *Config) {
 		config.IPManagement.IPSource = "header"
 	}
 	// Add other validation checks as needed
+}
+
+// Add xorTransform function
+func xorTransform(key []byte, in io.Reader, out io.Writer) error {
+    keyLen := len(key)
+    if keyLen == 0 {
+        return fmt.Errorf("key cannot be empty")
+    }
+    buf := make([]byte, 1024) // Buffer for reading input
+
+    for {
+        n, err := in.Read(buf)
+        if n > 0 {
+            for i := 0; i < n; i++ {
+                buf[i] ^= key[i%keyLen] // XOR with the key
+            }
+            if _, err := out.Write(buf[:n]); err != nil {
+                return fmt.Errorf("write error: %w", err)
+            }
+        }
+        if err != nil {
+            if err == io.EOF {
+                break
+            }
+            return fmt.Errorf("read error: %w", err)
+        }
+    }
+    return nil
 }
