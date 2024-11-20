@@ -530,14 +530,13 @@ func readConfig(path string, conf *Config) error {
 		return err
 	}
 
-	log.WithFields(logrus.Fields{
-		"ListenIP":         conf.ListenIP,
-		"ListenPort":       conf.ListenPort,
-		// Other fields...
-	}).Info("Configuration loaded successfully")
-
-	return nil
-}
+		log.WithFields(logrus.Fields{
+			"ListenIP":         conf.ListenIP,
+			"ListenPort":       conf.ListenPort,
+			// Other fields...
+		}).Info("Configuration loaded successfully")
+	
+		return nil
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.LogLevel)
@@ -1228,7 +1227,14 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.WithField("panic", rec).Error("Recovered from panic")
+				log.Errorf("Recovered from panic: %v", rec)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+overed from panic")
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()
