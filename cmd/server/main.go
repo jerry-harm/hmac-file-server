@@ -264,6 +264,7 @@ type Config struct {
 	// Encryption holds the encryption configuration.
 	Encryption struct {
 		Method string `toml:"Method"` // "hmac" or "aes"
+		AESKey string `toml:"AESKey"` // Derived AES key
 	} `toml:"Encryption"`
 
 	// TLS holds the TLS configuration.
@@ -479,6 +480,12 @@ func main() {
 	}
 }
 
+// Derive AES key from the HMAC secret
+func deriveAESKey(secret string) []byte {
+	hash := sha256.Sum256([]byte(secret))
+	return hash[:]
+}
+
 // Updated readConfig function to handle FileTTL correctly
 func readConfig(path string, conf *Config) error {
 	if _, err := toml.DecodeFile(path, conf); err != nil {
@@ -521,6 +528,11 @@ func readConfig(path string, conf *Config) error {
 	if conf.Encryption.Method != "hmac" && conf.Encryption.Method != "aes" {
 		log.Warnf("Invalid Encryption Method '%s', defaulting to 'aes'.", conf.Encryption.Method)
 		conf.Encryption.Method = "aes"
+	}
+
+	// Derive AES key from Secret if AES is enabled
+	if conf.Encryption.Method == "aes" && conf.AESEnabled {
+		conf.Encryption.AESKey = hex.EncodeToString(deriveAESKey(conf.Secret))
 	}
 
 	log.WithFields(logrus.Fields{
