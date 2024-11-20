@@ -100,11 +100,9 @@ GracefulShutdownTimeout   = 10                        # Timeout for graceful shu
 
 # Encryption settings
 AESEnabled                = false                     # Enable AES encryption
-[Encryption]
 Method                    = "aes"                     # Encryption method: "hmac" or "aes"
 
 # TLS settings
-[TLS]
 EnableTLS                 = false                     # Enable TLS
 CertDir                   = "/etc/ssl/certs"          # Directory for certificates
 Hostnames                 = ["example.com"]           # Domain names
