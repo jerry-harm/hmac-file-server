@@ -42,7 +42,6 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
-	"net"
 )
 
 var (
@@ -210,7 +209,6 @@ func initClamAV() (*clamd.Clamd, error) {
 
 // Config holds the server configuration.
 type Config struct {
-	ListenIP                  string   `toml:"ListenIP"`
 	ListenPort                string   `toml:"ListenPort"`
 	UnixSocket                bool     `toml:"UnixSocket"`
 	Secret                    string   `toml:"Secret"`
@@ -274,8 +272,6 @@ type Config struct {
 		Hostnames  []string `toml:"Hostnames"`
 		UseStaging bool     `toml:"UseStaging"`
 	} `toml:"TLS"`
-
-	ListenAddr string `toml:"ListenAddr"`
 }
 
 // UploadTask represents a file upload task.
@@ -442,7 +438,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         conf.ListenAddr,
+		Addr:         conf.ListenPort,
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
@@ -484,7 +480,7 @@ func main() {
 // Updated readConfig function to handle FileTTL correctly
 func readConfig(path string, conf *Config) error {
 	if _, err := toml.DecodeFile(path, conf); err != nil {
-		return fmt.Errorf("failed to parse config file: %w", err)
+		return err
 	}
 
 	// Set defaults
@@ -525,18 +521,23 @@ func readConfig(path string, conf *Config) error {
 		conf.Encryption.Method = "aes"
 	}
 
-	address := net.JoinHostPort(conf.ListenIP, conf.ListenPort)
-	if err := validateAddress(address); err != nil {
-		return err
-	}
+	log.WithFields(logrus.Fields{
+		"ListenPort":         conf.ListenPort,
+		"UnixSocket":         conf.UnixSocket,
+		"StoreDir":           conf.StoreDir,
+		"LoggingEnabled":     conf.LoggingEnabled,
+		"LogLevel":           conf.LogLevel,
+		"MetricsEnabled":     conf.MetricsEnabled,
+		"FileTTL":            conf.FileTTL,
+		"EnableIPManagement": conf.EnableIPManagement,
+		"IPSource":           conf.IPManagement.IPSource,
+		"NginxLogFile":       conf.IPManagement.NginxLogFile,
+		"EncryptionMethod":   conf.Encryption.Method,
+		// Add other relevant configurations
+	}).Info("Configuration loaded successfully")
 
-		log.WithFields(logrus.Fields{
-			"ListenIP":         conf.ListenIP,
-			"ListenPort":       conf.ListenPort,
-			// Other fields...
-		}).Info("Configuration loaded successfully")
-	
-		return nil
+	return nil
+}
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.LogLevel)
@@ -1227,14 +1228,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Errorf("Recovered from panic: %v", rec)
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			}
-		}()
-		next.ServeHTTP(w, r)
-	})
-}
-overed from panic")
+				log.WithField("panic", rec).Error("Recovered from panic")
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()
@@ -1859,12 +1853,4 @@ func validateConfig(config *Config) {
 		config.IPManagement.IPSource = "header"
 	}
 	// Add other validation checks as needed
-}
-func validateAddress(addr string) error {
-	_, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("invalid listen address '%s': %w", addr, err)
-	}
-	return nil
-}
 }
