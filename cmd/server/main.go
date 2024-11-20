@@ -325,6 +325,19 @@ var (
 const defaultRateLimitInterval = "1m"
 
 // Updated main function to conditionally start file cleanup based on FileTTL
+// main is the entry point for the HMAC file server application. It performs the following tasks:
+// 1. Parses command-line flags.
+// 2. Reads and validates the configuration from a TOML file.
+// 3. Sets up logging and system metrics.
+// 4. Initializes optional services like Redis and ClamAV if enabled in the configuration.
+// 5. Creates necessary directories and initializes caches.
+// 6. Sets up rate limiting if enabled in the configuration.
+// 7. Initializes channels for upload and scan tasks, and network events.
+// 8. Starts various background goroutines for monitoring and handling tasks.
+// 9. Configures and starts the HTTP server with specified timeouts.
+// 10. Optionally starts a metrics server if enabled in the configuration.
+// 11. Sets up graceful shutdown handling.
+// 12. Starts the main server, either on a TCP port or a Unix socket based on the configuration.
 func main() {
 	flag.Parse()
 	if err := readConfig("./config.toml", &conf); err != nil {
