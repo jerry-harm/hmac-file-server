@@ -438,7 +438,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         net.JoinHostPort(conf.ListenIP, strings.TrimPrefix(conf.ListenPort, ":")),
+		Addr:         net.JoinHostPort(conf.ListenIP, conf.ListenPort),
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
