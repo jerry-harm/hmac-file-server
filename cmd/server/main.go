@@ -529,6 +529,13 @@ func readConfig(path string, conf *Config) error {
 		conf.Encryption.Method = "aes" // Default to AES
 	}
 
+	if conf.MetricsPort == "" {
+		conf.MetricsPort = ":9090"
+	}
+	if conf.ListenIPMetrics == "" {
+		conf.ListenIPMetrics = "127.0.0.1"
+	}
+
 	// Validate Encryption method
 	if conf.Encryption.Method != "hmac" && conf.Encryption.Method != "aes" {
 		log.Warnf("Invalid Encryption Method '%s', defaulting to 'aes'.", conf.Encryption.Method)
@@ -552,6 +559,9 @@ func readConfig(path string, conf *Config) error {
 		"IPSource":           conf.IPManagement.IPSource,
 		"NginxLogFile":       conf.IPManagement.NginxLogFile,
 		"EncryptionMethod":   conf.Encryption.Method,
+		"MetricsEnabled":     conf.MetricsEnabled,
+		"MetricsPort":        conf.MetricsPort,
+		"ListenIPMetrics":    conf.ListenIPMetrics,
 		// Add other relevant configurations
 	}).Info("Configuration loaded successfully")
 
@@ -611,7 +621,7 @@ func initRedis() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := redisClient.Ping(ctx).Result(); err != nil {
+	if _, err := redisClient.Pping(ctx).Result(); err != nil {
 		return err
 	}
 
