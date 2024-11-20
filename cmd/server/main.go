@@ -274,6 +274,11 @@ type Config struct {
 		Hostnames  []string `toml:"Hostnames"`
 		UseStaging bool     `toml:"UseStaging"`
 	} `toml:"TLS"`
+
+	// Metrics configuration
+	MetricsEnabled  bool   `toml:"MetricsEnabled"`  // Enable Prometheus metrics
+	MetricsPort     string `toml:"MetricsPort"`     // Port for the metrics server
+	ListenIPMetrics string `toml:"ListenIPMetrics"` // IP address for the metrics server
 }
 
 // UploadTask represents a file upload task.
