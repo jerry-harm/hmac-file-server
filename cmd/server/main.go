@@ -273,6 +273,8 @@ type Config struct {
 		Hostnames  []string `toml:"Hostnames"`
 		UseStaging bool     `toml:"UseStaging"`
 	} `toml:"TLS"`
+
+	ListenAddr string `toml:"ListenAddr"`
 }
 
 // UploadTask represents a file upload task.
@@ -439,7 +441,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         net.JoinHostPort(conf.ListenIP, conf.ListenPort),
+		Addr:         conf.ListenAddr,
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
