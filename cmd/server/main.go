@@ -481,7 +481,7 @@ func main() {
 // Updated readConfig function to handle FileTTL correctly
 func readConfig(path string, conf *Config) error {
 	if _, err := toml.DecodeFile(path, conf); err != nil {
-		return err
+		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
 	// Set defaults
