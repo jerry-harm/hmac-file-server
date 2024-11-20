@@ -1,7 +1,7 @@
 # Example configuration for HMAC File Server
 
 # Server settings
-ListenIP		 = ""
+ListenIP		 = "127.0.0.1"
 ListenPort               = "8080"                              # Port for the file server to listen on
 UnixSocket               = false                                # Use Unix sockets if true, otherwise TCP
 Secret                   = "your-secret-key"                    # HMAC secret for securing uploads
@@ -10,7 +10,7 @@ UploadSubDir             = "upload"                             # Subdirectory f
 LoggingEnabled		 = false				# Set to false to disable logging
 LogLevel                 = "error"                              # Logging level: "debug", "info", "warn", "error"
 LogFile                  = "./hmac-file-server.log"		# Log file path
-ListenIPMetrics		 = ""
+ListenIPMetrics		 = "127.0.0.1"
 MetricsEnabled           = true                                 # Enable Prometheus metrics
 MetricsPort              = "9090"                              # Port for Prometheus metrics server
 
