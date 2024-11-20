@@ -100,11 +100,9 @@ GracefulShutdownTimeout   = 10                        # Timeout for graceful shu
 
 # Encryption settings
 AESEnabled                = false                     # Enable AES encryption
-[Encryption]
 Method                    = "aes"                     # Encryption method: "hmac" or "aes"
 
 # TLS settings
-[TLS]
 EnableTLS                 = false                     # Enable TLS
 CertDir                   = "/etc/ssl/certs"          # Directory for certificates
 Hostnames                 = ["example.com"]           # Domain names
@@ -127,7 +125,6 @@ EnableIPManagement        = false                     # Enable IP management
 AllowedIPs                = ["0.0.0.0/0"]             # List of allowed IPs
 BlockedIPs                = []                        # List of blocked IPs
 IPCheckInterval           = "60s"                     # Interval for IP checks
-[IPManagement]
 IPSource                  = "header"                  # "header" or "nginx-log"
 NginxLogFile              = "/var/log/nginx/access.log" # Required if IPSource is "nginx-log"
 
