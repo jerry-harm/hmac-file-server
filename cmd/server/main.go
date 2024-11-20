@@ -345,6 +345,7 @@ const defaultRateLimitInterval = "1m"
 // 10. Optionally starts a metrics server if enabled in the configuration.
 // 11. Sets up graceful shutdown handling.
 // 12. Starts the main server, either on a TCP port or a Unix socket based on the configuration.
+
 func main() {
 	flag.Parse()
 	if err := readConfig("./config.toml", &conf); err != nil {
