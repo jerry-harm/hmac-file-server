@@ -42,6 +42,7 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
+	"net"
 )
 
 var (
@@ -1853,13 +1854,11 @@ func validateConfig(config *Config) {
 	}
 	// Add other validation checks as needed
 }
-
-import "net"
-
 func validateAddress(addr string) error {
-    _, err := net.ResolveTCPAddr("tcp", addr)
-    if err != nil {
-        return fmt.Errorf("invalid listen address '%s': %w", addr, err)
-    }
-    return nil
+	_, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("invalid listen address '%s': %w", addr, err)
+	}
+	return nil
+}
 }
