@@ -125,7 +125,6 @@ EnableIPManagement        = false                     # Enable IP management
 AllowedIPs                = ["0.0.0.0/0"]             # List of allowed IPs
 BlockedIPs                = []                        # List of blocked IPs
 IPCheckInterval           = "60s"                     # Interval for IP checks
-[IPManagement]
 IPSource                  = "header"                  # "header" or "nginx-log"
 NginxLogFile              = "/var/log/nginx/access.log" # Required if IPSource is "nginx-log"
 
