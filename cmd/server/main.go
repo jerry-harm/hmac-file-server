@@ -209,15 +209,15 @@ func initClamAV() (*clamd.Clamd, error) {
 
 // Config holds the server configuration.
 type Config struct {
-	ListenIP                  string   `toml:"ListenIP"`   // IP address to bind the server to
-	ListenPort                string   `toml:"ListenPort"` // Port to bind the server to
-	UnixSocket                bool     `toml:"UnixSocket"`
-	Secret                    string   `toml:"Secret"`
-	StoreDir                  string   `toml:"StoreDir"`
-	UploadSubDir              string   `toml:"UploadSubDir"`
-	LoggingEnabled            bool     `toml:"LoggingEnabled"`
-	LogLevel                  string   `toml:"LogLevel"`
-	LogFile                   string   `toml:"LogFile"`
+	ListenIP       string `toml:"ListenIP"`   // IP address to bind the server to
+	ListenPort     string `toml:"ListenPort"` // Port to bind the server to
+	UnixSocket     bool   `toml:"UnixSocket"`
+	Secret         string `toml:"Secret"`
+	StoreDir       string `toml:"StoreDir"`
+	UploadSubDir   string `toml:"UploadSubDir"`
+	LoggingEnabled bool   `toml:"LoggingEnabled"`
+	LogLevel       string `toml:"LogLevel"`
+	LogFile        string `toml:"LogFile"`
 	// MetricsEnabled is already declared later in the code
 	// MetricsPort is already declared later in the code
 	FileTTL                   string   `toml:"FileTTL"`
