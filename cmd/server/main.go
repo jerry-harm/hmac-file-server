@@ -439,7 +439,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         conf.ListenPort,
+		Addr:         net.JoinHostPort(conf.ListenIP, conf.ListenPort), // Correctly join IP and port
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
