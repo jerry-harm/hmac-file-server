@@ -85,7 +85,92 @@ type IPManagement struct {
 	IPSource     string `toml:"IPSource"`
 	NginxLogFile string `toml:"NginxLogFile"`
 }
+type FileCleaner struct {
+	storeDir             string
+	ttl                  time.Duration
+	deduplicationEnabled bool
+	redisEnabled         bool
+	redisConnected       bool
+	redisClient          *redis.Client
+	logger               *logrus.Logger
+	deletedFilesTotal    prometheus.Counter
+}
 
+func NewFileCleaner(storeDir string, ttl time.Duration, deduplicationEnabled, redisEnabled, redisConnected bool, redisClient *redis.Client, logger *logrus.Logger, deletedFilesTotal prometheus.Counter) *FileCleaner {
+	return &FileCleaner{
+		storeDir:             storeDir,
+		ttl:                  ttl,
+		deduplicationEnabled: deduplicationEnabled,
+		redisEnabled:         redisEnabled,
+		redisConnected:       redisConnected,
+		redisClient:          redisClient,
+		logger:               logger,
+		deletedFilesTotal:    deletedFilesTotal,
+	}
+}
+
+func (fc *FileCleaner) Cleanup() error {
+	now := time.Now()
+	err := filepath.Walk(fc.storeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			fc.logger.WithError(err).Errorf("Access error: %s", path)
+			return nil
+		}
+		if info.IsDir() && fc.deduplicationEnabled && strings.HasSuffix(info.Name(), "_versions") {
+			return filepath.SkipDir
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		if now.Sub(info.ModTime()) > fc.ttl {
+			if fc.deduplicationEnabled && fc.redisEnabled && fc.redisConnected && fc.redisClient != nil {
+				checksum := info.Name()
+				checksumKey := fmt.Sprintf("checksum:%s", checksum)
+				refCount, err := fc.redisClient.SCard(context.Background(), checksumKey).Result()
+				if err != nil {
+					fc.logger.WithError(err).Errorf("Failed SCard for %s", checksum)
+					return nil
+				}
+				if refCount == 0 {
+					if err := os.Remove(path); err != nil {
+						fc.logger.WithError(err).Errorf("Remove failed: %s", path)
+					} else {
+						fc.deletedFilesTotal.Inc()
+						fc.logger.Infof("Deleted expired file: %s", path)
+					}
+				}
+			} else {
+				if err := os.Remove(path); err != nil {
+					fc.logger.WithError(err).Errorf("Remove failed: %s", path)
+				} else {
+					fc.deletedFilesTotal.Inc()
+					fc.logger.Infof("Deleted expired file: %s", path)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fc.logger.WithError(err).Error("File cleanup error")
+	}
+	return err
+}
+
+func (fc *FileCleaner) Run(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			fc.logger.Info("File cleanup routine stopping.")
+			return
+		case <-ticker.C:
+			fc.Cleanup()
+		}
+	}
+}
 func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 	switch conf.Encryption.Method {
 	case "aes":
