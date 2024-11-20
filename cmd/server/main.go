@@ -209,6 +209,7 @@ func initClamAV() (*clamd.Clamd, error) {
 
 // Config holds the server configuration.
 type Config struct {
+	ListenIP                  string   `toml:"ListenIP"`
 	ListenPort                string   `toml:"ListenPort"`
 	UnixSocket                bool     `toml:"UnixSocket"`
 	Secret                    string   `toml:"Secret"`
@@ -438,7 +439,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         conf.ListenPort,
+		Addr:         net.JoinHostPort(conf.ListenIP, conf.ListenPort),
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
