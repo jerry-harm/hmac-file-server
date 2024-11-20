@@ -73,6 +73,15 @@ func EncryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 	case "hmac":
 		// Implement HMAC signing if applicable
 		return SignStream(key, in, out)
+	case "xor":
+		if conf.Encryption.XOREnabled {
+			// Derive XOR key
+			xorKey := deriveXORKey(conf.Secret, 16)
+			return xorTransform(xorKey, in, out)
+		}
+		// Pass through data unencrypted if XOR is disabled
+		_, err := io.Copy(out, in)
+		return err
 	default:
 		// Default to passing through
 		_, err := io.Copy(out, in)
@@ -184,12 +193,17 @@ func DecryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 		// Implement HMAC verification if applicable
 		return VerifyStream(key, in, out)
 	case "xor":
-		if len(key) == 0 {
-			return fmt.Errorf("XOR key is not set")
+		if conf.Encryption.XOREnabled {
+			// Derive XOR key with error handling
+			// Derive XOR key
+			xorKey := deriveXORKey(conf.Secret, 16)
+			return xorTransform(xorKey, in, out) // XOR is symmetric
 		}
-		return xorTransform(key, in, out) // XOR is symmetric
+		// Pass through data unencrypted if XOR is disabled
+		_, err := io.Copy(out, in)
+		return err
 	default:
-		// Default to passing through
+		// Default case: Pass through data unencrypted
 		_, err := io.Copy(out, in)
 		return err
 	}
@@ -353,9 +367,10 @@ type Config struct {
 
 	// Encryption holds the encryption configuration.
 	Encryption struct {
-		Method string `toml:"Method"` // "hmac", "aes", or "xor"
-		AESKey string `toml:"AESKey"` // Derived AES key
-		XORKey string `toml:"XORKey"` // Key for XOR encryption
+		Method     string `toml:"Method"`     // "hmac", "aes", or "xor"
+		AESKey     string `toml:"AESKey"`     // Derived AES key
+		XORKey     string `toml:"XORKey"`     // Key for XOR encryption
+		XOREnabled bool   `toml:"XOREnabled"` // Enable XOR encryption
 	} `toml:"Encryption"`
 
 	// TLS holds the TLS configuration.
@@ -581,6 +596,15 @@ func main() {
 func deriveAESKey(secret string) []byte {
 	hash := sha256.Sum256([]byte(secret))
 	return hash[:]
+}
+
+// deriveXORKey derives a XOR key of the specified length from the secret.
+func deriveXORKey(secret string, length int) []byte {
+	hash := sha256.Sum256([]byte(secret))
+	if length > len(hash) {
+		length = len(hash)
+	}
+	return hash[:length]
 }
 
 // Updated readConfig function to handle FileTTL correctly
@@ -1977,28 +2001,28 @@ func validateConfig(config *Config) {
 
 // Add xorTransform function
 func xorTransform(key []byte, in io.Reader, out io.Writer) error {
-    keyLen := len(key)
-    if keyLen == 0 {
-        return fmt.Errorf("key cannot be empty")
-    }
-    buf := make([]byte, 1024) // Buffer for reading input
+	keyLen := len(key)
+	if keyLen == 0 {
+		return fmt.Errorf("key cannot be empty")
+	}
+	buf := make([]byte, 1024) // Buffer for reading input
 
-    for {
-        n, err := in.Read(buf)
-        if n > 0 {
-            for i := 0; i < n; i++ {
-                buf[i] ^= key[i%keyLen] // XOR with the key
-            }
-            if _, err := out.Write(buf[:n]); err != nil {
-                return fmt.Errorf("write error: %w", err)
-            }
-        }
-        if err != nil {
-            if err == io.EOF {
-                break
-            }
-            return fmt.Errorf("read error: %w", err)
-        }
-    }
-    return nil
+	for {
+		n, err := in.Read(buf)
+		if n > 0 {
+			for i := 0; i < n; i++ {
+				buf[i] ^= key[i%keyLen] // XOR with the key
+			}
+			if _, err := out.Write(buf[:n]); err != nil {
+				return fmt.Errorf("write error: %w", err)
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("read error: %w", err)
+		}
+	}
+	return nil
 }
