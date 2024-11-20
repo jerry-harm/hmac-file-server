@@ -218,8 +218,8 @@ type Config struct {
 	LoggingEnabled            bool     `toml:"LoggingEnabled"`
 	LogLevel                  string   `toml:"LogLevel"`
 	LogFile                   string   `toml:"LogFile"`
-	MetricsEnabled            bool     `toml:"MetricsEnabled"`
-	MetricsPort               string   `toml:"MetricsPort"`
+	// MetricsEnabled is already declared later in the code
+	// MetricsPort is already declared later in the code
 	FileTTL                   string   `toml:"FileTTL"`
 	ResumableUploadsEnabled   bool     `toml:"ResumableUploadsEnabled"`
 	ResumableDownloadsEnabled bool     `toml:"ResumableDownloadsEnabled"`
@@ -455,9 +455,10 @@ func main() {
 
 	if conf.MetricsEnabled {
 		go func() {
-			log.Infof("Metrics server running on %s", conf.MetricsPort)
+			metricsAddress := net.JoinHostPort(conf.ListenIPMetrics, conf.MetricsPort)
+			log.Infof("Metrics server running on %s", metricsAddress)
 			http.Handle("/metrics", promhttp.Handler())
-			err := http.ListenAndServe(conf.MetricsPort, nil)
+			err := http.ListenAndServe(metricsAddress, nil)
 			if err != nil {
 				log.WithError(err).Fatal("Metrics server failed")
 			}
@@ -559,7 +560,6 @@ func readConfig(path string, conf *Config) error {
 		"IPSource":           conf.IPManagement.IPSource,
 		"NginxLogFile":       conf.IPManagement.NginxLogFile,
 		"EncryptionMethod":   conf.Encryption.Method,
-		"MetricsEnabled":     conf.MetricsEnabled,
 		"MetricsPort":        conf.MetricsPort,
 		"ListenIPMetrics":    conf.ListenIPMetrics,
 		// Add other relevant configurations
@@ -621,7 +621,7 @@ func initRedis() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := redisClient.Pping(ctx).Result(); err != nil {
+	if _, err := redisClient.Ping(ctx).Result(); err != nil {
 		return err
 	}
 
