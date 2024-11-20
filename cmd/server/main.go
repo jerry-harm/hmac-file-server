@@ -483,7 +483,7 @@ func main() {
 // Updated readConfig function to handle FileTTL correctly
 func readConfig(path string, conf *Config) error {
 	if _, err := toml.DecodeFile(path, conf); err != nil {
-		return err
+		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
 	// Set defaults
@@ -524,19 +524,15 @@ func readConfig(path string, conf *Config) error {
 		conf.Encryption.Method = "aes"
 	}
 
+	address := net.JoinHostPort(conf.ListenIP, conf.ListenPort)
+	if err := validateAddress(address); err != nil {
+		return err
+	}
+
 	log.WithFields(logrus.Fields{
-		"ListenPort":         conf.ListenPort,
-		"UnixSocket":         conf.UnixSocket,
-		"StoreDir":           conf.StoreDir,
-		"LoggingEnabled":     conf.LoggingEnabled,
-		"LogLevel":           conf.LogLevel,
-		"MetricsEnabled":     conf.MetricsEnabled,
-		"FileTTL":            conf.FileTTL,
-		"EnableIPManagement": conf.EnableIPManagement,
-		"IPSource":           conf.IPManagement.IPSource,
-		"NginxLogFile":       conf.IPManagement.NginxLogFile,
-		"EncryptionMethod":   conf.Encryption.Method,
-		// Add other relevant configurations
+		"ListenIP":         conf.ListenIP,
+		"ListenPort":       conf.ListenPort,
+		// Other fields...
 	}).Info("Configuration loaded successfully")
 
 	return nil
@@ -1856,4 +1852,14 @@ func validateConfig(config *Config) {
 		config.IPManagement.IPSource = "header"
 	}
 	// Add other validation checks as needed
+}
+
+import "net"
+
+func validateAddress(addr string) error {
+    _, err := net.ResolveTCPAddr("tcp", addr)
+    if err != nil {
+        return fmt.Errorf("invalid listen address '%s': %w", addr, err)
+    }
+    return nil
 }
