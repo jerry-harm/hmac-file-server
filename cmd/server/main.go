@@ -174,28 +174,28 @@ func DecryptStream(key []byte, in io.Reader, out io.Writer) error {
 
 func initClamAV() (*clamd.Clamd, error) {
 	socket := conf.ClamAVSocket
-    var client *clamd.Clamd
+	var client *clamd.Clamd
 
-    if strings.HasPrefix(socket, "/") {
-        // UNIX socket
-        client = clamd.NewClamd("unix:" + socket)
-    } else if strings.HasPrefix(socket, "tcp:") {
-        // TCP socket
-        client = clamd.NewClamd(socket)
-    } else {
-        return nil, fmt.Errorf("invalid ClamAV socket format")
-    }
+	if strings.HasPrefix(socket, "/") {
+		// UNIX socket
+		client = clamd.NewClamd("unix:" + socket)
+	} else if strings.HasPrefix(socket, "tcp:") {
+		// TCP socket
+		client = clamd.NewClamd(socket)
+	} else {
+		return nil, fmt.Errorf("invalid ClamAV socket format")
+	}
 
-    if client == nil {
-        return nil, fmt.Errorf("failed to create ClamAV client")
-    }
+	if client == nil {
+		return nil, fmt.Errorf("failed to create ClamAV client")
+	}
 
-    if err := client.Ping(); err != nil {
-        return nil, fmt.Errorf("ClamAV ping failed: %w", err)
-    }
+	if err := client.Ping(); err != nil {
+		return nil, fmt.Errorf("ClamAV ping failed: %w", err)
+	}
 
-    log.Info("ClamAV initialized successfully.")
-    return client, nil
+	log.Info("ClamAV initialized successfully.")
+	return client, nil
 }
 
 // Config holds the server configuration.
@@ -255,6 +255,14 @@ type Config struct {
 	Encryption struct {
 		Method string `toml:"Method"` // "hmac" or "aes"
 	} `toml:"Encryption"`
+
+	// TLS holds the TLS configuration.
+	TLS struct {
+		EnableTLS  bool     `toml:"EnableTLS"`
+		CertDir    string   `toml:"CertDir"`
+		Hostnames  []string `toml:"Hostnames"`
+		UseStaging bool     `toml:"UseStaging"`
+	} `toml:"TLS"`
 }
 
 // UploadTask represents a file upload task.
@@ -512,7 +520,7 @@ func readConfig(path string, conf *Config) error {
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.LogLevel)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %v", err)
 	}
 	log.SetLevel(level)
@@ -837,43 +845,43 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 }
 
 func createFile(tempFilename string, r *http.Request) error {
-    if err := os.MkdirAll(filepath.Dir(tempFilename), os.ModePerm); err != nil {
-        return fmt.Errorf("create dir: %w", err)
-    }
+	if err := os.MkdirAll(filepath.Dir(tempFilename), os.ModePerm); err != nil {
+		return fmt.Errorf("create dir: %w", err)
+	}
 
-    // Change permissions from 0600 to 0644
-    file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-    if err != nil {
-        return fmt.Errorf("open file: %w", err)
-    }
-    defer file.Close()
+	// Change permissions from 0600 to 0644
+	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("open file: %w", err)
+	}
+	defer file.Close()
 
-    writer := bufio.NewWriterSize(file, 4<<20) // 4MB buffer
-    totalBytes := int64(0)
-    buffer := make([]byte, 4<<20)
+	writer := bufio.NewWriterSize(file, 4<<20) // 4MB buffer
+	totalBytes := int64(0)
+	buffer := make([]byte, 4<<20)
 
-    for {
-        n, err := r.Body.Read(buffer)
-        if n > 0 {
-            totalBytes += int64(n)
-            if _, writeErr := writer.Write(buffer[:n]); writeErr != nil {
-                return fmt.Errorf("write file: %w", writeErr)
-            }
-        }
-        if err != nil {
-            if err == io.EOF {
-                break
-            }
-            return fmt.Errorf("read body: %w", err)
-        }
-    }
+	for {
+		n, err := r.Body.Read(buffer)
+		if n > 0 {
+			totalBytes += int64(n)
+			if _, writeErr := writer.Write(buffer[:n]); writeErr != nil {
+				return fmt.Errorf("write file: %w", writeErr)
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("read body: %w", err)
+		}
+	}
 
-    if err := writer.Flush(); err != nil {
-        return fmt.Errorf("flush writer: %w", err)
-    }
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("flush writer: %w", err)
+	}
 
-    uploadSizeBytes.Observe(float64(totalBytes))
-    return nil
+	uploadSizeBytes.Observe(float64(totalBytes))
+	return nil
 }
 
 func handleChunkedUpload(tempFilename string, r *http.Request) error {
@@ -1819,9 +1827,9 @@ func TestValidateHMAC(t *testing.T) {
 }
 
 func validateConfig(config *Config) {
-    if config.IPManagement.IPSource == "" {
-        logrus.Warning("Invalid IPSource '', defaulting to 'header'.")
-        config.IPManagement.IPSource = "header"
-    }
-    // Add other validation checks as needed
+	if config.IPManagement.IPSource == "" {
+		logrus.Warning("Invalid IPSource '', defaulting to 'header'.")
+		config.IPManagement.IPSource = "header"
+	}
+	// Add other validation checks as needed
 }
