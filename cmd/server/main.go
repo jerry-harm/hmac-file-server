@@ -209,7 +209,8 @@ func initClamAV() (*clamd.Clamd, error) {
 
 // Config holds the server configuration.
 type Config struct {
-	ListenPort                string   `toml:"ListenPort"`
+	ListenIP                  string   `toml:"ListenIP"`   // IP address to bind the server to
+	ListenPort                string   `toml:"ListenPort"` // Port to bind the server to
 	UnixSocket                bool     `toml:"UnixSocket"`
 	Secret                    string   `toml:"Secret"`
 	StoreDir                  string   `toml:"StoreDir"`
