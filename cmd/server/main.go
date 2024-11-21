@@ -65,25 +65,38 @@ func EncryptStreamIfEnabled(key []byte, in io.Reader, out io.Writer) error {
 	switch conf.Encryption.Method {
 	case "aes":
 		if !conf.AESEnabled {
-			// Pass through the data unencrypted
+			// Pass through data unencrypted
 			_, err := io.Copy(out, in)
 			return err
 		}
+		if conf.Encryption.AESKey == "" {
+			// Derive AES key from secret if not set
+			generatedKeyBytes := deriveAESKey(conf.Secret)
+			conf.Encryption.AESKey = hex.EncodeToString(generatedKeyBytes)
+		}
+		key, err := hex.DecodeString(conf.Encryption.AESKey)
+		if err != nil {
+			return fmt.Errorf("invalid AES key format: %w", err)
+		}
 		return EncryptStream(key, in, out)
-	case "hmac":
-		// Implement HMAC signing if applicable
-		return SignStream(key, in, out)
 	case "xor":
 		if conf.Encryption.XOREnabled {
-			// Derive XOR key
-			xorKey := deriveXORKey(conf.Secret, 16)
+			if conf.Encryption.XORKey == "" {
+				// Derive XOR key if not set
+				derivedKeyBytes := deriveXORKey(conf.Secret, 16)
+				conf.Encryption.XORKey = hex.EncodeToString(derivedKeyBytes)
+			}
+			xorKey, err := hex.DecodeString(conf.Encryption.XORKey)
+			if err != nil {
+				return fmt.Errorf("invalid XOR key format: %w", err)
+			}
 			return xorTransform(xorKey, in, out)
 		}
 		// Pass through data unencrypted if XOR is disabled
 		_, err := io.Copy(out, in)
 		return err
 	default:
-		// Default to passing through
+		// Pass through data unencrypted if method is unrecognized
 		_, err := io.Copy(out, in)
 		return err
 	}
@@ -560,12 +573,13 @@ func main() {
 	}
 
 	if conf.MetricsEnabled {
-		http.Handle("/metrics", promhttp.Handler())
 		go func() {
-			metricsAddr := net.JoinHostPort(conf.ListenIPMetrics, conf.MetricsPort)
-			log.Infof("Starting metrics server at %s/metrics", metricsAddr)
-			if err := http.ListenAndServe(metricsAddr, nil); err != nil {
-				log.Errorf("Metrics server failed: %v", err)
+			metricsAddress := net.JoinHostPort(conf.ListenIPMetrics, conf.MetricsPort)
+			log.Infof("Metrics server running on %s", metricsAddress)
+			http.Handle("/metrics", promhttp.Handler())
+			err := http.ListenAndServe(metricsAddress, nil)
+			if err != nil {
+				log.WithError(err).Fatal("Metrics server failed")
 			}
 		}()
 	}
@@ -702,26 +716,11 @@ func setupLogging() {
 	log.Infof("Logging initialized. Level: %s, Output: %s", conf.LogLevel, conf.LogFile)
 }
 
-// initMetrics registers all Prometheus metrics.
 func initMetrics() {
-	prometheus.MustRegister(
-		uploadDuration,
-		uploadErrorsTotal,
-		uploadsTotal,
-		downloadDuration,
-		downloadsTotal,
-		downloadErrorsTotal,
-		memoryUsage,
-		cpuUsage,
-		requestsTotalCounter,
-		goroutines,
-		uploadSizeBytes,
-		downloadSizeBytes,
-		infectedFilesTotal,
-		deletedFilesTotal,
-		uploadQueueLength,
-		scanQueueLength,
-	)
+	if conf.MetricsEnabled {
+		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal, downloadDuration, downloadsTotal, downloadErrorsTotal,
+			memoryUsage, cpuUsage, requestsTotalCounter, goroutines, uploadSizeBytes, downloadSizeBytes, infectedFilesTotal, deletedFilesTotal, uploadQueueLength, scanQueueLength)
+	}
 }
 
 func initRedisWithRetry(maxRetries int, delay time.Duration) error {
