@@ -560,13 +560,12 @@ func main() {
 	}
 
 	if conf.MetricsEnabled {
+		http.Handle("/metrics", promhttp.Handler())
 		go func() {
-			metricsAddress := net.JoinHostPort(conf.ListenIPMetrics, conf.MetricsPort)
-			log.Infof("Metrics server running on %s", metricsAddress)
-			http.Handle("/metrics", promhttp.Handler())
-			err := http.ListenAndServe(metricsAddress, nil)
-			if err != nil {
-				log.WithError(err).Fatal("Metrics server failed")
+			metricsAddr := net.JoinHostPort(conf.ListenIPMetrics, conf.MetricsPort)
+			log.Infof("Starting metrics server at %s/metrics", metricsAddr)
+			if err := http.ListenAndServe(metricsAddr, nil); err != nil {
+				log.Errorf("Metrics server failed: %v", err)
 			}
 		}()
 	}
@@ -703,11 +702,26 @@ func setupLogging() {
 	log.Infof("Logging initialized. Level: %s, Output: %s", conf.LogLevel, conf.LogFile)
 }
 
+// initMetrics registers all Prometheus metrics.
 func initMetrics() {
-	if conf.MetricsEnabled {
-		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal, downloadDuration, downloadsTotal, downloadErrorsTotal,
-			memoryUsage, cpuUsage, requestsTotalCounter, goroutines, uploadSizeBytes, downloadSizeBytes, infectedFilesTotal, deletedFilesTotal, uploadQueueLength, scanQueueLength)
-	}
+	prometheus.MustRegister(
+		uploadDuration,
+		uploadErrorsTotal,
+		uploadsTotal,
+		downloadDuration,
+		downloadsTotal,
+		downloadErrorsTotal,
+		memoryUsage,
+		cpuUsage,
+		requestsTotalCounter,
+		goroutines,
+		uploadSizeBytes,
+		downloadSizeBytes,
+		infectedFilesTotal,
+		deletedFilesTotal,
+		uploadQueueLength,
+		scanQueueLength,
+	)
 }
 
 func initRedisWithRetry(maxRetries int, delay time.Duration) error {
