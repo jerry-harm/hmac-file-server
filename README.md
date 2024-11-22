@@ -1,3 +1,4 @@
+
 # HMAC File Server
 
 **A Secure, Scalable File Handling Server with HMAC Authentication**
@@ -25,75 +26,31 @@ The HMAC File Server is a robust and secure solution for handling file uploads a
 
 ---
 
-## Table of Contents
+## Bug Fixes in v2.1.0-pre
 
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-  - [Server Settings](#server-settings)
-  - [Encryption Settings](#encryption-settings)
-  - [TLS Settings](#tls-settings)
-  - [ClamAV Settings](#clamav-settings)
-  - [Redis Settings](#redis-settings)
-  - [IP Management](#ip-management)
-  - [Rate Limiting](#rate-limiting)
-  - [Fail2Ban Settings](#fail2ban-settings)
-  - [Deduplication](#deduplication)
-- [Usage Examples](#usage-examples)
-  - [Upload File](#upload-file)
-  - [Download File](#download-file)
-- [Prometheus Metrics](#prometheus-metrics)
-- [Development](#development)
-  - [Running Tests](#running-tests)
-  - [Dependency Management](#dependency-management)
-- [Known Limitations](#known-limitations)
-- [Contributing](#contributing)
-- [License](#license)
+- **Encryption**:
+  - Improved error handling for invalid or missing AES/XOR keys.
+  - Ensures fallback to unencrypted mode when configured.
+- **Resumable Transfers**:
+  - Addressed inconsistencies in resumable download handling.
+  - Improved chunked upload performance with adaptive buffer sizes.
+- **Version Cleanup Logic**:
+  - Fixed unintentional deletion of versions beyond the `MaxVersions` limit.
+- **ClamAV Integration**:
+  - Resolved connection handling with ClamAV sockets to reduce scan delays and failures.
 
 ---
 
-## Requirements
+## Known Issues in v2.1.0-pre
 
-### Software
-
-- **Go**: Version 1.20 or higher.
-- **Redis** (optional): For deduplication and token storage.
-- **ClamAV** (optional): For virus scanning.
-- **Fail2Ban** (optional): For automated IP blocking.
-
-### Environment
-
-- Adequate storage space for file storage and logs.
-- Network configuration for IP management (optional).
-
----
-
-## Installation
-
-### Clone the Repository
-
-```bash
-git clone https://github.com/your-username/hmac-file-server.git
-cd hmac-file-server
-```
-
-### Build the Application
-
-```bash
-go build -o hmac-file-server main.go
-```
-
-### Run the Server
-
-```bash
-./hmac-file-server
-```
+- **Redis Failover**:
+  - Redis-backed deduplication may experience brief interruptions during failover. Further improvements planned for high-availability setups.
+- **ClamAV Scanning Performance**:
+  - Large file scanning may exhibit latency due to single-threaded ClamAV processes. Configurable `NumScanWorkers` alleviates most delays.
 
 ---
 
 ## Configuration
-
-The server is configured via a `config.toml` file. Below is an example configuration with explanations for each section.
 
 ### Example `config.toml`
 
@@ -173,4 +130,40 @@ Fail2BanJail              = "hmac-auth"                   # Name of the Fail2Ban
 DeduplicationEnabled      = true                          # Enable deduplication to avoid storing duplicate files
 ```
 
-...
+---
+
+## Upgrade Instructions
+
+1. **Backup**: Ensure all configuration files and critical data are backed up.
+2. **Update Configuration**: Modify your `config.toml` file to incorporate new encryption and logging options.
+3. **Restart**: Restart the file server to apply changes.
+
+---
+
+## Prometheus Metrics
+
+- **System**:
+  - `memory_usage_bytes`: Current memory usage in bytes.
+  - `cpu_usage_percent`: Current CPU usage as a percentage.
+  - `goroutines_count`: Number of active goroutines.
+- **Uploads**:
+  - `file_server_upload_duration_seconds`: Histogram of file upload durations.
+  - `file_server_upload_errors_total`: Total number of upload errors.
+  - `file_server_uploads_total`: Total successful uploads.
+  - `file_server_upload_size_bytes`: Histogram of uploaded file sizes in bytes.
+- **Downloads**:
+  - `file_server_download_duration_seconds`: Histogram of file download durations.
+  - `file_server_download_errors_total`: Total number of download errors.
+  - `file_server_downloads_total`: Total successful downloads.
+  - `file_server_download_size_bytes`: Histogram of downloaded file sizes in bytes.
+- **Security**:
+  - `infected_files_total`: Total number of infected files detected by ClamAV.
+  - `file_deletions_total`: Total number of files deleted based on FileTTL.
+
+---
+
+## Feedback
+
+For questions, bug reports, or suggestions, please contact our team at [support@uuxo.net](mailto:support@uuxo.net).
+
+Thank you for your continued support in shaping the future of the HMAC File Server!
