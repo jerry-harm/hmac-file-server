@@ -85,7 +85,7 @@ GracefulShutdownTimeout   = 10                            # Timeout for graceful
 
 # Encryption settings
 AESEnabled                = false                         # Enable AES encryption
-Method                    = "aes"                         # Encryption method: "hmac", "aes", or "xor"
+Method                    = "aes"                         # Encryption method: "aes", "xor"
 AESKey                    = ""                            # Hex-encoded AES key (optional, derived from Secret if not set)
 XORKey                    = ""                            # Hex-encoded XOR key (optional, derived from Secret if not set)
 XOREnabled                = false                         # Enable XOR encryption
