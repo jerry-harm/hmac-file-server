@@ -27,7 +27,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 4,
+        "h": 6,
         "w": 24,
         "x": 0,
         "y": 0
@@ -39,190 +39,13 @@
           "showLineNumbers": false,
           "showMiniMap": false
         },
-        "content": "<h3 style=\"color:white; font-family: 'Arial', sans-serif; font-weight: bold;\">HMAC Dashboard</h3>\n<p style=\"font-family: 'Verdana', sans-serif; color:white;\">This dashboard monitors <strong style=\"color:#FF5733;\">key metrics</strong> for the <span style=\"font-style:italic; color:#007BFF;\">HMAC File Server</span>.</p>\n",
+        "content": "<div style=\"text-align: center; background-color: #000; padding: 20px;\">\n    <h3 style=\"color: white; font-family: 'Arial', sans-serif; font-weight: bold;\">HMAC Dashboard</h3>\n    <img src=\"https://block.uuxo.net/hmac_icon.png\" alt=\"HMAC Icon\" style=\"width: 50px; height: 50px; display: block; margin: 10px auto;\">\n    <p style=\"font-family: 'Verdana', sans-serif; color: white;\">\n        This dashboard monitors <strong style=\"color: #FF5733;\">key metrics</strong> for the \n        <span style=\"font-style: italic; color: #007BFF;\">HMAC File Server</span>.\n    </p>\n</div>\n",
         "mode": "html"
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "title": "HMAC Dashboard",
+      "transparent": true,
       "type": "text"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 0,
-        "y": 4
-      },
-      "id": 10,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "value",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "go_threads",
-          "format": "table",
-          "legendFormat": "{{hmac-file-server}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "HMAC GO Threads",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 3,
-        "y": 4
-      },
-      "id": 17,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "hmac_goroutines_count",
-          "format": "table",
-          "legendFormat": "Download Errors",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "HMAC GoRoutines",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 6,
-        "y": 4
-      },
-      "id": 18,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.3.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "hmac_memory_usage_bytes",
-          "legendFormat": "Download Errors",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "HMAC Memory Usage",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -253,10 +76,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 9,
-        "y": 4
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 6
       },
       "id": 14,
       "options": {
@@ -283,7 +106,7 @@
         "sizing": "auto",
         "valueMode": "color"
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
@@ -304,9 +127,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -314,23 +134,20 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
               }
             ]
-          }
+          },
+          "unit": "bytes"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 12,
-        "y": 4
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 6
       },
-      "id": 16,
+      "id": 18,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -348,20 +165,17 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
-          "exemplar": false,
-          "expr": "hmac_active_connections_total",
-          "format": "table",
-          "instant": false,
-          "legendFormat": "__auto",
+          "expr": "hmac_memory_usage_bytes",
+          "legendFormat": "Download Errors",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HMAC Active Connections",
+      "title": "HMAC Memory Usage",
       "type": "stat"
     },
     {
@@ -371,9 +185,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -388,12 +199,12 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 3,
-        "x": 15,
-        "y": 4
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 6
       },
-      "id": 19,
+      "id": 17,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -411,18 +222,18 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hmac_infected_files_total",
+          "expr": "hmac_goroutines_count",
           "format": "table",
-          "legendFormat": "__auto",
+          "legendFormat": "Download Errors",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HMAC infected file(s)",
+      "title": "HMAC GoRoutines",
       "type": "stat"
     },
     {
@@ -451,10 +262,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 3,
         "x": 18,
-        "y": 4
+        "y": 6
       },
       "id": 11,
       "options": {
@@ -474,7 +285,7 @@
         "textMode": "value",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
@@ -514,10 +325,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 3,
         "x": 21,
-        "y": 4
+        "y": 6
       },
       "id": 12,
       "options": {
@@ -537,7 +348,7 @@
         "textMode": "value",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
@@ -579,10 +390,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 6,
+        "h": 5,
+        "w": 3,
         "x": 0,
-        "y": 10
+        "y": 11
       },
       "id": 15,
       "options": {
@@ -602,7 +413,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "datasource": {
@@ -646,10 +457,72 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 4,
+        "h": 5,
+        "w": 3,
+        "x": 3,
+        "y": 11
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "go_threads",
+          "format": "table",
+          "legendFormat": "{{hmac-file-server}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC GO Threads",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
         "x": 6,
-        "y": 10
+        "y": 11
       },
       "id": 21,
       "options": {
@@ -669,7 +542,7 @@
         "textMode": "value",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
@@ -708,10 +581,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 4,
-        "x": 10,
-        "y": 10
+        "h": 5,
+        "w": 3,
+        "x": 9,
+        "y": 11
       },
       "id": 20,
       "options": {
@@ -731,7 +604,7 @@
         "textMode": "value",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
@@ -743,6 +616,134 @@
         }
       ],
       "title": "HMAC Cache Misses",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 12,
+        "y": 11
+      },
+      "id": 16,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "hmac_active_connections_total",
+          "format": "table",
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC Active Connections",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "default": true,
+        "type": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 15,
+        "y": 11
+      },
+      "id": 19,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.3.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "hmac_infected_files_total",
+          "format": "table",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HMAC infected file(s)",
       "type": "stat"
     },
     {
@@ -770,10 +771,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 5,
-        "x": 14,
-        "y": 10
+        "h": 5,
+        "w": 3,
+        "x": 18,
+        "y": 11
       },
       "id": 2,
       "options": {
@@ -793,7 +794,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
@@ -831,10 +832,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 9,
-        "w": 5,
-        "x": 19,
-        "y": 10
+        "h": 5,
+        "w": 3,
+        "x": 21,
+        "y": 11
       },
       "id": 13,
       "options": {
@@ -854,7 +855,7 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "pluginVersion": "11.3.0",
+      "pluginVersion": "11.3.1",
       "targets": [
         {
           "editorMode": "code",
@@ -882,6 +883,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 111,
+  "version": 127,
   "weekStart": ""
 }
