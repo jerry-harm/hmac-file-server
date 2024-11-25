@@ -355,6 +355,11 @@ func readConfig(configFilename string, conf *Config) error {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
+	log.WithFields(logrus.Fields{
+		"ListenPort": conf.Server.ListenPort,
+		// Add other fields as needed
+	}).Info("Configuration loaded successfully")
+
 	return nil
 }
 
