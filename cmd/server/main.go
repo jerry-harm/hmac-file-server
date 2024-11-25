@@ -27,7 +27,6 @@ import (
 
 	"sync"
 
-	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
@@ -38,48 +37,77 @@ import (
 	"github.com/shirou/gopsutil/host"
 	"github.com/shirou/gopsutil/mem"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 // Configuration structure
+type ServerConfig struct {
+	ListenPort     string `mapstructure:"ListenPort"`
+	UnixSocket     bool   `mapstructure:"UnixSocket"`
+	StoreDir       string `mapstructure:"StoreDir"`
+	UploadSubDir   string `mapstructure:"UploadSubDir"`
+	LogLevel       string `mapstructure:"LogLevel"`
+	LogFile        string `mapstructure:"LogFile"`
+	MetricsEnabled bool   `mapstructure:"MetricsEnabled"`
+	MetricsPort    string `mapstructure:"MetricsPort"`
+	FileTTL        string `mapstructure:"FileTTL"`
+}
+
+type TimeoutConfig struct {
+	ReadTimeout  string `mapstructure:"ReadTimeout"`
+	WriteTimeout string `mapstructure:"WriteTimeout"`
+	IdleTimeout  string `mapstructure:"IdleTimeout"`
+}
+
+type SecurityConfig struct {
+	Secret string `mapstructure:"Secret"`
+}
+
+type VersioningConfig struct {
+	EnableVersioning bool `mapstructure:"EnableVersioning"`
+	MaxVersions      int  `mapstructure:"MaxVersions"`
+}
+
+type UploadsConfig struct {
+	ResumableUploadsEnabled bool     `mapstructure:"ResumableUploadsEnabled"`
+	ChunkedUploadsEnabled   bool     `mapstructure:"ChunkedUploadsEnabled"`
+	ChunkSize               int64    `mapstructure:"ChunkSize"`
+	AllowedExtensions       []string `mapstructure:"AllowedExtensions"`
+}
+
+type ClamAVConfig struct {
+	ClamAVEnabled  bool   `mapstructure:"ClamAVEnabled"`
+	ClamAVSocket   string `mapstructure:"ClamAVSocket"`
+	NumScanWorkers int    `mapstructure:"NumScanWorkers"`
+}
+
+type RedisConfig struct {
+	RedisEnabled             bool   `mapstructure:"RedisEnabled"`
+	RedisDBIndex             int    `mapstructure:"RedisDBIndex"`
+	RedisAddr                string `mapstructure:"RedisAddr"`
+	RedisPassword            string `mapstructure:"RedisPassword"`
+	RedisHealthCheckInterval string `mapstructure:"RedisHealthCheckInterval"`
+}
+
+type WorkersConfig struct {
+	NumWorkers      int `mapstructure:"NumWorkers"`
+	UploadQueueSize int `mapstructure:"UploadQueueSize"`
+}
+
+type FileConfig struct {
+	FileRevision int `mapstructure:"FileRevision"`
+}
+
 type Config struct {
-	ListenPort                string
-	UnixSocket                bool
-	Secret                    string
-	StoreDir                  string
-	UploadSubDir              string
-	LogLevel                  string
-	LogFile                   string
-	MetricsEnabled            bool
-	MetricsPort               string
-	FileTTL                   string
-	ResumableUploadsEnabled   bool
-	ResumableDownloadsEnabled bool
-	EnableVersioning          bool
-	MaxVersions               int
-	ChunkedUploadsEnabled     bool
-	ChunkSize                 int64
-	AllowedExtensions         []string
-
-	// Server timeouts
-	ReadTimeout  string
-	WriteTimeout string
-	IdleTimeout  string
-
-	// ClamAV Configuration
-	ClamAVEnabled  bool
-	ClamAVSocket   string
-	NumScanWorkers int
-
-	// Redis Configuration
-	RedisEnabled             bool   `toml:"RedisEnabled"`
-	RedisDBIndex             int    `toml:"RedisDBIndex"`
-	RedisAddr                string `toml:"RedisAddr"`
-	RedisPassword            string `toml:"RedisPassword"`
-	RedisHealthCheckInterval string `toml:"RedisHealthCheckInterval"`
-
-	// Workers and connections
-	NumWorkers      int
-	UploadQueueSize int
+	Server     ServerConfig     `mapstructure:"server"`
+	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
+	Security   SecurityConfig   `mapstructure:"security"`
+	Versioning VersioningConfig `mapstructure:"versioning"`
+	Uploads    UploadsConfig    `mapstructure:"uploads"`
+	ClamAV     ClamAVConfig     `mapstructure:"clamav"`
+	Redis      RedisConfig      `mapstructure:"redis"`
+	Workers    WorkersConfig    `mapstructure:"workers"`
+	File       FileConfig       `mapstructure:"file"`
 }
 
 // UploadTask represents a file upload task
@@ -169,11 +197,11 @@ func main() {
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 
 	// Create store directory
-	err = os.MkdirAll(conf.StoreDir, os.ModePerm)
+	err = os.MkdirAll(conf.Server.StoreDir, os.ModePerm)
 	if err != nil {
 		log.Fatalf("Error creating store directory: %v", err)
 	}
-	log.WithField("directory", conf.StoreDir).Info("Store directory is ready")
+	log.WithField("directory", conf.Server.StoreDir).Info("Store directory is ready")
 
 	// Setup logging
 	setupLogging()
@@ -185,8 +213,8 @@ func main() {
 	initMetrics()
 
 	// Initialize upload and scan queues
-	uploadQueue = make(chan UploadTask, conf.UploadQueueSize)
-	scanQueue = make(chan ScanTask, conf.UploadQueueSize) // Adjust size as needed
+	uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
+	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize) // Adjust size as needed
 	networkEvents = make(chan NetworkEvent, 100)
 
 	// Context for goroutines
@@ -201,8 +229,8 @@ func main() {
 	go updateSystemMetrics(ctx)
 
 	// Initialize ClamAV client if enabled
-	if conf.ClamAVEnabled {
-		clamClient, err = initClamAV(conf.ClamAVSocket)
+	if conf.ClamAV.ClamAVEnabled {
+		clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
 		if err != nil {
 			log.WithFields(logrus.Fields{
 				"error": err.Error(),
@@ -213,50 +241,50 @@ func main() {
 	}
 
 	// Initialize Redis client if enabled
-	if conf.RedisEnabled {
+	if conf.Redis.RedisEnabled {
 		initRedis()
 	}
 
 	// Initialize worker pools
 	initializeUploadWorkerPool(ctx)
-	if conf.ClamAVEnabled && clamClient != nil {
+	if conf.ClamAV.ClamAVEnabled && clamClient != nil {
 		initializeScanWorkerPool(ctx)
 	}
 
 	// Start Redis health monitor if Redis is enabled
-	if conf.RedisEnabled && redisClient != nil {
-		go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.RedisHealthCheckInterval))
+	if conf.Redis.RedisEnabled && redisClient != nil {
+		go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
 	}
 
 	// Setup router
 	router := setupRouter()
 
 	// Start file cleaner
-	fileTTL, err := time.ParseDuration(conf.FileTTL)
+	fileTTL, err := time.ParseDuration(conf.Server.FileTTL)
 	if err != nil {
 		log.Fatalf("Invalid FileTTL: %v", err)
 	}
-	go runFileCleaner(ctx, conf.StoreDir, fileTTL)
+	go runFileCleaner(ctx, conf.Server.StoreDir, fileTTL)
 
 	// Parse timeout durations
-	readTimeout, err := time.ParseDuration(conf.ReadTimeout)
+	readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
 	if err != nil {
 		log.Fatalf("Invalid ReadTimeout: %v", err)
 	}
 
-	writeTimeout, err := time.ParseDuration(conf.WriteTimeout)
+	writeTimeout, err := time.ParseDuration(conf.Timeouts.WriteTimeout)
 	if err != nil {
 		log.Fatalf("Invalid WriteTimeout: %v", err)
 	}
 
-	idleTimeout, err := time.ParseDuration(conf.IdleTimeout)
+	idleTimeout, err := time.ParseDuration(conf.Timeouts.IdleTimeout)
 	if err != nil {
 		log.Fatalf("Invalid IdleTimeout: %v", err)
 	}
 
 	// Configure HTTP server
 	server := &http.Server{
-		Addr:         ":" + conf.ListenPort, // Prepend colon to ListenPort
+		Addr:         ":" + conf.Server.ListenPort, // Prepend colon to ListenPort
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
@@ -264,11 +292,11 @@ func main() {
 	}
 
 	// Start metrics server if enabled
-	if conf.MetricsEnabled {
+	if conf.Server.MetricsEnabled {
 		go func() {
 			http.Handle("/metrics", promhttp.Handler())
-			log.Infof("Metrics server started on port %s", conf.MetricsPort)
-			if err := http.ListenAndServe(":"+conf.MetricsPort, nil); err != nil {
+			log.Infof("Metrics server started on port %s", conf.Server.MetricsPort)
+			if err := http.ListenAndServe(":"+conf.Server.MetricsPort, nil); err != nil {
 				log.Fatalf("Metrics server failed: %v", err)
 			}
 		}()
@@ -279,14 +307,14 @@ func main() {
 
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
-	if conf.UnixSocket {
+	if conf.Server.UnixSocket {
 		// Listen on Unix socket
-		if err := os.RemoveAll(conf.ListenPort); err != nil {
+		if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
 			log.Fatalf("Failed to remove existing Unix socket: %v", err)
 		}
-		listener, err := net.Listen("unix", conf.ListenPort)
+		listener, err := net.Listen("unix", conf.Server.ListenPort)
 		if err != nil {
-			log.Fatalf("Failed to listen on Unix socket %s: %v", conf.ListenPort, err)
+			log.Fatalf("Failed to listen on Unix socket %s: %v", conf.Server.ListenPort, err)
 		}
 		defer listener.Close()
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -300,54 +328,99 @@ func main() {
 	}
 }
 
-// Function to load configuration file
+// Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-	if _, err := toml.DecodeFile(configFilename, conf); err != nil {
-		return fmt.Errorf("error decoding config file: %w", err)
+	viper.SetConfigFile(configFilename)
+	viper.SetConfigType("toml")
+
+	// Set default values
+	setDefaults()
+
+	// Read in environment variables that match
+	viper.AutomaticEnv()
+	viper.SetEnvPrefix("HMAC") // Prefix for environment variables
+
+	// Read the config file
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("error reading config file: %w", err)
 	}
 
-	// Set default values for optional settings
-	if conf.MaxVersions == 0 {
-		conf.MaxVersions = 5 // Default: keep last 5 versions
+	// Unmarshal the config into the Config struct
+	if err := viper.Unmarshal(conf); err != nil {
+		return fmt.Errorf("unable to decode into struct: %w", err)
 	}
-	if conf.ChunkSize == 0 {
-		conf.ChunkSize = 1048576 // Default chunk size: 1MB
+
+	// Validate the configuration
+	if err := validateConfig(conf); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
 	}
-	if conf.AllowedExtensions == nil {
-		conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
+
+	return nil
+}
+
+// Set default configuration values
+func setDefaults() {
+	viper.SetDefault("MaxVersions", 5)
+	viper.SetDefault("ChunkSize", 1048576) // 1MB
+	viper.SetDefault("AllowedExtensions", []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"})
+	viper.SetDefault("ReadTimeout", "2m0s")
+	viper.SetDefault("WriteTimeout", "2m0s")
+	viper.SetDefault("IdleTimeout", "2m0s")
+	viper.SetDefault("NumWorkers", 5)
+	viper.SetDefault("UploadQueueSize", 10000)
+	viper.SetDefault("NumScanWorkers", 5)
+	viper.SetDefault("FileRevision", 0) // Default FileRevision
+	// Add more defaults as needed
+}
+
+// Validate configuration fields
+func validateConfig(conf *Config) error {
+	if conf.Server.ListenPort == "" {
+		return fmt.Errorf("ListenPort must be set")
 	}
-	if conf.ReadTimeout == "" {
-		conf.ReadTimeout = "2m0s" // Default read timeout
+	if conf.Security.Secret == "" {
+		return fmt.Errorf("secret must be set")
 	}
-	if conf.WriteTimeout == "" {
-		conf.WriteTimeout = "2m0s" // Default write timeout
+	if conf.Server.StoreDir == "" {
+		return fmt.Errorf("StoreDir must be set")
 	}
-	if conf.IdleTimeout == "" {
-		conf.IdleTimeout = "2m0s" // Default idle timeout
+	if conf.Server.FileTTL == "" {
+		return fmt.Errorf("FileTTL must be set")
 	}
-	if conf.NumWorkers == 0 {
-		conf.NumWorkers = 5 // Default number of workers
+
+	// Validate timeouts
+	if _, err := time.ParseDuration(conf.Timeouts.ReadTimeout); err != nil {
+		return fmt.Errorf("invalid ReadTimeout: %v", err)
 	}
-	if conf.UploadQueueSize == 0 {
-		conf.UploadQueueSize = 10000 // Default upload queue size
+	if _, err := time.ParseDuration(conf.Timeouts.WriteTimeout); err != nil {
+		return fmt.Errorf("invalid WriteTimeout: %v", err)
 	}
-	if conf.NumScanWorkers == 0 {
-		conf.NumScanWorkers = 5 // Default number of scan workers
+	if _, err := time.ParseDuration(conf.Timeouts.IdleTimeout); err != nil {
+		return fmt.Errorf("invalid IdleTimeout: %v", err)
 	}
+
+	// Validate Redis configuration if enabled
+	if conf.Redis.RedisEnabled {
+		if conf.Redis.RedisAddr == "" {
+			return fmt.Errorf("RedisAddr must be set when Redis is enabled")
+		}
+	}
+
+	// Add more validations as needed
 
 	return nil
 }
 
 // Setup logging
 func setupLogging() {
-	level, err := logrus.ParseLevel(conf.LogLevel)
+	level, err := logrus.ParseLevel(conf.Server.LogLevel)
 	if err != nil {
-		log.Fatalf("Invalid log level: %s", conf.LogLevel)
+		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
 
-	if conf.LogFile != "" {
-		logFile, err := os.OpenFile(conf.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if conf.Server.LogFile != "" {
+		logFile, err := os.OpenFile(conf.Server.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
 			log.Fatalf("Failed to open log file: %v", err)
 		}
@@ -407,7 +480,7 @@ func logSystemInfo() {
 
 // Initialize Prometheus metrics
 func initMetrics() {
-	if conf.MetricsEnabled {
+	if conf.Server.MetricsEnabled {
 		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
 		prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
 		prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
@@ -461,11 +534,11 @@ func fileExists(filePath string) (bool, int64) {
 
 // Function to check file extension
 func isExtensionAllowed(filename string) bool {
-	if len(conf.AllowedExtensions) == 0 {
+	if len(conf.Uploads.AllowedExtensions) == 0 {
 		return true // No restrictions if the list is empty
 	}
 	ext := strings.ToLower(filepath.Ext(filename))
-	for _, allowedExt := range conf.AllowedExtensions {
+	for _, allowedExt := range conf.Uploads.AllowedExtensions {
 		if strings.ToLower(allowedExt) == ext {
 			return true
 		}
@@ -504,8 +577,8 @@ func cleanupOldVersions(versionDir string) error {
 		return fmt.Errorf("failed to list version files: %v", err)
 	}
 
-	if conf.MaxVersions > 0 && len(files) > conf.MaxVersions {
-		excessFiles := len(files) - conf.MaxVersions
+	if conf.Versioning.MaxVersions > 0 && len(files) > conf.Versioning.MaxVersions {
+		excessFiles := len(files) - conf.Versioning.MaxVersions
 		for i := 0; i < excessFiles; i++ {
 			err := os.Remove(filepath.Join(versionDir, files[i].Name()))
 			if err != nil {
@@ -527,7 +600,7 @@ func processUpload(task UploadTask) error {
 	startTime := time.Now()
 
 	// Handle uploads and write to a temporary file
-	if conf.ChunkedUploadsEnabled {
+	if conf.Uploads.ChunkedUploadsEnabled {
 		err := handleChunkedUpload(tempFilename, r)
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
@@ -564,7 +637,7 @@ func processUpload(task UploadTask) error {
 	}
 
 	// Handle file versioning if enabled
-	if conf.EnableVersioning {
+	if conf.Versioning.EnableVersioning {
 		existing, _ := fileExists(absFilename)
 		if existing {
 			err := versionFile(absFilename)
@@ -692,10 +765,10 @@ func initializeScanWorkerPool(ctx context.Context) {
 // Setup router with middleware
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
-	subpath := path.Join("/", conf.UploadSubDir)
+	subpath := path.Join("/", conf.Server.UploadSubDir)
 	subpath = strings.TrimRight(subpath, "/") + "/"
 	mux.HandleFunc(subpath, handleRequest)
-	if conf.MetricsEnabled {
+	if conf.Server.MetricsEnabled {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -764,7 +837,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	subDir := path.Join("/", conf.UploadSubDir)
+	subDir := path.Join("/", conf.Server.UploadSubDir)
 	fileStorePath := strings.TrimPrefix(p, subDir)
 	if fileStorePath == "" || fileStorePath == "/" {
 		log.Warn("Access to root directory is forbidden")
@@ -774,7 +847,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		fileStorePath = fileStorePath[1:]
 	}
 
-	absFilename := filepath.Join(conf.StoreDir, fileStorePath)
+	absFilename := filepath.Join(conf.Server.StoreDir, fileStorePath)
 
 	switch r.Method {
 	case http.MethodPut:
@@ -810,7 +883,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	log.Debugf("Protocol version determined: %s", protocolVersion)
 
 	// Initialize HMAC
-	mac := hmac.New(sha256.New, []byte(conf.Secret))
+	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
 
 	// Calculate MAC based on protocolVersion
 	if protocolVersion == "v" {
@@ -850,7 +923,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 			"filename":  fileStorePath,
 			"extension": filepath.Ext(fileStorePath),
 		}).Warn("Attempted upload with disallowed file extension")
-		http.Error(w, "Disallowed file extension. Allowed extensions are: "+strings.Join(conf.AllowedExtensions, ", "), http.StatusForbidden)
+		http.Error(w, "Disallowed file extension. Allowed extensions are: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
 		uploadErrorsTotal.Inc()
 		return
 	}
@@ -910,7 +983,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	w.Header().Set("Content-Type", contentType)
 
 	// Handle resumable downloads
-	if conf.ResumableDownloadsEnabled {
+	if conf.Uploads.ResumableUploadsEnabled {
 		handleResumableDownload(absFilename, w, r, fileInfo.Size())
 		return
 	}
@@ -1152,8 +1225,8 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 	}
 	defer targetFile.Close()
 
-	writer := bufio.NewWriterSize(targetFile, int(conf.ChunkSize))
-	buffer := make([]byte, conf.ChunkSize)
+	writer := bufio.NewWriterSize(targetFile, int(conf.Uploads.ChunkSize))
+	buffer := make([]byte, conf.Uploads.ChunkSize)
 
 	totalBytes := int64(0)
 	for {
@@ -1311,15 +1384,15 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if !conf.RedisEnabled {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
 
 	redisClient = redis.NewClient(&redis.Options{
-		Addr:     conf.RedisAddr,
-		Password: conf.RedisPassword,
-		DB:       conf.RedisDBIndex,
+		Addr:     conf.Redis.RedisAddr,
+		Password: conf.Redis.RedisPassword,
+		DB:       conf.Redis.RedisDBIndex,
 	})
 
 	// Test the Redis connection
