@@ -68,7 +68,7 @@ type Config struct {
 	IdleTimeout  string
 
 	// ClamAV Configuration
-	ClamAVSocket string // ClamAV socket
+	ClamAVSocket string `toml:"ClamAVSocket"` // ClamAV socket
 
 	// Redis Configuration
 	RedisEnabled             bool   `toml:"RedisEnabled"` // Enable/disable Redis
