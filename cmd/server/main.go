@@ -334,8 +334,11 @@ func setupLogging() {
 		log.SetOutput(os.Stdout)
 	}
 
-	// Use JSON formatter for structured logging
-	log.SetFormatter(&logrus.JSONFormatter{})
+	// Use Text formatter for human-readable logs
+	log.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+		// You can customize the format further if needed
+	})
 }
 
 // Log system information
