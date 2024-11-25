@@ -1,50 +1,74 @@
-# Example configuration for HMAC File Server
+# Server Settings
+ListenIP = "127.0.0.1"
+ListenPort = ":8080"
 
-# Server settings
-ListenIP		 = "127.0.0.1"
-ListenPort               = "8080"                              # Port for the file server to listen on
-UnixSocket               = false                                # Use Unix sockets if true, otherwise TCP
-Secret                   = "your-secret-key"                    # HMAC secret for securing uploads
-StoreDir                 = "./TestUpload"	                # Directory for storing uploaded files
-UploadSubDir             = "upload"                             # Subdirectory for uploads
-LoggingEnabled		 = false				# Set to false to disable logging
-LogLevel                 = "error"                              # Logging level: "debug", "info", "warn", "error"
-LogFile                  = "./hmac-file-server.log"		# Log file path
-ListenIPMetrics		 = "127.0.0.1"
-MetricsEnabled           = true                                 # Enable Prometheus metrics
-MetricsPort              = "9090"                              # Port for Prometheus metrics server
+MetricsEnabled = true
+ListenIPMetrics = "127.0.0.1"  # IP address for the metrics server
+MetricsPort = "9090"  
+
+UnixSocket = false
+Secret = "freaky-karl-nicht-noetig-gewesen"
+StoreDir = ""./TestUpload""
+UploadSubDir = "upload"
+LoggingEnabled = true
+LogLevel = "info"
+LogFile = "/var/log/hmac-file-server.log"
 
 # Workers and connections
-NumWorkers               = 5                                    # Number of workers
-UploadQueueSize          = 5000                                 # Upload queue size for handling multiple uploads
+NumWorkers = 2
+UploadQueueSize = 50
+
+# IP Management Settings
+EnableIPManagement = false
+IPSource = "header"
+NginxLogFile = "/var/log/nginx/stream-access.log"
 
 # Graceful shutdown
-GracefulShutdownTimeout  = 60                                   # Timeout for graceful shutdowns (in seconds)
+GracefulShutdownTimeout = 60
 
-# File TTL and versioning
-FileTTL                  = "90d"                                # TTL for file expiration
-ResumableUploadsEnabled  = true                                 # Enable resumable uploads
-ResumableDownloads       = true                                 # Enable resumable downloads
-MaxVersions              = 3                                    # Maximum number of file versions to keep
-EnableVersioning         = true                                 # Enable file versioning
+# File TTL
+FileTTL = "365d"
+ResumableUploadsEnabled = true
+ResumableDownloadsEnabled = true
+MaxVersions = 1
+EnableVersioning = false
 
 # Upload/Download settings
-ChunkedUploadsEnabled    = true                                 # Enable chunked uploads
-ChunkSize                = 65536                                # Size of each chunk in bytes (64 KB)
+ChunkedUploadsEnabled = true
+ChunkSize = 8192
 
 # Redis settings
-RedisEnabled             = false                                # Enable Redis for caching
-RedisAddr                = "localhost:6379"                    # Redis server address
-RedisPassword            = ""                                  # Redis password (if any)
-RedisDBIndex             = 1                                   # Redis DBIndex
+RedisEnabled = true
+RedisAddr = "localhost:6379"
+RedisPassword = ""
+RedisDBIndex = 0
+RedisHealthCheckInterval = "120s"
 
 # Server timeout settings
-ReadTimeout              = "1h"                                 # Server read timeout
-WriteTimeout             = "1h"                                 # Server write timeout
-IdleTimeout              = "30m"                                # Server idle timeout
+ReadTimeout = "4800s"
+WriteTimeout = "4800s"
+IdleTimeout = "4800s"
+SessionRefreshInterval = "24h"
 
 # ClamAV Configuration
-ClamAVSocket             = "/var/run/clamav/clamd.ctl"         # Use UNIX socket; alternatively use TCP socket
+ClamAVEnabled = true
+NumScanWorkers = 2
+ClamAVSocket = "/var/run/clamav/clamd.ctl"
+#ClamAVSocket = "tcp:127.0.0.1:3310"
+
+# Security settings
+RateLimitingEnabled = false
+MaxRequestsPerMinute = 60
+RateLimitInterval = "1m"
+BlockedUserAgents = ["MisskeyBot/1.0", "EvilCrawler"]
+
+# Fail2Ban
+Enable = false
+Jail = "hmac-auth"
+BlockCommand = "/usr/bin/fail2ban-client set hmac-auth ban <IP>"
+UnblockCommand = "/usr/bin/fail2ban-client set hmac-auth unban <IP>"
+MaxRetries = 3
+BanTime = "3600s"
 
 # Allowed file extensions including image, video, and document formats
 AllowedExtensions = [
@@ -52,10 +76,10 @@ AllowedExtensions = [
     ".txt", ".pdf",
 
     # Image formats
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+    ".png",".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
 
     # Video formats
-    ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
+    ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
 
     # Audio formats
     ".mp3", ".ogg"
