@@ -9,9 +9,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 )
 
-require (
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-)
+require github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 
 require (
 	github.com/BurntSushi/toml v1.4.0
@@ -25,7 +23,6 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.60.1 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	github.com/rakyll/magicmime v0.1.0
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.9.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
