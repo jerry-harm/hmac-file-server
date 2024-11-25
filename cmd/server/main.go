@@ -231,6 +231,13 @@ func main() {
 	// Setup router
 	router := setupRouter()
 
+	// Start file cleaner
+	fileTTL, err := time.ParseDuration(conf.FileTTL)
+	if err != nil {
+		log.Fatalf("Invalid FileTTL: %v", err)
+	}
+	go runFileCleaner(ctx, conf.StoreDir, fileTTL)
+
 	// Parse timeout durations
 	readTimeout, err := time.ParseDuration(conf.ReadTimeout)
 	if err != nil {
@@ -1372,6 +1379,42 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 					log.Info("Redis connection restored")
 				}
 				mu.Unlock()
+			}
+		}
+	}
+}
+
+// RunFileCleaner periodically deletes files that exceed the FileTTL duration.
+func runFileCleaner(ctx context.Context, storeDir string, ttl time.Duration) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stopping file cleaner.")
+			return
+		case <-ticker.C:
+			now := time.Now()
+			err := filepath.Walk(storeDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if info.IsDir() {
+					return nil
+				}
+				if now.Sub(info.ModTime()) > ttl {
+					err := os.Remove(path)
+					if err != nil {
+						log.WithError(err).Errorf("Failed to remove expired file: %s", path)
+					} else {
+						log.Infof("Removed expired file: %s", path)
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				log.WithError(err).Error("Error walking store directory for file cleaning")
 			}
 		}
 	}
