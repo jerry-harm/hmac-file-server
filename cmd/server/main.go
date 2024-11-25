@@ -249,7 +249,7 @@ func main() {
 
 	// Configure HTTP server
 	server := &http.Server{
-		Addr:         conf.ListenPort,
+		Addr:         ":" + conf.ListenPort, // Prepend colon to ListenPort
 		Handler:      router,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
