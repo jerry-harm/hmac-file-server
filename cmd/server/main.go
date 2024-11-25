@@ -25,8 +25,11 @@ import (
 	"syscall"
 	"time"
 
+	"sync"
+
 	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
+	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -64,6 +67,13 @@ type Config struct {
 
 	// ClamAV Configuration
 	ClamAVSocket string // Added for ClamAV integration
+
+	// Redis Configuration
+	RedisEnabled             bool   `toml:"RedisEnabled"` // Enable/disable Redis
+	RedisDBIndex             int    `toml:"RedisDBIndex"`
+	RedisAddr                string `toml:"RedisAddr"`
+	RedisPassword            string `toml:"RedisPassword"`
+	RedisHealthCheckInterval string `toml:"RedisHealthCheckInterval"` // e.g., "30s"
 }
 
 // UploadTask represents a file upload task
@@ -121,6 +131,13 @@ var (
 	// ClamAV client
 	clamClient *clamd.Clamd // Added for ClamAV integration
 
+	// Redis Client
+	redisClient *redis.Client // Redis client
+
+	// Redis connection status
+	redisConnected bool = false
+	mu             sync.RWMutex
+
 	// Constants for worker pool
 	MinWorkers      = 20    // Increased from 10 to 20 for better concurrency
 	UploadQueueSize = 10000 // Increased from 5000 to 10000
@@ -139,7 +156,7 @@ func main() {
 	// Load configuration
 	err := readConfig(configFile, &conf)
 	if err != nil {
-		log.Fatalln("Error reading configuration file:", err)
+		log.Fatalf("Error reading config: %v", err)
 	}
 
 	// Initialize file info cache
@@ -148,7 +165,7 @@ func main() {
 	// Create store directory
 	err = os.MkdirAll(conf.StoreDir, os.ModePerm)
 	if err != nil {
-		log.Fatalf("Could not create directory %s: %v", conf.StoreDir, err)
+		log.Fatalf("Error creating store directory: %v", err)
 	}
 	log.WithField("directory", conf.StoreDir).Info("Store directory is ready")
 
@@ -180,9 +197,16 @@ func main() {
 	// Initialize ClamAV client (Optional)
 	clamClient, err = initClamAV(conf.ClamAVSocket)
 	if err != nil {
-		log.WithError(err).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+		log.WithFields(logrus.Fields{
+			"error": err.Error(),
+		}).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
 	} else {
-		log.Info("ClamAV client initialized successfully")
+		log.Info("ClamAV client initialized successfully.")
+	}
+
+	// Initialize Redis client if enabled
+	if conf.RedisEnabled {
+		initRedis()
 	}
 
 	// Initialize worker pools
@@ -191,23 +215,28 @@ func main() {
 		initializeScanWorkerPool(ctx)
 	}
 
+	// Start Redis health monitor if Redis is enabled
+	if conf.RedisEnabled && redisClient != nil {
+		go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.RedisHealthCheckInterval))
+	}
+
 	// Setup router
 	router := setupRouter()
 
 	// Parse timeout durations
 	readTimeout, err := time.ParseDuration(conf.ReadTimeout)
 	if err != nil {
-		log.Fatalf("Invalid ReadTimeout value: %v", err)
+		log.Fatalf("Invalid ReadTimeout: %v", err)
 	}
 
 	writeTimeout, err := time.ParseDuration(conf.WriteTimeout)
 	if err != nil {
-		log.Fatalf("Invalid WriteTimeout value: %v", err)
+		log.Fatalf("Invalid WriteTimeout: %v", err)
 	}
 
 	idleTimeout, err := time.ParseDuration(conf.IdleTimeout)
 	if err != nil {
-		log.Fatalf("Invalid IdleTimeout value: %v", err)
+		log.Fatalf("Invalid IdleTimeout: %v", err)
 	}
 
 	// Configure HTTP server
@@ -222,14 +251,10 @@ func main() {
 	// Start metrics server if enabled
 	if conf.MetricsEnabled {
 		go func() {
-			log.Infof("Starting metrics server on %s", conf.MetricsPort)
-			metricsAddr := conf.MetricsPort
-			if !strings.Contains(metricsAddr, ":") {
-				metricsAddr = ":" + metricsAddr
-			}
 			http.Handle("/metrics", promhttp.Handler())
-			if err := http.ListenAndServe(metricsAddr, nil); err != nil {
-				log.WithError(err).Fatal("Metrics server failed")
+			log.Infof("Metrics server started on port %s", conf.MetricsPort)
+			if err := http.ListenAndServe(":"+conf.MetricsPort, nil); err != nil {
+				log.Fatalf("Metrics server failed: %v", err)
 			}
 		}()
 	}
@@ -240,56 +265,52 @@ func main() {
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.UnixSocket {
+		// Listen on Unix socket
+		if err := os.RemoveAll(conf.ListenPort); err != nil {
+			log.Fatalf("Failed to remove existing Unix socket: %v", err)
+		}
 		listener, err := net.Listen("unix", conf.ListenPort)
 		if err != nil {
-			log.WithError(err).Fatal("Could not open Unix socket")
+			log.Fatalf("Failed to listen on Unix socket %s: %v", conf.ListenPort, err)
 		}
 		defer listener.Close()
-		log.Infof("Server started on Unix socket %s. Waiting for requests.", conf.ListenPort)
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Fatal("Server failed")
+			log.Fatalf("Server failed: %v", err)
 		}
 	} else {
-		log.Infof("Server started on port %s. Waiting for requests.", conf.ListenPort)
+		// Listen on TCP port
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Fatal("Server failed")
+			log.Fatalf("Server failed: %v", err)
 		}
 	}
 }
 
 // Function to load configuration file
 func readConfig(configFilename string, conf *Config) error {
-	configData, err := os.ReadFile(configFilename)
-	if err != nil {
-		log.Fatal("Configuration file config.toml cannot be read:", err, "...Exiting.")
-		return err
-	}
-
-	if _, err := toml.Decode(string(configData), conf); err != nil {
-		log.Fatal("Config file config.toml is invalid:", err)
-		return err
+	if _, err := toml.DecodeFile(configFilename, conf); err != nil {
+		return fmt.Errorf("error decoding config file: %w", err)
 	}
 
 	// Set default values for optional settings
 	if conf.MaxVersions == 0 {
-		conf.MaxVersions = 0 // Default: no maximum number of versions
+		conf.MaxVersions = 5 // Default: keep last 5 versions
 	}
 	if conf.ChunkSize == 0 {
 		conf.ChunkSize = 1048576 // Default chunk size: 1MB
 	}
 	if conf.AllowedExtensions == nil {
-		conf.AllowedExtensions = []string{} // Default: no restrictions
+		conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
 	}
 
 	// Set default values for server timeouts if they are not set
 	if conf.ReadTimeout == "" {
-		conf.ReadTimeout = "2h" // Default read timeout
+		conf.ReadTimeout = "2m0s" // Default read timeout
 	}
 	if conf.WriteTimeout == "" {
-		conf.WriteTimeout = "2h" // Default write timeout
+		conf.WriteTimeout = "2m0s" // Default write timeout
 	}
 	if conf.IdleTimeout == "" {
-		conf.IdleTimeout = "2h" // Default idle timeout
+		conf.IdleTimeout = "2m0s" // Default idle timeout
 	}
 
 	return nil
@@ -981,18 +1002,17 @@ func scanFileWithClamAV(filePath string) error {
 
 // Initialize ClamAV client (Optional)
 func initClamAV(socket string) (*clamd.Clamd, error) {
-	client := clamd.NewClamd(socket)
-	if client == nil {
-		return nil, fmt.Errorf("failed to create ClamAV client for socket: %s", socket)
+	if socket == "" {
+		return nil, fmt.Errorf("ClamAV socket path is not configured")
 	}
 
-	// Ping ClamAV to verify connection
-	err := client.Ping()
+	clamClient := clamd.NewClamd("unix:" + socket)
+	err := clamClient.Ping()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to ClamAV: %w", err)
 	}
 
-	return client, nil
+	return clamClient, nil
 }
 
 // Handle resumable downloads
@@ -1262,4 +1282,79 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 		log.Info("Server gracefully stopped.")
 		os.Exit(0)
 	}()
+}
+
+// Initialize Redis client
+func initRedis() {
+	if !conf.RedisEnabled {
+		log.Info("Redis is disabled in configuration.")
+		return
+	}
+
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     conf.RedisAddr,
+		Password: conf.RedisPassword,
+		DB:       conf.RedisDBIndex,
+	})
+
+	// Test the Redis connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := redisClient.Ping(ctx).Result()
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	log.Info("Connected to Redis successfully")
+
+	// Set initial connection status
+	mu.Lock()
+	redisConnected = true
+	mu.Unlock()
+}
+
+// Parse duration string to time.Duration
+func parseDuration(durationStr string) time.Duration {
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		log.WithError(err).Warn("Invalid duration format, using default 30s")
+		return 30 * time.Second
+	}
+	return duration
+}
+
+// MonitorRedisHealth periodically checks Redis connectivity and logs the status.
+func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("Stopping Redis health monitor.")
+			return
+		case <-ticker.C:
+			err := client.Ping(ctx).Err()
+			if err != nil {
+				log.WithError(err).Error("Redis health check failed")
+				// Update connection status
+				mu.Lock()
+				if redisConnected {
+					redisConnected = false
+					log.Warn("Redis connection lost")
+				}
+				mu.Unlock()
+				// Optionally implement fallback logic here
+			} else {
+				log.Info("Redis health check succeeded")
+				// Update connection status
+				mu.Lock()
+				if !redisConnected {
+					redisConnected = true
+					log.Info("Redis connection restored")
+				}
+				mu.Unlock()
+			}
+		}
+	}
 }
