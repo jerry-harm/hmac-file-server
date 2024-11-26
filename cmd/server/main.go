@@ -26,7 +26,6 @@ import (
 
 	"sync"
 
-	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
@@ -107,9 +106,6 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	Workers    WorkersConfig    `mapstructure:"workers"`
 	File       FileConfig       `mapstructure:"file"`
-
-	// Graceful Shutdown Configuration
-	GracefulShutdownEnabled bool `toml:"GracefulShutdownEnabled"`
 }
 
 // UploadTask represents a file upload task
@@ -332,40 +328,29 @@ func main() {
 
 // Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-	if _, err := toml.DecodeFile(configFilename, conf); err != nil {
-		return fmt.Errorf("error decoding config file: %w", err)
+	viper.SetConfigFile(configFilename)
+	viper.SetConfigType("toml")
+
+	// Set default values
+	setDefaults()
+
+	// Read in environment variables that match
+	viper.AutomaticEnv()
+	viper.SetEnvPrefix("HMAC") // Prefix for environment variables
+
+	// Read the config file
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("error reading config file: %w", err)
 	}
 
-	// Set default values for optional settings
-	if conf.MaxVersions == 0 {
-		conf.MaxVersions = 5 // Default: keep last 5 versions
+	// Unmarshal the config into the Config struct
+	if err := viper.Unmarshal(conf); err != nil {
+		return fmt.Errorf("unable to decode into struct: %w", err)
 	}
-	if conf.ChunkSize == 0 {
-		conf.ChunkSize = 16777216 // Default chunk size: 16MB
-	}
-	if conf.AllowedExtensions == nil {
-		conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
-	}
-	if conf.ReadTimeout == "" {
-		conf.ReadTimeout = "2m0s" // Default read timeout
-	}
-	if conf.WriteTimeout == "" {
-		conf.WriteTimeout = "2m0s" // Default write timeout
-	}
-	if conf.IdleTimeout == "" {
-		conf.IdleTimeout = "2m0s" // Default idle timeout
-	}
-	if conf.NumWorkers == 0 {
-		conf.NumWorkers = 5 // Default number of workers
-	}
-	if conf.UploadQueueSize == 0 {
-		conf.UploadQueueSize = 10000 // Default upload queue size
-	}
-	if conf.NumScanWorkers == 0 {
-		conf.NumScanWorkers = 5 // Default number of scan workers
-	}
-	if conf.GracefulShutdownEnabled == false {
-		conf.GracefulShutdownEnabled = true // Default to enabled
+
+	// Validate the configuration
+	if err := validateConfig(conf); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
 	return nil
@@ -379,14 +364,14 @@ func setDefaults() {
 	viper.SetDefault("server.StoreDir", "./uploads")
 	viper.SetDefault("server.LogLevel", "info")
 	viper.SetDefault("server.LogFile", "")
-	viper.SetDefault("server.MetricsEnabled", false)
+	viper.SetDefault("server.MetricsEnabled", true)
 	viper.SetDefault("server.MetricsPort", "9090")
 	viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
 
 	// Timeout defaults
-	viper.SetDefault("timeouts.ReadTimeout", "600s") // supports 's'
-	viper.SetDefault("timeouts.WriteTimeout", "600s")
-	viper.SetDefault("timeouts.IdleTimeout", "600s")
+	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
+	viper.SetDefault("timeouts.WriteTimeout", "4800s")
+	viper.SetDefault("timeouts.IdleTimeout", "4800s")
 
 	// Security defaults
 	viper.SetDefault("security.Secret", "changeme")
@@ -398,7 +383,7 @@ func setDefaults() {
 	// Uploads defaults
 	viper.SetDefault("uploads.ResumableUploadsEnabled", true)
 	viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
-	viper.SetDefault("uploads.ChunkSize", 16777216)
+	viper.SetDefault("uploads.ChunkSize", 8192)
 	viper.SetDefault("uploads.AllowedExtensions", []string{
 		".txt", ".pdf",
 		".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
@@ -407,12 +392,12 @@ func setDefaults() {
 	})
 
 	// ClamAV defaults
-	viper.SetDefault("clamav.ClamAVEnabled", false)
+	viper.SetDefault("clamav.ClamAVEnabled", true)
 	viper.SetDefault("clamav.ClamAVSocket", "/var/run/clamav/clamd.ctl")
 	viper.SetDefault("clamav.NumScanWorkers", 2)
 
 	// Redis defaults
-	viper.SetDefault("redis.RedisEnabled", false)
+	viper.SetDefault("redis.RedisEnabled", true)
 	viper.SetDefault("redis.RedisAddr", "localhost:6379")
 	viper.SetDefault("redis.RedisPassword", "")
 	viper.SetDefault("redis.RedisDBIndex", 0)
