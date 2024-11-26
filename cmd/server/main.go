@@ -96,21 +96,16 @@ type FileConfig struct {
 	FileRevision int `mapstructure:"FileRevision"`
 }
 
-type DeduplicationConfig struct {
-	Enabled bool `mapstructure:"enabled"`
-}
-
 type Config struct {
-	Server        ServerConfig        `mapstructure:"server"`
-	Timeouts      TimeoutConfig       `mapstructure:"timeouts"`
-	Security      SecurityConfig      `mapstructure:"security"`
-	Versioning    VersioningConfig    `mapstructure:"versioning"`
-	Uploads       UploadsConfig       `mapstructure:"uploads"`
-	ClamAV        ClamAVConfig        `mapstructure:"clamav"`
-	Redis         RedisConfig         `mapstructure:"redis"`
-	Workers       WorkersConfig       `mapstructure:"workers"`
-	File          FileConfig          `mapstructure:"file"`
-	Deduplication DeduplicationConfig `mapstructure:"deduplication"` // New section
+	Server     ServerConfig     `mapstructure:"server"`
+	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
+	Security   SecurityConfig   `mapstructure:"security"`
+	Versioning VersioningConfig `mapstructure:"versioning"`
+	Uploads    UploadsConfig    `mapstructure:"uploads"`
+	ClamAV     ClamAVConfig     `mapstructure:"clamav"`
+	Redis      RedisConfig      `mapstructure:"redis"`
+	Workers    WorkersConfig    `mapstructure:"workers"`
+	File       FileConfig       `mapstructure:"file"`
 }
 
 // UploadTask represents a file upload task
@@ -308,19 +303,6 @@ func main() {
 	// Setup graceful shutdown
 	setupGracefulShutdown(server, cancel)
 
-	// Conditionally run deduplication
-	if conf.Deduplication.Enabled {
-		log.Info("Deduplication is enabled. Starting deduplication process...")
-		err := DeduplicateFiles(conf.Server.StoreDir)
-		if err != nil {
-			log.Errorf("Deduplication failed: %v", err)
-		} else {
-			log.Info("Deduplication completed successfully.")
-		}
-	} else {
-		log.Info("Deduplication is disabled.")
-	}
-
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
@@ -382,14 +364,14 @@ func setDefaults() {
 	viper.SetDefault("server.StoreDir", "./uploads")
 	viper.SetDefault("server.LogLevel", "info")
 	viper.SetDefault("server.LogFile", "")
-	viper.SetDefault("server.MetricsEnabled", true)
+	viper.SetDefault("server.MetricsEnabled", false)
 	viper.SetDefault("server.MetricsPort", "9090")
 	viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
 
 	// Timeout defaults
-	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
-	viper.SetDefault("timeouts.WriteTimeout", "4800s")
-	viper.SetDefault("timeouts.IdleTimeout", "4800s")
+	viper.SetDefault("timeouts.ReadTimeout", "600s") // supports 's'
+	viper.SetDefault("timeouts.WriteTimeout", "600s")
+	viper.SetDefault("timeouts.IdleTimeout", "600s")
 
 	// Security defaults
 	viper.SetDefault("security.Secret", "changeme")
@@ -401,7 +383,7 @@ func setDefaults() {
 	// Uploads defaults
 	viper.SetDefault("uploads.ResumableUploadsEnabled", true)
 	viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
-	viper.SetDefault("uploads.ChunkSize", 8192)
+	viper.SetDefault("uploads.ChunkSize", 16777216)
 	viper.SetDefault("uploads.AllowedExtensions", []string{
 		".txt", ".pdf",
 		".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
@@ -410,12 +392,12 @@ func setDefaults() {
 	})
 
 	// ClamAV defaults
-	viper.SetDefault("clamav.ClamAVEnabled", true)
+	viper.SetDefault("clamav.ClamAVEnabled", false)
 	viper.SetDefault("clamav.ClamAVSocket", "/var/run/clamav/clamd.ctl")
 	viper.SetDefault("clamav.NumScanWorkers", 2)
 
 	// Redis defaults
-	viper.SetDefault("redis.RedisEnabled", true)
+	viper.SetDefault("redis.RedisEnabled", false)
 	viper.SetDefault("redis.RedisAddr", "localhost:6379")
 	viper.SetDefault("redis.RedisPassword", "")
 	viper.SetDefault("redis.RedisDBIndex", 0)
@@ -424,9 +406,6 @@ func setDefaults() {
 	// Workers defaults
 	viper.SetDefault("workers.NumWorkers", 2)
 	viper.SetDefault("workers.UploadQueueSize", 50)
-
-	// Deduplication defaults
-	viper.SetDefault("deduplication.enabled", true)
 }
 
 // Validate configuration fields
@@ -1273,7 +1252,7 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 
 	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		log.WithError(err).Errorf("Failed to open temporary file %s for chunked upload", tempFilename)
+		log.WithError(err).Error("Failed to open temporary file for chunked upload")
 		return err
 	}
 	defer targetFile.Close()
@@ -1282,46 +1261,34 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 	buffer := make([]byte, conf.Uploads.ChunkSize)
 
 	totalBytes := int64(0)
-	readAttempts := 0
 	for {
 		n, err := r.Body.Read(buffer)
-		readAttempts++
 		if n > 0 {
 			totalBytes += int64(n)
 			_, writeErr := writer.Write(buffer[:n])
 			if writeErr != nil {
-				log.WithError(writeErr).Errorf("Failed to write chunk to temporary file %s", tempFilename)
+				log.WithError(writeErr).Error("Failed to write chunk to temporary file")
 				return writeErr
 			}
-			log.WithFields(logrus.Fields{
-				"bytes_written": n,
-				"total_bytes":   totalBytes,
-				"read_attempt":  readAttempts,
-			}).Debug("Wrote chunk to temporary file")
 		}
 		if err != nil {
 			if err == io.EOF {
-				log.WithFields(logrus.Fields{
-					"total_bytes":   totalBytes,
-					"read_attempts": readAttempts,
-				}).Info("Completed reading request body")
 				break // Finished reading the body
 			}
 			log.WithError(err).Error("Error reading from request body")
-			return fmt.Errorf("failed to read request body: %w", err)
+			return err
 		}
 	}
 
 	err = writer.Flush()
 	if err != nil {
-		log.WithError(err).Errorf("Failed to flush buffer to temporary file %s", tempFilename)
+		log.WithError(err).Error("Failed to flush buffer to temporary file")
 		return err
 	}
 
 	log.WithFields(logrus.Fields{
-		"temp_file":     tempFilename,
-		"total_bytes":   totalBytes,
-		"read_attempts": readAttempts,
+		"temp_file":   tempFilename,
+		"total_bytes": totalBytes,
 	}).Info("Chunked upload completed successfully")
 
 	uploadSizeBytes.Observe(float64(totalBytes))
