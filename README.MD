@@ -1,125 +1,143 @@
+
 # HMAC File Server
 
-HMAC File Server is a secure file handling server with HMAC authentication, ClamAV scanning, Redis integration, and Prometheus metrics.
+**HMAC File Server** is a secure, scalable, and feature-rich file server with advanced capabilities like HMAC authentication, resumable uploads, chunked uploads, file versioning, and optional ClamAV scanning for file integrity and security. This server is built with extensibility and operational monitoring in mind, including Prometheus metrics support and Redis integration.
+
+## Features
+
+- **HMAC Authentication:** Secure file uploads and downloads with HMAC tokens.
+- **File Versioning:** Enable versioning for uploaded files with configurable retention.
+- **Chunked and Resumable Uploads:** Handle large files efficiently with support for resumable and chunked uploads.
+- **ClamAV Scanning:** Optional virus scanning for uploaded files.
+- **Prometheus Metrics:** Monitor system and application-level metrics.
+- **Redis Integration:** Use Redis for caching or storing application states.
+- **File Expiration:** Automatically delete files after a specified TTL.
+- **Graceful Shutdown:** Handles signals and ensures proper cleanup.
+
+---
+
+## Installation
+
+### Prerequisites
+
+- Go 1.20+
+- Redis (optional, if Redis integration is enabled)
+- ClamAV (optional, if file scanning is enabled)
+
+### Clone and Build
+
+```bash
+git clone https://github.com/your-repo/hmac-file-server.git
+cd hmac-file-server
+go build -o hmac-file-server main.go
+```
+
+---
 
 ## Configuration
 
-The server is configured using a `config.toml` file. Below are all the configuration entries available:
+The server configuration is managed through a `config.toml` file. Below are the supported configuration options:
 
-### Server Configuration
+### **Server Configuration**
 
-- **ListenPort**: The port or Unix socket the server listens on.
-  - Example: `":8080"`
-- **UnixSocket**: Whether to use a Unix socket instead of a TCP port.
-  - Example: `false`
-- **Secret**: The secret key used for HMAC authentication.
-  - Example: `"your-secret-key"`
-- **StoreDir**: The directory where files are stored.
-  - Example: `"/mnt/storage/hmac-file-server"`
-- **UploadSubDir**: The subdirectory for uploads.
-  - Example: `"upload"`
-- **LogLevel**: The logging level.
-  - Example: `"info"`
-- **LogFile**: The file to write logs to.
-  - Example: `"/var/log/hmac-file-server.log"`
-- **MetricsEnabled**: Whether to enable Prometheus metrics.
-  - Example: `true`
-- **MetricsPort**: The port for the Prometheus metrics server.
-  - Example: `"9090"`
-- **FileTTL**: The time-to-live for files.
-  - Example: `"168h0m0s"`
-- **ResumableUploadsEnabled**: Whether to enable resumable uploads.
-  - Example: `true`
-- **ResumableDownloadsEnabled**: Whether to enable resumable downloads.
-  - Example: `true`
-- **EnableVersioning**: Whether to enable file versioning.
-  - Example: `true`
-- **MaxVersions**: The maximum number of file versions to keep.
-  - Example: `5`
-- **ChunkedUploadsEnabled**: Whether to enable chunked uploads.
-  - Example: `true`
-- **ChunkSize**: The size of chunks for chunked uploads.
-  - Example: `1048576`
-- **AllowedExtensions**: The allowed file extensions for uploads.
-  - Example: `["png", "jpg", "jpeg", "gif", "txt", "pdf"]`
+| Key                    | Description                                         | Example                         |
+|------------------------|-----------------------------------------------------|---------------------------------|
+| `ListenPort`           | Port or Unix socket to listen on                    | `":8080"`                      |
+| `UnixSocket`           | Use a Unix socket (`true`/`false`)                  | `false`                        |
+| `Secret`               | Secret key for HMAC authentication                 | `"your-secret-key"`            |
+| `StoreDir`             | Directory to store uploaded files                  | `"/mnt/storage/hmac-file-server"` |
+| `LogLevel`             | Logging level (`info`, `debug`, etc.)               | `"info"`                       |
+| `LogFile`              | Log file path (optional)                           | `"/var/log/hmac-file-server.log"` |
+| `MetricsEnabled`       | Enable Prometheus metrics (`true`/`false`)          | `true`                         |
+| `MetricsPort`          | Prometheus metrics server port                     | `"9090"`                       |
+| `FileTTL`              | File Time-to-Live duration                         | `"168h0m0s"`                   |
 
-### Server Timeouts
+### **Uploads**
 
-- **ReadTimeout**: The read timeout for the server.
-  - Example: `"2h"`
-- **WriteTimeout**: The write timeout for the server.
-  - Example: `"2h"`
-- **IdleTimeout**: The idle timeout for the server.
-  - Example: `"2h"`
+| Key                        | Description                                   | Example     |
+|----------------------------|-----------------------------------------------|-------------|
+| `ResumableUploadsEnabled`  | Enable resumable uploads                     | `true`      |
+| `ChunkedUploadsEnabled`    | Enable chunked uploads                       | `true`      |
+| `ChunkSize`                | Chunk size for chunked uploads (bytes)       | `1048576`   |
+| `AllowedExtensions`        | Allowed file extensions for uploads          | `[".png", ".jpg"]` |
 
-### ClamAV Configuration
+### **Time Settings**
 
-- **ClamAVEnabled**: Whether to enable ClamAV scanning.
-  - Example: `true`
-- **ClamAVSocket**: The Unix socket for ClamAV.
-  - Example: `"/var/run/clamav/clamd.ctl"`
-- **NumScanWorkers**: The number of ClamAV scan workers.
-  - Example: `2`
+| Key             | Description                    | Example  |
+|------------------|--------------------------------|----------|
+| `ReadTimeout`    | HTTP server read timeout      | `"2h"`   |
+| `WriteTimeout`   | HTTP server write timeout     | `"2h"`   |
+| `IdleTimeout`    | HTTP server idle timeout      | `"2h"`   |
 
-### Redis Configuration
+### **ClamAV Configuration**
 
-- **RedisEnabled**: Whether to enable Redis integration.
-  - Example: `true`
-- **RedisDBIndex**: The Redis database index.
-  - Example: `0`
-- **RedisAddr**: The address of the Redis server.
-  - Example: `"localhost:6379"`
-- **RedisPassword**: The password for the Redis server.
-  - Example: `""`
-- **RedisHealthCheckInterval**: The interval for Redis health checks.
-  - Example: `"30s"`
+| Key                | Description                               | Example                          |
+|--------------------|-------------------------------------------|----------------------------------|
+| `ClamAVEnabled`    | Enable ClamAV virus scanning (`true`)     | `true`                          |
+| `ClamAVSocket`     | Path to ClamAV Unix socket               | `"/var/run/clamav/clamd.ctl"`   |
+| `NumScanWorkers`   | Number of workers for file scanning       | `2`                             |
 
-### Workers and Connections
+### **Redis Configuration**
 
-- **NumWorkers**: The number of upload workers.
-  - Example: `2`
-- **UploadQueueSize**: The size of the upload queue.
-  - Example: `50`
+| Key                        | Description                      | Example           |
+|----------------------------|----------------------------------|-------------------|
+| `RedisEnabled`             | Enable Redis integration         | `true`            |
+| `RedisDBIndex`             | Redis database index             | `0`               |
+| `RedisAddr`                | Redis server address             | `"localhost:6379"`|
+| `RedisPassword`            | Password for Redis authentication| `""`              |
+| `RedisHealthCheckInterval` | Health check interval for Redis  | `"30s"`           |
 
-## Example `config.toml`
+---
 
-```toml
-# Server Configuration
-ListenPort = ":8080"
-UnixSocket = false
-Secret = "your-secret-key"
-StoreDir = "/mnt/storage/hmac-file-server"
-UploadSubDir = "upload"
-LogLevel = "info"
-LogFile = "/var/log/hmac-file-server.log"
-MetricsEnabled = true
-MetricsPort = "9090"
-FileTTL = "168h0m0s"
-ResumableUploadsEnabled = true
-ResumableDownloadsEnabled = true
-EnableVersioning = true
-MaxVersions = 5
-ChunkedUploadsEnabled = true
-ChunkSize = 1048576
-AllowedExtensions = ["png", "jpg", "jpeg", "gif", "txt", "pdf"]
+## Running the Server
 
-# Server timeouts
-ReadTimeout = "2h"
-WriteTimeout = "2h"
-IdleTimeout = "2h"
+### Basic Usage
 
-# ClamAV Configuration
-ClamAVEnabled = true
-ClamAVSocket = "/var/run/clamav/clamd.ctl"
-NumScanWorkers = 2
+Run the server with a configuration file:
 
-# Redis Configuration
-RedisEnabled = true
-RedisDBIndex = 0
-RedisAddr = "localhost:6379"
-RedisPassword = ""
-RedisHealthCheckInterval = "30s"
+```bash
+./hmac-file-server -config ./config.toml
+```
 
-# Workers and connections
-NumWorkers = 2
-UploadQueueSize = 50
+### Metrics Server
+
+If `MetricsEnabled` is `true`, the Prometheus metrics server will run on the port specified in `MetricsPort` (default: `9090`).
+
+---
+
+## Development Notes
+
+- **Versioning:** Enabled via `EnableVersioning`. Ensure `MaxVersions` is set appropriately to prevent storage issues.
+- **File Cleaner:** The file cleaner runs hourly and deletes files older than the configured `FileTTL`.
+- **Redis Health Check:** Automatically monitors Redis connectivity and logs warnings on failure.
+
+---
+
+## Testing
+
+To run the server locally for development:
+
+```bash
+go run main.go -config ./config.toml
+```
+
+Use tools like **cURL** or **Postman** to test file uploads and downloads.
+
+### Example File Upload with HMAC Token
+
+```bash
+curl -X PUT -H "Authorization: Bearer <HMAC-TOKEN>" -F "file=@example.txt" http://localhost:8080/uploads/example.txt
+```
+
+Replace `<HMAC-TOKEN>` with a valid HMAC signature generated using the configured `Secret`.
+
+---
+
+## Monitoring
+
+Prometheus metrics include:
+- File upload/download durations
+- Memory usage
+- CPU usage
+- Active connections
+- HTTP requests metrics (total, method, path)
