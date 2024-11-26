@@ -26,6 +26,7 @@ import (
 
 	"sync"
 
+	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
@@ -106,6 +107,9 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	Workers    WorkersConfig    `mapstructure:"workers"`
 	File       FileConfig       `mapstructure:"file"`
+
+	// Graceful Shutdown Configuration
+	GracefulShutdownEnabled bool `toml:"GracefulShutdownEnabled"`
 }
 
 // UploadTask represents a file upload task
@@ -328,29 +332,40 @@ func main() {
 
 // Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-	viper.SetConfigFile(configFilename)
-	viper.SetConfigType("toml")
-
-	// Set default values
-	setDefaults()
-
-	// Read in environment variables that match
-	viper.AutomaticEnv()
-	viper.SetEnvPrefix("HMAC") // Prefix for environment variables
-
-	// Read the config file
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("error reading config file: %w", err)
+	if _, err := toml.DecodeFile(configFilename, conf); err != nil {
+		return fmt.Errorf("error decoding config file: %w", err)
 	}
 
-	// Unmarshal the config into the Config struct
-	if err := viper.Unmarshal(conf); err != nil {
-		return fmt.Errorf("unable to decode into struct: %w", err)
+	// Set default values for optional settings
+	if conf.MaxVersions == 0 {
+		conf.MaxVersions = 5 // Default: keep last 5 versions
 	}
-
-	// Validate the configuration
-	if err := validateConfig(conf); err != nil {
-		return fmt.Errorf("configuration validation failed: %w", err)
+	if conf.ChunkSize == 0 {
+		conf.ChunkSize = 16777216 // Default chunk size: 16MB
+	}
+	if conf.AllowedExtensions == nil {
+		conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
+	}
+	if conf.ReadTimeout == "" {
+		conf.ReadTimeout = "2m0s" // Default read timeout
+	}
+	if conf.WriteTimeout == "" {
+		conf.WriteTimeout = "2m0s" // Default write timeout
+	}
+	if conf.IdleTimeout == "" {
+		conf.IdleTimeout = "2m0s" // Default idle timeout
+	}
+	if conf.NumWorkers == 0 {
+		conf.NumWorkers = 5 // Default number of workers
+	}
+	if conf.UploadQueueSize == 0 {
+		conf.UploadQueueSize = 10000 // Default upload queue size
+	}
+	if conf.NumScanWorkers == 0 {
+		conf.NumScanWorkers = 5 // Default number of scan workers
+	}
+	if conf.GracefulShutdownEnabled == false {
+		conf.GracefulShutdownEnabled = true // Default to enabled
 	}
 
 	return nil
