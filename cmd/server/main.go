@@ -41,16 +41,14 @@ import (
 
 // Configuration structure
 type ServerConfig struct {
-	ListenPort               string `mapstructure:"ListenPort"`
-	UnixSocket               bool   `mapstructure:"UnixSocket"`
-	StoreDir                 string `mapstructure:"StoreDir"`
-	LogLevel                 string `mapstructure:"LogLevel"`
-	LogFile                  string `mapstructure:"LogFile"`
-	MetricsEnabled           bool   `mapstructure:"MetricsEnabled"`
-	MetricsPort              string `mapstructure:"MetricsPort"`
-	FileTTL                  string `mapstructure:"FileTTL"`
-	GracefulShutdownEnabled  bool   `mapstructure:"GracefulShutdownEnabled"`
-	DataDeduplicationEnabled bool   `mapstructure:"DataDeduplicationEnabled"`
+	ListenPort     string `mapstructure:"ListenPort"`
+	UnixSocket     bool   `mapstructure:"UnixSocket"`
+	StoreDir       string `mapstructure:"StoreDir"`
+	LogLevel       string `mapstructure:"LogLevel"`
+	LogFile        string `mapstructure:"LogFile"`
+	MetricsEnabled bool   `mapstructure:"MetricsEnabled"`
+	MetricsPort    string `mapstructure:"MetricsPort"`
+	FileTTL        string `mapstructure:"FileTTL"`
 }
 
 type TimeoutConfig struct {
@@ -99,15 +97,15 @@ type FileConfig struct {
 }
 
 type Config struct {
-    Server     ServerConfig     `mapstructure:"server"`
-    Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
-    Security   SecurityConfig   `mapstructure:"security"`
-    Versioning VersioningConfig `mapstructure:"versioning"`
-    Uploads    UploadsConfig    `mapstructure:"uploads"`
-    ClamAV     ClamAVConfig     `mapstructure:"clamav"`
-    Redis      RedisConfig      `mapstructure:"redis"`
-    Workers    WorkersConfig    `mapstructure:"workers"`
-    File       FileConfig       `mapstructure:"file"`
+	Server     ServerConfig     `mapstructure:"server"`
+	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
+	Security   SecurityConfig   `mapstructure:"security"`
+	Versioning VersioningConfig `mapstructure:"versioning"`
+	Uploads    UploadsConfig    `mapstructure:"uploads"`
+	ClamAV     ClamAVConfig     `mapstructure:"clamav"`
+	Redis      RedisConfig      `mapstructure:"redis"`
+	Workers    WorkersConfig    `mapstructure:"workers"`
+	File       FileConfig       `mapstructure:"file"`
 }
 
 // UploadTask represents a file upload task
@@ -131,7 +129,7 @@ type NetworkEvent struct {
 
 var (
 	conf          Config
-	versionString string = "v2.0-dev"
+	versionString string = "v2.0-stable"
 	log                  = logrus.New()
 	uploadQueue   chan UploadTask
 	networkEvents chan NetworkEvent
@@ -187,19 +185,10 @@ func main() {
 	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
 	flag.Parse()
 
-	// Set default configuration values
-	setDefaults()
-
 	// Load configuration
 	err := readConfig(configFile, &conf)
 	if err != nil {
 		log.Fatalf("Error reading config: %v", err)
-	}
-
-	// Validate configuration
-	err = validateConfig(&conf)
-	if err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
 	}
 
 	// Initialize file info cache
@@ -312,43 +301,7 @@ func main() {
 	}
 
 	// Setup graceful shutdown
-	if conf.Server.GracefulShutdownEnabled {
-		setupGracefulShutdown(server, cancel)
-	}
-
-	// After loading and validating the configuration in main()
-	log.Infof("Data Deduplication Enabled: %v", conf.Server.DataDeduplicationEnabled)
-	log.Infof("Graceful Shutdown Enabled: %v", conf.Server.GracefulShutdownEnabled)
-
-	if conf.Server.DataDeduplicationEnabled {
-		log.Info("Starting data deduplication process.")
-		// Initialize Data Deduplication
-		go func() {
-			ticker := time.NewTicker(24 * time.Hour) // Run daily
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					log.Info("Stopping data deduplication.")
-					return
-				case <-ticker.C:
-					err := DeduplicateFiles(conf.Server.StoreDir)
-					if err != nil {
-						log.Errorf("Data deduplication failed: %v", err)
-					} else {
-						log.Info("Data deduplication completed successfully.")
-					}
-				}
-			}
-		}()
-	}
-
-	if conf.Server.GracefulShutdownEnabled {
-		log.Info("Graceful shutdown is enabled and active.")
-		setupGracefulShutdown(server, cancel)
-	} else {
-		log.Info("Graceful shutdown is disabled.")
-	}
+	setupGracefulShutdown(server, cancel)
 
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
@@ -375,79 +328,84 @@ func main() {
 
 // Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-    viper.SetConfigFile(configFilename)
-    setDefaults()
+	viper.SetConfigFile(configFilename)
+	viper.SetConfigType("toml")
 
-    // Read the configuration file
-    if err := viper.ReadInConfig(); err != nil {
-        return fmt.Errorf("error reading config file: %w", err)
-    }
+	// Set default values
+	setDefaults()
 
-    // Unmarshal the configuration into the Config struct
-    if err := viper.Unmarshal(conf); err != nil {
-        return fmt.Errorf("error unmarshalling config: %w", err)
-    }
+	// Read in environment variables that match
+	viper.AutomaticEnv()
+	viper.SetEnvPrefix("HMAC") // Prefix for environment variables
 
-    // Add debug logs to verify configuration values
-    log.Infof("Configuration Loaded:")
-	log.Infof("  Data Deduplication Enabled: %v", conf.Server.DataDeduplicationEnabled)
-	log.Infof("  Graceful Shutdown Enabled: %v", conf.Server.GracefulShutdownEnabled)
+	// Read the config file
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("error reading config file: %w", err)
+	}
 
-    return nil
+	// Unmarshal the config into the Config struct
+	if err := viper.Unmarshal(conf); err != nil {
+		return fmt.Errorf("unable to decode into struct: %w", err)
+	}
+
+	// Validate the configuration
+	if err := validateConfig(conf); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	return nil
 }
 
 // Set default configuration values
 func setDefaults() {
-    // Server defaults
-    viper.SetDefault("server.ListenPort", "8080")
-    viper.SetDefault("server.UnixSocket", false)
-    viper.SetDefault("server.StoreDir", "./uploads")
-    viper.SetDefault("server.LogLevel", "info")
-    viper.SetDefault("server.LogFile", "")
-    viper.SetDefault("server.MetricsEnabled", true)
-    viper.SetDefault("server.MetricsPort", "9090")
-    viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
-    viper.SetDefault("server.GracefulShutdownEnabled", true)
-    viper.SetDefault("server.DataDeduplicationEnabled", false)
+	// Server defaults
+	viper.SetDefault("server.ListenPort", "8080")
+	viper.SetDefault("server.UnixSocket", false)
+	viper.SetDefault("server.StoreDir", "./uploads")
+	viper.SetDefault("server.LogLevel", "info")
+	viper.SetDefault("server.LogFile", "")
+	viper.SetDefault("server.MetricsEnabled", true)
+	viper.SetDefault("server.MetricsPort", "9090")
+	viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
 
-    // Timeout defaults
-    viper.SetDefault("timeouts.ReadTimeout", "600s") // supports 's'
-    viper.SetDefault("timeouts.WriteTimeout", "600s")
-    viper.SetDefault("timeouts.IdleTimeout", "600s")
+	// Timeout defaults
+	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
+	viper.SetDefault("timeouts.WriteTimeout", "4800s")
+	viper.SetDefault("timeouts.IdleTimeout", "4800s")
 
-    // Security defaults
-    viper.SetDefault("security.Secret", "changeme")
+	// Security defaults
+	viper.SetDefault("security.Secret", "changeme")
 
-    // Versioning defaults
-    viper.SetDefault("versioning.EnableVersioning", false)
-    viper.SetDefault("versioning.MaxVersions", 1)
+	// Versioning defaults
+	viper.SetDefault("versioning.EnableVersioning", false)
+	viper.SetDefault("versioning.MaxVersions", 1)
 
-    // Uploads defaults
-    viper.SetDefault("uploads.ResumableUploadsEnabled", true)
-    viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
-    viper.SetDefault("uploads.ChunkSize", 16777216)
-    viper.SetDefault("uploads.AllowedExtensions", []string{
-        ".txt", ".pdf",
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
-        ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
-        ".mp3", ".ogg",
-    })
+	// Uploads defaults
+	viper.SetDefault("uploads.ResumableUploadsEnabled", true)
+	viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
+	viper.SetDefault("uploads.ChunkSize", 8192)
+	viper.SetDefault("uploads.AllowedExtensions", []string{
+		".txt", ".pdf",
+		".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+		".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
+		".mp3", ".ogg",
+	})
 
-    // ClamAV defaults
-    viper.SetDefault("clamav.ClamAVEnabled", false)
-    viper.SetDefault("clamav.ClamAVSocket", "/var/run/clamav/clamd.ctl")
-    viper.SetDefault("clamav.NumScanWorkers", 2)
+	// ClamAV defaults
+	viper.SetDefault("clamav.ClamAVEnabled", true)
+	viper.SetDefault("clamav.ClamAVSocket", "/var/run/clamav/clamd.ctl")
+	viper.SetDefault("clamav.NumScanWorkers", 2)
 
-    // Redis defaults
-    viper.SetDefault("redis.RedisEnabled", false)
-    viper.SetDefault("redis.RedisAddr", "localhost:6379")
-    viper.SetDefault("redis.RedisPassword", "")
-    viper.SetDefault("redis.RedisDBIndex", 0)
-    viper.SetDefault("redis.RedisHealthCheckInterval", "120s")
+	// Redis defaults
+	viper.SetDefault("redis.RedisEnabled", true)
+	viper.SetDefault("redis.RedisAddr", "localhost:6379")
+	viper.SetDefault("redis.RedisPassword", "")
+	viper.SetDefault("redis.RedisDBIndex", 0)
+	viper.SetDefault("redis.RedisHealthCheckInterval", "120s")
 
-    // Workers defaults
-    viper.SetDefault("workers.NumWorkers", 2)
-    viper.SetDefault("workers.UploadQueueSize", 50)
+	// Workers defaults
+	viper.SetDefault("workers.NumWorkers", 2)
+	viper.SetDefault("workers.UploadQueueSize", 50)
 }
 
 // Validate configuration fields
@@ -491,7 +449,7 @@ func validateConfig(conf *Config) error {
 // Setup logging
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -843,7 +801,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if (conf.Server.MetricsEnabled) {
+	if conf.Server.MetricsEnabled {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -992,7 +950,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	log.Debug("HMAC validation successful")
 
 	// Validate file extension
-	if (!isExtensionAllowed(fileStorePath)) {
+	if !isExtensionAllowed(fileStorePath) {
 		log.WithFields(logrus.Fields{
 			"filename":  fileStorePath,
 			"extension": filepath.Ext(fileStorePath),
@@ -1458,7 +1416,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if (!conf.Redis.RedisEnabled) {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
