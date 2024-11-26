@@ -345,6 +345,16 @@ func main() {
 		}()
 	}
 
+	// After loading and validating the configuration in main()
+	log.Infof("Graceful Shutdown Enabled: %v", conf.GracefulShutdownEnabled)
+
+	if conf.GracefulShutdownEnabled {
+		log.Info("Graceful shutdown is enabled and active.")
+		setupGracefulShutdown(server, cancel)
+	} else {
+		log.Info("Graceful shutdown is disabled.")
+	}
+
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
