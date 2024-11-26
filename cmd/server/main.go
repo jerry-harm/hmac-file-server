@@ -1524,3 +1524,89 @@ func runFileCleaner(ctx context.Context, storeDir string, ttl time.Duration) {
 		}
 	}
 }
+
+// DeduplicateFiles scans the store directory and removes duplicate files based on SHA256 hash.
+// It retains one copy of each unique file and replaces duplicates with hard links.
+func DeduplicateFiles(storeDir string) error {
+	hashMap := make(map[string]string) // map[hash]filepath
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	fileChan := make(chan string, 100)
+
+	// Worker to process files
+	numWorkers := 10
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for filePath := range fileChan {
+				hash, err := computeFileHash(filePath)
+				if err != nil {
+					logrus.WithError(err).Errorf("Failed to compute hash for %s", filePath)
+					continue
+				}
+
+				mu.Lock()
+				original, exists := hashMap[hash]
+				if !exists {
+					hashMap[hash] = filePath
+					mu.Unlock()
+					continue
+				}
+				mu.Unlock()
+
+				// Duplicate found
+				err = os.Remove(filePath)
+				if err != nil {
+					logrus.WithError(err).Errorf("Failed to remove duplicate file %s", filePath)
+					continue
+				}
+
+				// Create hard link to the original file
+				err = os.Link(original, filePath)
+				if err != nil {
+					logrus.WithError(err).Errorf("Failed to create hard link from %s to %s", original, filePath)
+					continue
+				}
+
+				logrus.Infof("Removed duplicate %s and linked to %s", filePath, original)
+			}
+		}()
+	}
+
+	// Walk through the store directory
+	err := filepath.Walk(storeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			logrus.WithError(err).Errorf("Error accessing path %s", path)
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		fileChan <- path
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("error walking the path %s: %w", storeDir, err)
+	}
+
+	close(fileChan)
+	wg.Wait()
+	return nil
+}
+
+// computeFileHash computes the SHA256 hash of the given file.
+func computeFileHash(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("unable to open file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", fmt.Errorf("error hashing file %s: %w", filePath, err)
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
