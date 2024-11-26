@@ -3,7 +3,6 @@
 ListenPort = "8080"
 UnixSocket = false
 StoreDir = "./testupload"
-UploadSubDir = "upload"
 LogLevel = "info"
 LogFile = "./hmac-file-server.log"
 MetricsEnabled = true
@@ -64,5 +63,5 @@ RedisDBIndex = 0
 RedisHealthCheckInterval = "120s"
 
 # Deduplication
-#[deduplication]
-#enabled = false
+[deduplication]
+enabled = false
