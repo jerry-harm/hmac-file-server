@@ -320,6 +320,31 @@ func main() {
 		setupGracefulShutdown(server, cancel)
 	}
 
+	// After loading and validating the configuration in main()
+	log.Infof("Data Deduplication Enabled: %v", conf.DataDeduplicationEnabled)
+
+	if conf.DataDeduplicationEnabled {
+		log.Info("Starting data deduplication process.")
+		go func() {
+			ticker := time.NewTicker(24 * time.Hour) // Run daily
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					log.Info("Stopping data deduplication.")
+					return
+				case <-ticker.C:
+					err := DeduplicateFiles(conf.Server.StoreDir)
+					if err != nil {
+						log.Errorf("Data deduplication failed: %v", err)
+					} else {
+						log.Info("Data deduplication completed successfully.")
+					}
+				}
+			}
+		}()
+	}
+
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
