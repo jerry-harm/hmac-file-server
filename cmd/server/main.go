@@ -80,6 +80,9 @@ type Config struct {
 	// Workers and connections
 	NumWorkers      int
 	UploadQueueSize int
+
+	// Graceful Shutdown Configuration
+	GracefulShutdownEnabled bool `toml:"GracefulShutdownEnabled"`
 }
 
 // UploadTask represents a file upload task
@@ -304,7 +307,7 @@ func readConfig(configFilename string, conf *Config) error {
 		conf.MaxVersions = 5 // Default: keep last 5 versions
 	}
 	if conf.ChunkSize == 0 {
-		conf.ChunkSize = 1048576 // Default chunk size: 1MB
+		conf.ChunkSize = 16777216 // Default chunk size: 16MB
 	}
 	if conf.AllowedExtensions == nil {
 		conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
@@ -326,6 +329,9 @@ func readConfig(configFilename string, conf *Config) error {
 	}
 	if conf.NumScanWorkers == 0 {
 		conf.NumScanWorkers = 5 // Default number of scan workers
+	}
+	if conf.GracefulShutdownEnabled == false {
+		conf.GracefulShutdownEnabled = true // Default to enabled
 	}
 
 	return nil
