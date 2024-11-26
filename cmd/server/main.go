@@ -189,10 +189,19 @@ func main() {
 	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
 	flag.Parse()
 
+	// Set default configuration values
+	setDefaults()
+
 	// Load configuration
 	err := readConfig(configFile, &conf)
 	if err != nil {
 		log.Fatalf("Error reading config: %v", err)
+	}
+
+	// Validate configuration
+	err = validateConfig(&conf)
+	if err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
 	}
 
 	// Initialize file info cache
@@ -337,34 +346,34 @@ func readConfig(configFilename string, conf *Config) error {
 	}
 
 	// Set default values for optional settings
-	if conf.MaxVersions == 0 {
-		conf.MaxVersions = 5 // Default: keep last 5 versions
+	if conf.Versioning.MaxVersions == 0 {
+		conf.Versioning.MaxVersions = 5 // Default: keep last 5 versions
 	}
-	if conf.ChunkSize == 0 {
-		conf.ChunkSize = 16777216 // Default chunk size: 16MB
+	if conf.Uploads.ChunkSize == 0 {
+		conf.Uploads.ChunkSize = 16777216 // Default chunk size: 16MB
 	}
-	if conf.AllowedExtensions == nil {
-		conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
+	if conf.Uploads.AllowedExtensions == nil {
+		conf.Uploads.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
 	}
-	if conf.ReadTimeout == "" {
-		conf.ReadTimeout = "2m0s" // Default read timeout
+	if conf.Timeouts.ReadTimeout == "" {
+		conf.Timeouts.ReadTimeout = "2m0s" // Default read timeout
 	}
-	if conf.WriteTimeout == "" {
-		conf.WriteTimeout = "2m0s" // Default write timeout
+	if conf.Timeouts.WriteTimeout == "" {
+		conf.Timeouts.WriteTimeout = "2m0s" // Default write timeout
 	}
-	if conf.IdleTimeout == "" {
-		conf.IdleTimeout = "2m0s" // Default idle timeout
+	if conf.Timeouts.IdleTimeout == "" {
+		conf.Timeouts.IdleTimeout = "2m0s" // Default idle timeout
 	}
-	if conf.NumWorkers == 0 {
-		conf.NumWorkers = 5 // Default number of workers
+	if conf.Workers.NumWorkers == 0 {
+		conf.Workers.NumWorkers = 5 // Default number of workers
 	}
-	if conf.UploadQueueSize == 0 {
-		conf.UploadQueueSize = 10000 // Default upload queue size
+	if conf.Workers.UploadQueueSize == 0 {
+		conf.Workers.UploadQueueSize = 10000 // Default upload queue size
 	}
-	if conf.NumScanWorkers == 0 {
-		conf.NumScanWorkers = 5 // Default number of scan workers
+	if conf.ClamAV.NumScanWorkers == 0 {
+		conf.ClamAV.NumScanWorkers = 5 // Default number of scan workers
 	}
-	if conf.GracefulShutdownEnabled == false {
+	if !conf.GracefulShutdownEnabled {
 		conf.GracefulShutdownEnabled = true // Default to enabled
 	}
 
