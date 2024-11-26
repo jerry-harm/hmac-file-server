@@ -26,7 +26,6 @@ import (
 
 	"sync"
 
-	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
@@ -107,9 +106,6 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	Workers    WorkersConfig    `mapstructure:"workers"`
 	File       FileConfig       `mapstructure:"file"`
-
-	// Graceful Shutdown Configuration
-	GracefulShutdownEnabled bool `toml:"GracefulShutdownEnabled"`
 }
 
 // UploadTask represents a file upload task
@@ -189,19 +185,10 @@ func main() {
 	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
 	flag.Parse()
 
-	// Set default configuration values
-	setDefaults()
-
 	// Load configuration
 	err := readConfig(configFile, &conf)
 	if err != nil {
 		log.Fatalf("Error reading config: %v", err)
-	}
-
-	// Validate configuration
-	err = validateConfig(&conf)
-	if err != nil {
-		log.Fatalf("Invalid configuration: %v", err)
 	}
 
 	// Initialize file info cache
@@ -341,40 +328,29 @@ func main() {
 
 // Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-	if _, err := toml.DecodeFile(configFilename, conf); err != nil {
-		return fmt.Errorf("error decoding config file: %w", err)
+	viper.SetConfigFile(configFilename)
+	viper.SetConfigType("toml")
+
+	// Set default values
+	setDefaults()
+
+	// Read in environment variables that match
+	viper.AutomaticEnv()
+	viper.SetEnvPrefix("HMAC") // Prefix for environment variables
+
+	// Read the config file
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("error reading config file: %w", err)
 	}
 
-	// Set default values for optional settings
-	if conf.Versioning.MaxVersions == 0 {
-		conf.Versioning.MaxVersions = 5 // Default: keep last 5 versions
+	// Unmarshal the config into the Config struct
+	if err := viper.Unmarshal(conf); err != nil {
+		return fmt.Errorf("unable to decode into struct: %w", err)
 	}
-	if conf.Uploads.ChunkSize == 0 {
-		conf.Uploads.ChunkSize = 16777216 // Default chunk size: 16MB
-	}
-	if conf.Uploads.AllowedExtensions == nil {
-		conf.Uploads.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
-	}
-	if conf.Timeouts.ReadTimeout == "" {
-		conf.Timeouts.ReadTimeout = "2m0s" // Default read timeout
-	}
-	if conf.Timeouts.WriteTimeout == "" {
-		conf.Timeouts.WriteTimeout = "2m0s" // Default write timeout
-	}
-	if conf.Timeouts.IdleTimeout == "" {
-		conf.Timeouts.IdleTimeout = "2m0s" // Default idle timeout
-	}
-	if conf.Workers.NumWorkers == 0 {
-		conf.Workers.NumWorkers = 5 // Default number of workers
-	}
-	if conf.Workers.UploadQueueSize == 0 {
-		conf.Workers.UploadQueueSize = 10000 // Default upload queue size
-	}
-	if conf.ClamAV.NumScanWorkers == 0 {
-		conf.ClamAV.NumScanWorkers = 5 // Default number of scan workers
-	}
-	if !conf.GracefulShutdownEnabled {
-		conf.GracefulShutdownEnabled = true // Default to enabled
+
+	// Validate the configuration
+	if err := validateConfig(conf); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
 	return nil
