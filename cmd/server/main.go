@@ -96,16 +96,21 @@ type FileConfig struct {
 	FileRevision int `mapstructure:"FileRevision"`
 }
 
+type DeduplicationConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+}
+
 type Config struct {
-	Server     ServerConfig     `mapstructure:"server"`
-	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
-	Security   SecurityConfig   `mapstructure:"security"`
-	Versioning VersioningConfig `mapstructure:"versioning"`
-	Uploads    UploadsConfig    `mapstructure:"uploads"`
-	ClamAV     ClamAVConfig     `mapstructure:"clamav"`
-	Redis      RedisConfig      `mapstructure:"redis"`
-	Workers    WorkersConfig    `mapstructure:"workers"`
-	File       FileConfig       `mapstructure:"file"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Timeouts      TimeoutConfig       `mapstructure:"timeouts"`
+	Security      SecurityConfig      `mapstructure:"security"`
+	Versioning    VersioningConfig    `mapstructure:"versioning"`
+	Uploads       UploadsConfig       `mapstructure:"uploads"`
+	ClamAV        ClamAVConfig        `mapstructure:"clamav"`
+	Redis         RedisConfig         `mapstructure:"redis"`
+	Workers       WorkersConfig       `mapstructure:"workers"`
+	File          FileConfig          `mapstructure:"file"`
+	Deduplication DeduplicationConfig `mapstructure:"deduplication"` // New section
 }
 
 // UploadTask represents a file upload task
@@ -303,6 +308,19 @@ func main() {
 	// Setup graceful shutdown
 	setupGracefulShutdown(server, cancel)
 
+	// Conditionally run deduplication
+	if conf.Deduplication.Enabled {
+		log.Info("Deduplication is enabled. Starting deduplication process...")
+		err := DeduplicateFiles(conf.Server.StoreDir)
+		if err != nil {
+			log.Errorf("Deduplication failed: %v", err)
+		} else {
+			log.Info("Deduplication completed successfully.")
+		}
+	} else {
+		log.Info("Deduplication is disabled.")
+	}
+
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
@@ -406,6 +424,9 @@ func setDefaults() {
 	// Workers defaults
 	viper.SetDefault("workers.NumWorkers", 2)
 	viper.SetDefault("workers.UploadQueueSize", 50)
+
+	// Deduplication defaults
+	viper.SetDefault("deduplication.enabled", true)
 }
 
 // Validate configuration fields
