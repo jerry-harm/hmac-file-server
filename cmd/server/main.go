@@ -108,7 +108,7 @@ type Config struct {
 	File       FileConfig       `mapstructure:"file"`
 
 	// Graceful Shutdown Configuration
-	GracefulShutdownEnabled bool `toml:"GracefulShutdownEnabled"`
+	GracefulShutdownEnabled bool `mapstructure:"GracefulShutdownEnabled"`
 
 	// Data Deduplication Configuration
 	DataDeduplicationEnabled bool `mapstructure:"DataDeduplicationEnabled"`
