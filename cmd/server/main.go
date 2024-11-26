@@ -1273,7 +1273,7 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 
 	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		log.WithError(err).Error("Failed to open temporary file for chunked upload")
+		log.WithError(err).Errorf("Failed to open temporary file %s for chunked upload", tempFilename)
 		return err
 	}
 	defer targetFile.Close()
@@ -1282,34 +1282,46 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 	buffer := make([]byte, conf.Uploads.ChunkSize)
 
 	totalBytes := int64(0)
+	readAttempts := 0
 	for {
 		n, err := r.Body.Read(buffer)
+		readAttempts++
 		if n > 0 {
 			totalBytes += int64(n)
 			_, writeErr := writer.Write(buffer[:n])
 			if writeErr != nil {
-				log.WithError(writeErr).Error("Failed to write chunk to temporary file")
+				log.WithError(writeErr).Errorf("Failed to write chunk to temporary file %s", tempFilename)
 				return writeErr
 			}
+			log.WithFields(logrus.Fields{
+				"bytes_written": n,
+				"total_bytes":   totalBytes,
+				"read_attempt":  readAttempts,
+			}).Debug("Wrote chunk to temporary file")
 		}
 		if err != nil {
 			if err == io.EOF {
+				log.WithFields(logrus.Fields{
+					"total_bytes":   totalBytes,
+					"read_attempts": readAttempts,
+				}).Info("Completed reading request body")
 				break // Finished reading the body
 			}
 			log.WithError(err).Error("Error reading from request body")
-			return err
+			return fmt.Errorf("failed to read request body: %w", err)
 		}
 	}
 
 	err = writer.Flush()
 	if err != nil {
-		log.WithError(err).Error("Failed to flush buffer to temporary file")
+		log.WithError(err).Errorf("Failed to flush buffer to temporary file %s", tempFilename)
 		return err
 	}
 
 	log.WithFields(logrus.Fields{
-		"temp_file":   tempFilename,
-		"total_bytes": totalBytes,
+		"temp_file":     tempFilename,
+		"total_bytes":   totalBytes,
+		"read_attempts": readAttempts,
 	}).Info("Chunked upload completed successfully")
 
 	uploadSizeBytes.Observe(float64(totalBytes))
