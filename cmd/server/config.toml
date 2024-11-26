@@ -1,82 +1,45 @@
 # Server Settings
-ListenIP = "127.0.0.1"
-ListenPort = ":8080"
-
-MetricsEnabled = true
-ListenIPMetrics = "127.0.0.1"  # IP address for the metrics server
-MetricsPort = "9090"  
-
+[server]
+ListenPort = "8080"
 UnixSocket = false
-Secret = "freaky-karl-nicht-noetig-gewesen"
-StoreDir = ""./TestUpload""
-UploadSubDir = "upload"
-LoggingEnabled = true
+StoreDir = "./testupload"
 LogLevel = "info"
-LogFile = "/var/log/hmac-file-server.log"
+LogFile = "./hmac-file-server.log"
+MetricsEnabled = true
+MetricsPort = "9090"
+FileTTL = "8760h"
 
-# Workers and connections
+# Workers and Connections
+[workers]
 NumWorkers = 2
-UploadQueueSize = 50
+UploadQueueSize = 500
 
-# IP Management Settings
-EnableIPManagement = false
-IPSource = "header"
-NginxLogFile = "/var/log/nginx/stream-access.log"
+# Timeout Settings
+[timeouts]
+ReadTimeout = "600s"
+WriteTimeout = "600s"
+IdleTimeout = "600s"
 
-# Graceful shutdown
-GracefulShutdownTimeout = 60
+# Security Settings
+[security]
+Secret = "a-orc-and-a-humans-is-drinking-ale"
 
-# File TTL
-FileTTL = "365d"
-ResumableUploadsEnabled = true
-ResumableDownloadsEnabled = true
-MaxVersions = 1
+# Versioning Settings
+[versioning]
 EnableVersioning = false
+MaxVersions = 1
 
-# Upload/Download settings
+# Upload/Download Settings
+[uploads]
+ResumableUploadsEnabled = true
 ChunkedUploadsEnabled = true
-ChunkSize = 8192
-
-# Redis settings
-RedisEnabled = true
-RedisAddr = "localhost:6379"
-RedisPassword = ""
-RedisDBIndex = 0
-RedisHealthCheckInterval = "120s"
-
-# Server timeout settings
-ReadTimeout = "4800s"
-WriteTimeout = "4800s"
-IdleTimeout = "4800s"
-SessionRefreshInterval = "24h"
-
-# ClamAV Configuration
-ClamAVEnabled = true
-NumScanWorkers = 2
-ClamAVSocket = "/var/run/clamav/clamd.ctl"
-#ClamAVSocket = "tcp:127.0.0.1:3310"
-
-# Security settings
-RateLimitingEnabled = false
-MaxRequestsPerMinute = 60
-RateLimitInterval = "1m"
-BlockedUserAgents = ["MisskeyBot/1.0", "EvilCrawler"]
-
-# Fail2Ban
-Enable = false
-Jail = "hmac-auth"
-BlockCommand = "/usr/bin/fail2ban-client set hmac-auth ban <IP>"
-UnblockCommand = "/usr/bin/fail2ban-client set hmac-auth unban <IP>"
-MaxRetries = 3
-BanTime = "3600s"
-
-# Allowed file extensions including image, video, and document formats
+ChunkSize = 16777216
 AllowedExtensions = [
     # Document formats
     ".txt", ".pdf",
 
     # Image formats
-    ".png",".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
 
     # Video formats
     ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
@@ -84,3 +47,21 @@ AllowedExtensions = [
     # Audio formats
     ".mp3", ".ogg"
 ]
+
+# ClamAV Settings
+[clamav]
+ClamAVEnabled = false
+ClamAVSocket = "/var/run/clamav/clamd.ctl"
+NumScanWorkers = 4
+
+# Redis Settings
+[redis]
+RedisEnabled = false
+RedisAddr = "localhost:6379"
+RedisPassword = ""
+RedisDBIndex = 0
+RedisHealthCheckInterval = "120s"
+
+# Deduplication
+[deduplication]
+enabled = false
