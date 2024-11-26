@@ -109,6 +109,9 @@ type Config struct {
 
 	// Graceful Shutdown Configuration
 	GracefulShutdownEnabled bool `toml:"GracefulShutdownEnabled"`
+
+	// Data Deduplication Configuration
+	DataDeduplicationEnabled bool `mapstructure:"DataDeduplicationEnabled"`
 }
 
 // UploadTask represents a file upload task
@@ -132,7 +135,7 @@ type NetworkEvent struct {
 
 var (
 	conf          Config
-	versionString string = "v2.0-stable"
+	versionString string = "v2.0-dev"
 	log                  = logrus.New()
 	uploadQueue   chan UploadTask
 	networkEvents chan NetworkEvent
@@ -435,6 +438,9 @@ func setDefaults() {
 	// Workers defaults
 	viper.SetDefault("workers.NumWorkers", 2)
 	viper.SetDefault("workers.UploadQueueSize", 50)
+
+	// Data Deduplication defaults
+	viper.SetDefault("DataDeduplicationEnabled", false)
 }
 
 // Validate configuration fields
@@ -1161,7 +1167,7 @@ func scanFileWithClamAV(filePath string) error {
 
 // Initialize ClamAV client (Optional)
 func initClamAV(socket string) (*clamd.Clamd, error) {
-	if (socket == "") {
+	if socket == "" {
 		return nil, fmt.Errorf("ClamAV socket path is not configured")
 	}
 
