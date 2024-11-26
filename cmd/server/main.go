@@ -808,6 +808,7 @@ func setupRouter() http.Handler {
 	// Apply middleware
 	handler := loggingMiddleware(mux)     // CORS is handled by NGINX
 	handler = recoveryMiddleware(handler) // Add recovery middleware
+	handler = corsMiddleware(handler)     // Add CORS middleware
 	return handler
 }
 
@@ -836,8 +837,39 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// corsMiddleware handles CORS by setting appropriate headers
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-File-MAC")
+		w.Header().Set("Access-Control-Max-Age", "86400") // Cache preflight response for 1 day
+
+		// Handle preflight OPTIONS request
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Proceed to the next handler
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Handle file uploads and downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+		absFilename := filepath.Join(conf.Server.StoreDir, strings.TrimPrefix(r.URL.Path, "/"))
+		err := handleMultipartUpload(w, r, absFilename)
+		if err != nil {
+			log.WithError(err).Error("Failed to handle multipart upload")
+			http.Error(w, "Failed to handle multipart upload", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		return
+	}
 	// Get client IP address
 	clientIP := r.Header.Get("X-Real-IP")
 	if clientIP == "" {
@@ -1609,4 +1641,100 @@ func computeFileHash(filePath string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// Handle multipart uploads
+func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename string) error {
+	err := r.ParseMultipartForm(32 << 20) // 32MB is the default used by FormFile
+	if err != nil {
+		log.WithError(err).Error("Failed to parse multipart form")
+		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+		return err
+	}
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		log.WithError(err).Error("Failed to retrieve file from form data")
+		http.Error(w, "Failed to retrieve file from form data", http.StatusBadRequest)
+		return err
+	}
+	defer file.Close()
+
+	// Validate file extension
+	if !isExtensionAllowed(handler.Filename) {
+		log.WithFields(logrus.Fields{
+			"filename":  handler.Filename,
+			"extension": filepath.Ext(handler.Filename),
+		}).Warn("Attempted upload with disallowed file extension")
+		http.Error(w, "Disallowed file extension. Allowed extensions are: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
+		uploadErrorsTotal.Inc()
+		return fmt.Errorf("disallowed file extension")
+	}
+
+	// Create a temporary file
+	tempFilename := absFilename + ".tmp"
+	tempFile, err := os.OpenFile(tempFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		log.WithError(err).Error("Failed to create temporary file")
+		http.Error(w, "Failed to create temporary file", http.StatusInternalServerError)
+		return err
+	}
+	defer tempFile.Close()
+
+	// Copy the uploaded file to the temporary file
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		log.WithError(err).Error("Failed to copy uploaded file to temporary file")
+		http.Error(w, "Failed to copy uploaded file", http.StatusInternalServerError)
+		return err
+	}
+
+	// Perform ClamAV scan on the temporary file
+	if clamClient != nil {
+		err := scanFileWithClamAV(tempFilename)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Warn("ClamAV detected a virus or scan failed")
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+	}
+
+	// Handle file versioning if enabled
+	if conf.Versioning.EnableVersioning {
+		existing, _ := fileExists(absFilename)
+		if existing {
+			err := versionFile(absFilename)
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"file":  absFilename,
+					"error": err,
+				}).Error("Error versioning file")
+				os.Remove(tempFilename)
+				return err
+			}
+		}
+	}
+
+	// Move the temporary file to the final destination
+	err = os.Rename(tempFilename, absFilename)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"temp_file":  tempFilename,
+			"final_file": absFilename,
+			"error":      err,
+		}).Error("Failed to move file to final destination")
+		os.Remove(tempFilename)
+		return err
+	}
+
+	log.WithFields(logrus.Fields{
+		"file": absFilename,
+	}).Info("File uploaded and scanned successfully")
+
+	uploadsTotal.Inc()
+	return nil
 }
