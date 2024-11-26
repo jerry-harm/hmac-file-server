@@ -26,6 +26,7 @@ import (
 
 	"sync"
 
+	"github.com/BurntSushi/toml"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
@@ -331,43 +332,43 @@ func main() {
 
 // Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-    if _, err := toml.DecodeFile(configFilename, conf); err != nil {
-        return fmt.Errorf("error decoding config file: %w", err)
-    }
+	if _, err := toml.DecodeFile(configFilename, conf); err != nil {
+		return fmt.Errorf("error decoding config file: %w", err)
+	}
 
-    // Set default values for optional settings
-    if conf.MaxVersions == 0 {
-        conf.MaxVersions = 5 // Default: keep last 5 versions
-    }
-    if conf.ChunkSize == 0 {
-        conf.ChunkSize = 16777216 // Default chunk size: 16MB
-    }
-    if conf.AllowedExtensions == nil {
-        conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
-    }
-    if conf.ReadTimeout == "" {
-        conf.ReadTimeout = "2m0s" // Default read timeout
-    }
-    if conf.WriteTimeout == "" {
-        conf.WriteTimeout = "2m0s" // Default write timeout
-    }
-    if conf.IdleTimeout == "" {
-        conf.IdleTimeout = "2m0s" // Default idle timeout
-    }
-    if conf.NumWorkers == 0 {
-        conf.NumWorkers = 5 // Default number of workers
-    }
-    if conf.UploadQueueSize == 0 {
-        conf.UploadQueueSize = 10000 // Default upload queue size
-    }
-    if conf.NumScanWorkers == 0 {
-        conf.NumScanWorkers = 5 // Default number of scan workers
-    }
-    if conf.GracefulShutdownEnabled == false {
-        conf.GracefulShutdownEnabled = true // Default to enabled
-    }
+	// Set default values for optional settings
+	if conf.MaxVersions == 0 {
+		conf.MaxVersions = 5 // Default: keep last 5 versions
+	}
+	if conf.ChunkSize == 0 {
+		conf.ChunkSize = 16777216 // Default chunk size: 16MB
+	}
+	if conf.AllowedExtensions == nil {
+		conf.AllowedExtensions = []string{"png", "jpg", "jpeg", "gif", "txt", "pdf"} // Default extensions
+	}
+	if conf.ReadTimeout == "" {
+		conf.ReadTimeout = "2m0s" // Default read timeout
+	}
+	if conf.WriteTimeout == "" {
+		conf.WriteTimeout = "2m0s" // Default write timeout
+	}
+	if conf.IdleTimeout == "" {
+		conf.IdleTimeout = "2m0s" // Default idle timeout
+	}
+	if conf.NumWorkers == 0 {
+		conf.NumWorkers = 5 // Default number of workers
+	}
+	if conf.UploadQueueSize == 0 {
+		conf.UploadQueueSize = 10000 // Default upload queue size
+	}
+	if conf.NumScanWorkers == 0 {
+		conf.NumScanWorkers = 5 // Default number of scan workers
+	}
+	if conf.GracefulShutdownEnabled == false {
+		conf.GracefulShutdownEnabled = true // Default to enabled
+	}
 
-    return nil
+	return nil
 }
 
 // Set default configuration values
@@ -815,7 +816,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if (conf.Server.MetricsEnabled) {
+	if conf.Server.MetricsEnabled {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
