@@ -358,54 +358,54 @@ func readConfig(configFilename string, conf *Config) error {
 
 // Set default configuration values
 func setDefaults() {
-    // Server defaults
-    viper.SetDefault("server.ListenPort", "8080")
-    viper.SetDefault("server.UnixSocket", false)
-    viper.SetDefault("server.StoreDir", "./uploads")
-    viper.SetDefault("server.LogLevel", "info")
-    viper.SetDefault("server.LogFile", "")
-    viper.SetDefault("server.MetricsEnabled", true)
-    viper.SetDefault("server.MetricsPort", "9090")
-    viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
+	// Server defaults
+	viper.SetDefault("server.ListenPort", "8080")
+	viper.SetDefault("server.UnixSocket", false)
+	viper.SetDefault("server.StoreDir", "./uploads")
+	viper.SetDefault("server.LogLevel", "info")
+	viper.SetDefault("server.LogFile", "")
+	viper.SetDefault("server.MetricsEnabled", true)
+	viper.SetDefault("server.MetricsPort", "9090")
+	viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
 
-    // Timeout defaults
-    viper.SetDefault("timeouts.ReadTimeout", "4800s")  // supports 's'
-    viper.SetDefault("timeouts.WriteTimeout", "4800s")
-    viper.SetDefault("timeouts.IdleTimeout", "4800s")
+	// Timeout defaults
+	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
+	viper.SetDefault("timeouts.WriteTimeout", "4800s")
+	viper.SetDefault("timeouts.IdleTimeout", "4800s")
 
-    // Security defaults
-    viper.SetDefault("security.Secret", "stellar-wisdom-orbit-echo")
+	// Security defaults
+	viper.SetDefault("security.Secret", "changeme")
 
-    // Versioning defaults
-    viper.SetDefault("versioning.EnableVersioning", false)
-    viper.SetDefault("versioning.MaxVersions", 1)
+	// Versioning defaults
+	viper.SetDefault("versioning.EnableVersioning", false)
+	viper.SetDefault("versioning.MaxVersions", 1)
 
-    // Uploads defaults
-    viper.SetDefault("uploads.ResumableUploadsEnabled", true)
-    viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
-    viper.SetDefault("uploads.ChunkSize", 8192)
-    viper.SetDefault("uploads.AllowedExtensions", []string{
-        ".txt", ".pdf",
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
-        ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
-        ".mp3", ".ogg",
-    })
+	// Uploads defaults
+	viper.SetDefault("uploads.ResumableUploadsEnabled", true)
+	viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
+	viper.SetDefault("uploads.ChunkSize", 8192)
+	viper.SetDefault("uploads.AllowedExtensions", []string{
+		".txt", ".pdf",
+		".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+		".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
+		".mp3", ".ogg",
+	})
 
-    // ClamAV defaults
-    viper.SetDefault("clamav.ClamAVEnabled", true)
-    viper.SetDefault("clamav.ClamAVSocket", "/var/run/clamav/clamd.ctl")
-    viper.SetDefault("clamav.NumScanWorkers", 2)
+	// ClamAV defaults
+	viper.SetDefault("clamav.ClamAVEnabled", true)
+	viper.SetDefault("clamav.ClamAVSocket", "/var/run/clamav/clamd.ctl")
+	viper.SetDefault("clamav.NumScanWorkers", 2)
 
-    // Redis defaults
-    viper.SetDefault("redis.RedisEnabled", true)
-    viper.SetDefault("redis.RedisAddr", "localhost:6379")
-    viper.SetDefault("redis.RedisPassword", "")
-    viper.SetDefault("redis.RedisDBIndex", 0)
-    viper.SetDefault("redis.RedisHealthCheckInterval", "120s")
+	// Redis defaults
+	viper.SetDefault("redis.RedisEnabled", true)
+	viper.SetDefault("redis.RedisAddr", "localhost:6379")
+	viper.SetDefault("redis.RedisPassword", "")
+	viper.SetDefault("redis.RedisDBIndex", 0)
+	viper.SetDefault("redis.RedisHealthCheckInterval", "120s")
 
-    // Workers defaults
-    viper.SetDefault("workers.NumWorkers", 2)
-    viper.SetDefault("workers.UploadQueueSize", 50)
+	// Workers defaults
+	viper.SetDefault("workers.NumWorkers", 2)
+	viper.SetDefault("workers.UploadQueueSize", 50)
 }
 
 // Validate configuration fields
@@ -799,16 +799,16 @@ func initializeScanWorkerPool(ctx context.Context) {
 
 // Setup router with middleware
 func setupRouter() http.Handler {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/", handleRequest)
-    if conf.Server.MetricsEnabled {
-        mux.Handle("/metrics", promhttp.Handler())
-    }
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", handleRequest)
+	if conf.Server.MetricsEnabled {
+		mux.Handle("/metrics", promhttp.Handler())
+	}
 
-    // Apply middleware
-    handler := loggingMiddleware(mux)     // CORS is handled by NGINX
-    handler = recoveryMiddleware(handler) // Add recovery middleware
-    return handler
+	// Apply middleware
+	handler := loggingMiddleware(mux)     // CORS is handled by NGINX
+	handler = recoveryMiddleware(handler) // Add recovery middleware
+	return handler
 }
 
 // Middleware for logging
@@ -838,63 +838,63 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 
 // Handle file uploads and downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-    // Get client IP address
-    clientIP := r.Header.Get("X-Real-IP")
-    if clientIP == "" {
-        clientIP = r.Header.Get("X-Forwarded-For")
-    }
-    if clientIP == "" {
-        // Fallback to RemoteAddr
-        host, _, err := net.SplitHostPort(r.RemoteAddr)
-        if err != nil {
-            log.WithError(err).Warn("Failed to parse RemoteAddr")
-            clientIP = r.RemoteAddr
-        } else {
-            clientIP = host
-        }
-    }
+	// Get client IP address
+	clientIP := r.Header.Get("X-Real-IP")
+	if clientIP == "" {
+		clientIP = r.Header.Get("X-Forwarded-For")
+	}
+	if clientIP == "" {
+		// Fallback to RemoteAddr
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			log.WithError(err).Warn("Failed to parse RemoteAddr")
+			clientIP = r.RemoteAddr
+		} else {
+			clientIP = host
+		}
+	}
 
-    // Log the request with the client IP
-    log.WithFields(logrus.Fields{
-        "method": r.Method,
-        "url":    r.URL.String(),
-        "remote": clientIP,
-    }).Info("Incoming request")
+	// Log the request with the client IP
+	log.WithFields(logrus.Fields{
+		"method": r.Method,
+		"url":    r.URL.String(),
+		"remote": clientIP,
+	}).Info("Incoming request")
 
-    // Parse URL and query parameters
-    p := r.URL.Path
-    a, err := url.ParseQuery(r.URL.RawQuery)
-    if err != nil {
-        log.Warn("Failed to parse query parameters")
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
-    }
+	// Parse URL and query parameters
+	p := r.URL.Path
+	a, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		log.Warn("Failed to parse query parameters")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-    fileStorePath := strings.TrimPrefix(p, "/")
-    if fileStorePath == "" || fileStorePath == "/" {
-        log.Warn("Access to root directory is forbidden")
-        http.Error(w, "Forbidden", http.StatusForbidden)
-        return
-    } else if fileStorePath[0] == '/' {
-        fileStorePath = fileStorePath[1:]
-    }
+	fileStorePath := strings.TrimPrefix(p, "/")
+	if fileStorePath == "" || fileStorePath == "/" {
+		log.Warn("Access to root directory is forbidden")
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if fileStorePath[0] == '/' {
+		fileStorePath = fileStorePath[1:]
+	}
 
-    absFilename := filepath.Join(conf.Server.StoreDir, fileStorePath)
+	absFilename := filepath.Join(conf.Server.StoreDir, fileStorePath)
 
-    switch r.Method {
-    case http.MethodPut:
-        handleUpload(w, r, absFilename, fileStorePath, a)
-    case http.MethodHead, http.MethodGet:
-        handleDownload(w, r, absFilename, fileStorePath)
-    case http.MethodOptions:
-        // Handled by NGINX; no action needed
-        w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
-        return
-    default:
-        log.WithField("method", r.Method).Warn("Invalid HTTP method for upload directory")
-        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-        return
-    }
+	switch r.Method {
+	case http.MethodPut:
+		handleUpload(w, r, absFilename, fileStorePath, a)
+	case http.MethodHead, http.MethodGet:
+		handleDownload(w, r, absFilename, fileStorePath)
+	case http.MethodOptions:
+		// Handled by NGINX; no action needed
+		w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
+		return
+	default:
+		log.WithField("method", r.Method).Warn("Invalid HTTP method for upload directory")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 }
 
 // Handle file uploads with extension restrictions and HMAC validation
