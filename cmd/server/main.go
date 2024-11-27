@@ -43,12 +43,13 @@ import (
 type ServerConfig struct {
 	ListenPort     string `mapstructure:"ListenPort"`
 	UnixSocket     bool   `mapstructure:"UnixSocket"`
-	StoreDir       string `mapstructure:"StoreDir"`
+	StoragePath    string `mapstructure:"StoragePath"`
 	LogLevel       string `mapstructure:"LogLevel"`
 	LogFile        string `mapstructure:"LogFile"`
 	MetricsEnabled bool   `mapstructure:"MetricsEnabled"`
 	MetricsPort    string `mapstructure:"MetricsPort"`
 	FileTTL        string `mapstructure:"FileTTL"`
+	MinFreeBytes   int64  `mapstructure:"MinFreeBytes"` // Minimum free bytes required
 }
 
 type TimeoutConfig struct {
@@ -195,11 +196,11 @@ func main() {
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 
 	// Create store directory
-	err = os.MkdirAll(conf.Server.StoreDir, os.ModePerm)
+	err = os.MkdirAll(conf.Server.StoragePath, os.ModePerm)
 	if err != nil {
 		log.Fatalf("Error creating store directory: %v", err)
 	}
-	log.WithField("directory", conf.Server.StoreDir).Info("Store directory is ready")
+	log.WithField("directory", conf.Server.StoragePath).Info("Store directory is ready")
 
 	// Setup logging
 	setupLogging()
@@ -262,7 +263,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Invalid FileTTL: %v", err)
 	}
-	go runFileCleaner(ctx, conf.Server.StoreDir, fileTTL)
+	go runFileCleaner(ctx, conf.Server.StoragePath, fileTTL)
 
 	// Parse timeout durations
 	readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
@@ -361,12 +362,13 @@ func setDefaults() {
 	// Server defaults
 	viper.SetDefault("server.ListenPort", "8080")
 	viper.SetDefault("server.UnixSocket", false)
-	viper.SetDefault("server.StoreDir", "./uploads")
+	viper.SetDefault("server.StoragePath", "./uploads")
 	viper.SetDefault("server.LogLevel", "info")
 	viper.SetDefault("server.LogFile", "")
 	viper.SetDefault("server.MetricsEnabled", true)
 	viper.SetDefault("server.MetricsPort", "9090")
-	viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
+	viper.SetDefault("server.FileTTL", "8760h")      // 365d -> 8760h
+	viper.SetDefault("server.MinFreeBytes", 100<<20) // 100 MB
 
 	// Timeout defaults
 	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
@@ -416,8 +418,8 @@ func validateConfig(conf *Config) error {
 	if conf.Security.Secret == "" {
 		return fmt.Errorf("secret must be set")
 	}
-	if conf.Server.StoreDir == "" {
-		return fmt.Errorf("StoreDir must be set")
+	if conf.Server.StoragePath == "" {
+		return fmt.Errorf("StoragePath must be set")
 	}
 	if conf.Server.FileTTL == "" {
 		return fmt.Errorf("FileTTL must be set")
@@ -860,7 +862,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 // Handle file uploads and downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
-		absFilename, err := sanitizeFilePath(conf.Server.StoreDir, strings.TrimPrefix(r.URL.Path, "/"))
+		absFilename, err := sanitizeFilePath(conf.Server.StoragePath, strings.TrimPrefix(r.URL.Path, "/"))
 		if err != nil {
 			log.WithError(err).Error("Invalid file path")
 			http.Error(w, "Invalid file path", http.StatusBadRequest)
@@ -916,7 +918,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		fileStorePath = fileStorePath[1:]
 	}
 
-	absFilename := filepath.Join(conf.Server.StoreDir, fileStorePath)
+	absFilename := filepath.Join(conf.Server.StoragePath, fileStorePath)
 
 	switch r.Method {
 	case http.MethodPut:
@@ -993,6 +995,30 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 			"extension": filepath.Ext(fileStorePath),
 		}).Warn("Attempted upload with disallowed file extension")
 		http.Error(w, "Disallowed file extension. Allowed extensions are: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
+		uploadErrorsTotal.Inc()
+		return
+	}
+
+	// Sanitize and validate the file path
+	absFilename, err = sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"file":  fileStorePath,
+			"error": err,
+		}).Warn("Invalid file path")
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		uploadErrorsTotal.Inc()
+		return
+	}
+
+	// Check if there is enough free space
+	err = checkStorageSpace(conf.Server.StoragePath, conf.Server.MinFreeBytes)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"storage_path": conf.Server.StoragePath,
+			"error":        err,
+		}).Warn("Not enough free space")
+		http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
 		uploadErrorsTotal.Inc()
 		return
 	}
@@ -1763,4 +1789,21 @@ func sanitizeFilePath(baseDir, filePath string) (string, error) {
 	}
 
 	return absFilePath, nil
+}
+
+// checkStorageSpace ensures that there is enough free space in the storage path
+func checkStorageSpace(storagePath string, minFreeBytes int64) error {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(storagePath, &stat)
+	if err != nil {
+		return fmt.Errorf("failed to get filesystem stats: %w", err)
+	}
+
+	// Calculate available bytes
+	availableBytes := stat.Bavail * uint64(stat.Bsize)
+	if int64(availableBytes) < minFreeBytes {
+		return fmt.Errorf("not enough free space: %d bytes available, %d bytes required", availableBytes, minFreeBytes)
+	}
+
+	return nil
 }
