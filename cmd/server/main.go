@@ -1000,9 +1000,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		return
 	}
 
-	// Sanitize and validate the file path
-	absFilename, err = sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
-	if err != nil {
+	// Validate the file path
+	if _, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath); err != nil {
 		log.WithFields(logrus.Fields{
 			"file":  fileStorePath,
 			"error": err,
