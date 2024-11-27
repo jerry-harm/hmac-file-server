@@ -877,6 +877,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusCreated)
         return
     }
+
     // Get client IP address
     clientIP := r.Header.Get("X-Real-IP")
     if clientIP == "" {
