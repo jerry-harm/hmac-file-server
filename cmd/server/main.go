@@ -923,7 +923,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
-		handleUpload(w, r, absFilename, fileStorePath, a)
+		handleUpload(w, r, absFilename, a)
 	case http.MethodHead, http.MethodGet:
 		handleDownload(w, r, absFilename, fileStorePath)
 	case http.MethodOptions:
@@ -938,7 +938,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handle file uploads with extension restrictions and HMAC validation
-func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
+func handleUpload(w http.ResponseWriter, r *http.Request, fileStorePath string, a url.Values) {
 	// Determine protocol version based on query parameters
 	var protocolVersion string
 	if a.Get("v2") != "" {
@@ -1000,8 +1000,9 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		return
 	}
 
-	// Validate the file path
-	if _, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath); err != nil {
+	// Sanitize and validate the file path
+	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
+	if err != nil {
 		log.WithFields(logrus.Fields{
 			"file":  fileStorePath,
 			"error": err,
