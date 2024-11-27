@@ -860,8 +860,13 @@ func corsMiddleware(next http.Handler) http.Handler {
 // Handle file uploads and downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
-		absFilename := filepath.Join(conf.Server.StoreDir, strings.TrimPrefix(r.URL.Path, "/"))
-		err := handleMultipartUpload(w, r, absFilename)
+		absFilename, err := sanitizeFilePath(conf.Server.StoreDir, strings.TrimPrefix(r.URL.Path, "/"))
+		if err != nil {
+			log.WithError(err).Error("Invalid file path")
+			http.Error(w, "Invalid file path", http.StatusBadRequest)
+			return
+		}
+		err = handleMultipartUpload(w, r, absFilename)
 		if err != nil {
 			log.WithError(err).Error("Failed to handle multipart upload")
 			http.Error(w, "Failed to handle multipart upload", http.StatusInternalServerError)
@@ -1737,4 +1742,25 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 
 	uploadsTotal.Inc()
 	return nil
+}
+
+// sanitizeFilePath ensures that the file path is within the designated storage directory
+func sanitizeFilePath(baseDir, filePath string) (string, error) {
+	// Resolve the absolute path
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base directory: %w", err)
+	}
+
+	absFilePath, err := filepath.Abs(filepath.Join(absBaseDir, filePath))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve file path: %w", err)
+	}
+
+	// Check if the resolved file path is within the base directory
+	if !strings.HasPrefix(absFilePath, absBaseDir) {
+		return "", fmt.Errorf("invalid file path: %s", filePath)
+	}
+
+	return absFilePath, nil
 }
