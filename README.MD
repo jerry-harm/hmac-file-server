@@ -1,5 +1,7 @@
+Here is the updated version of the release notes with the correct configuration key for the storage path:
 
-# HMAC File Server
+```markdown
+# HMAC File Server Release Notes
 
 **HMAC File Server** is a secure, scalable, and feature-rich file server with advanced capabilities like HMAC authentication, resumable uploads, chunked uploads, file versioning, and optional ClamAV scanning for file integrity and security. This server is built with extensibility and operational monitoring in mind, including Prometheus metrics support and Redis integration.
 
@@ -13,6 +15,7 @@
 - **Redis Integration:** Use Redis for caching or storing application states.
 - **File Expiration:** Automatically delete files after a specified TTL.
 - **Graceful Shutdown:** Handles signals and ensures proper cleanup.
+- **Deduplication:** Remove duplicate files based on hashing for storage efficiency.
 
 ---
 
@@ -45,12 +48,14 @@ The server configuration is managed through a `config.toml` file. Below are the 
 | `ListenPort`           | Port or Unix socket to listen on                    | `":8080"`                      |
 | `UnixSocket`           | Use a Unix socket (`true`/`false`)                  | `false`                        |
 | `Secret`               | Secret key for HMAC authentication                 | `"your-secret-key"`            |
-| `StoreDir`             | Directory to store uploaded files                  | `"/mnt/storage/hmac-file-server"` |
+| `StoragePath`          | Directory to store uploaded files                  | `"/mnt/storage/hmac-file-server"` |
 | `LogLevel`             | Logging level (`info`, `debug`, etc.)               | `"info"`                       |
 | `LogFile`              | Log file path (optional)                           | `"/var/log/hmac-file-server.log"` |
 | `MetricsEnabled`       | Enable Prometheus metrics (`true`/`false`)          | `true`                         |
 | `MetricsPort`          | Prometheus metrics server port                     | `"9090"`                       |
 | `FileTTL`              | File Time-to-Live duration                         | `"168h0m0s"`                   |
+| `DeduplicationEnabled` | Enable file deduplication based on hashing          | `true`                         |
+| `MinFreeBytes`         | Minimum free space required on storage path (in bytes) | `104857600`                    |
 
 ### **Uploads**
 
@@ -86,6 +91,13 @@ The server configuration is managed through a `config.toml` file. Below are the 
 | `RedisAddr`                | Redis server address             | `"localhost:6379"`|
 | `RedisPassword`            | Password for Redis authentication| `""`              |
 | `RedisHealthCheckInterval` | Health check interval for Redis  | `"30s"`           |
+
+### **Workers and Connections**
+
+| Key                    | Description                        | Example           |
+|------------------------|------------------------------------|-------------------|
+| `NumWorkers`           | Number of upload workers           | `2`               |
+| `UploadQueueSize`      | Size of the upload queue           | `50`              |
 
 ---
 
@@ -141,3 +153,70 @@ Prometheus metrics include:
 - CPU usage
 - Active connections
 - HTTP requests metrics (total, method, path)
+
+---
+
+## Example `config.toml`
+
+```toml
+[server]
+listenport = "8080"
+unixsocket = false
+storagepath = "/mnt/storage/"
+loglevel = "info"
+logfile = "/var/log/file-server.log"
+metricsenabled = true
+metricsport = "9090"
+DeduplicationEnabled = true
+filettl = "336h" # 14 days
+minfreebytes = 104857600 # 100 MB in bytes
+
+[timeouts]
+readtimeout = "4800s"
+writetimeout = "4800s"
+idletimeout = "4800s"
+
+[security]
+secret = "example-secret-key"
+
+[versioning]
+enableversioning = false
+maxversions = 1
+
+[uploads]
+resumableuploadsenabled = true
+chunkeduploadsenabled = true
+chunksize = 8192
+allowedextensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"]
+
+[clamav]
+clamavenabled = true
+clamavsocket = "/var/run/clamav/clamd.ctl"
+numscanworkers = 2
+
+[redis]
+redisenabled = true
+redisdbindex = 0
+redisaddr = "localhost:6379"
+redispassword = ""
+redishealthcheckinterval = "120s"
+
+[workers]
+numworkers = 2
+uploadqueuesize = 50
+
+[file]
+filerevision = 1
+```
+
+This configuration file is set up with essential features like Prometheus integration, ClamAV scanning, and file handling with deduplication and versioning options. Adjust the settings according to your infrastructure needs.
+
+### Additional Features
+
+- **Deduplication**: Automatically remove duplicate files based on hashing.
+- **Versioning**: Store multiple versions of files and keep a maximum of `MaxVersions` versions.
+- **ClamAV Integration**: Scan uploaded files for viruses using ClamAV.
+- **Redis Caching**: Utilize Redis for caching file metadata for faster access.
+
+This release ensures an efficient and secure file management system, suited for environments requiring high levels of data security and availability.
+```
