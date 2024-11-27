@@ -43,12 +43,13 @@ import (
 type ServerConfig struct {
 	ListenPort     string `mapstructure:"ListenPort"`
 	UnixSocket     bool   `mapstructure:"UnixSocket"`
-	StoreDir       string `mapstructure:"StoreDir"`
+	StoragePath    string `mapstructure:"StoragePath"`
 	LogLevel       string `mapstructure:"LogLevel"`
 	LogFile        string `mapstructure:"LogFile"`
 	MetricsEnabled bool   `mapstructure:"MetricsEnabled"`
 	MetricsPort    string `mapstructure:"MetricsPort"`
 	FileTTL        string `mapstructure:"FileTTL"`
+	MinFreeBytes   int64  `mapstructure:"MinFreeBytes"` // Minimum free bytes required
 }
 
 type TimeoutConfig struct {
@@ -129,7 +130,7 @@ type NetworkEvent struct {
 
 var (
 	conf          Config
-	versionString string = "v2.0-stable"
+	versionString string = "v2.0-dev"
 	log                  = logrus.New()
 	uploadQueue   chan UploadTask
 	networkEvents chan NetworkEvent
@@ -180,6 +181,9 @@ var (
 )
 
 func main() {
+	// Set default configuration values
+	setDefaults()
+
 	// Flags for configuration file
 	var configFile string
 	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
@@ -195,11 +199,11 @@ func main() {
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 
 	// Create store directory
-	err = os.MkdirAll(conf.Server.StoreDir, os.ModePerm)
+	err = os.MkdirAll(conf.Server.StoragePath, os.ModePerm)
 	if err != nil {
 		log.Fatalf("Error creating store directory: %v", err)
 	}
-	log.WithField("directory", conf.Server.StoreDir).Info("Store directory is ready")
+	log.WithField("directory", conf.Server.StoragePath).Info("Store directory is ready")
 
 	// Setup logging
 	setupLogging()
@@ -262,7 +266,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Invalid FileTTL: %v", err)
 	}
-	go runFileCleaner(ctx, conf.Server.StoreDir, fileTTL)
+	go runFileCleaner(ctx, conf.Server.StoragePath, fileTTL)
 
 	// Parse timeout durations
 	readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
@@ -328,32 +332,32 @@ func main() {
 
 // Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-	viper.SetConfigFile(configFilename)
-	viper.SetConfigType("toml")
+    viper.SetConfigFile(configFilename)
+    viper.SetConfigType("toml")
 
-	// Set default values
-	setDefaults()
+    // Read in environment variables that match
+    viper.AutomaticEnv()
+    viper.SetEnvPrefix("HMAC") // Prefix for environment variables
 
-	// Read in environment variables that match
-	viper.AutomaticEnv()
-	viper.SetEnvPrefix("HMAC") // Prefix for environment variables
+    // Read the config file
+    if err := viper.ReadInConfig(); err != nil {
+        return fmt.Errorf("error reading config file: %w", err)
+    }
 
-	// Read the config file
-	if err := viper.ReadInConfig(); err != nil {
-		return fmt.Errorf("error reading config file: %w", err)
-	}
+    // Unmarshal the config into the Config struct
+    if err := viper.Unmarshal(conf); err != nil {
+        return fmt.Errorf("unable to decode into struct: %w", err)
+    }
 
-	// Unmarshal the config into the Config struct
-	if err := viper.Unmarshal(conf); err != nil {
-		return fmt.Errorf("unable to decode into struct: %w", err)
-	}
+    // Debug log the loaded configuration
+    log.Debugf("Loaded Configuration: %+v", conf.Server)
 
-	// Validate the configuration
-	if err := validateConfig(conf); err != nil {
-		return fmt.Errorf("configuration validation failed: %w", err)
-	}
+    // Validate the configuration
+    if err := validateConfig(conf); err != nil {
+        return fmt.Errorf("configuration validation failed: %w", err)
+    }
 
-	return nil
+    return nil
 }
 
 // Set default configuration values
@@ -361,12 +365,13 @@ func setDefaults() {
 	// Server defaults
 	viper.SetDefault("server.ListenPort", "8080")
 	viper.SetDefault("server.UnixSocket", false)
-	viper.SetDefault("server.StoreDir", "./uploads")
+	viper.SetDefault("server.StoragePath", "./uploads")
 	viper.SetDefault("server.LogLevel", "info")
 	viper.SetDefault("server.LogFile", "")
 	viper.SetDefault("server.MetricsEnabled", true)
 	viper.SetDefault("server.MetricsPort", "9090")
-	viper.SetDefault("server.FileTTL", "8760h") // 365d -> 8760h
+	viper.SetDefault("server.FileTTL", "8760h")      // 365d -> 8760h
+	viper.SetDefault("server.MinFreeBytes", 100<<20) // 100 MB
 
 	// Timeout defaults
 	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
@@ -416,8 +421,8 @@ func validateConfig(conf *Config) error {
 	if conf.Security.Secret == "" {
 		return fmt.Errorf("secret must be set")
 	}
-	if conf.Server.StoreDir == "" {
-		return fmt.Errorf("StoreDir must be set")
+	if conf.Server.StoragePath == "" {
+		return fmt.Errorf("StoragePath must be set")
 	}
 	if conf.Server.FileTTL == "" {
 		return fmt.Errorf("FileTTL must be set")
@@ -449,7 +454,7 @@ func validateConfig(conf *Config) error {
 // Setup logging
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if err != nil {
+	if (err != nil) {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -801,13 +806,14 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if conf.Server.MetricsEnabled {
+	if (conf.Server.MetricsEnabled) {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
 	// Apply middleware
-	handler := loggingMiddleware(mux)     // CORS is handled by NGINX
-	handler = recoveryMiddleware(handler) // Add recovery middleware
+	handler := loggingMiddleware(mux)
+	handler = recoveryMiddleware(handler)
+	handler = corsMiddleware(handler)
 	return handler
 }
 
@@ -836,161 +842,223 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// corsMiddleware handles CORS by setting appropriate headers
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-File-MAC")
+		w.Header().Set("Access-Control-Max-Age", "86400") // Cache preflight response for 1 day
+
+		// Handle preflight OPTIONS request
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Proceed to the next handler
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Handle file uploads and downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	// Get client IP address
-	clientIP := r.Header.Get("X-Real-IP")
-	if clientIP == "" {
-		clientIP = r.Header.Get("X-Forwarded-For")
-	}
-	if clientIP == "" {
-		// Fallback to RemoteAddr
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			log.WithError(err).Warn("Failed to parse RemoteAddr")
-			clientIP = r.RemoteAddr
-		} else {
-			clientIP = host
-		}
-	}
+    if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+        absFilename, err := sanitizeFilePath(conf.Server.StoragePath, strings.TrimPrefix(r.URL.Path, "/"))
+        if err != nil {
+            log.WithError(err).Error("Invalid file path")
+            http.Error(w, "Invalid file path", http.StatusBadRequest)
+            return
+        }
+        err = handleMultipartUpload(w, r, absFilename)
+        if err != nil {
+            log.WithError(err).Error("Failed to handle multipart upload")
+            http.Error(w, "Failed to handle multipart upload", http.StatusInternalServerError)
+            return
+        }
+        w.WriteHeader(http.StatusCreated)
+        return
+    }
 
-	// Log the request with the client IP
-	log.WithFields(logrus.Fields{
-		"method": r.Method,
-		"url":    r.URL.String(),
-		"remote": clientIP,
-	}).Info("Incoming request")
+    // Get client IP address
+    clientIP := r.Header.Get("X-Real-IP")
+    if clientIP == "" {
+        clientIP = r.Header.Get("X-Forwarded-For")
+    }
+    if clientIP == "" {
+        // Fallback to RemoteAddr
+        host, _, err := net.SplitHostPort(r.RemoteAddr)
+        if err != nil {
+            log.WithError(err).Warn("Failed to parse RemoteAddr")
+            clientIP = r.RemoteAddr
+        } else {
+            clientIP = host
+        }
+    }
 
-	// Parse URL and query parameters
-	p := r.URL.Path
-	a, err := url.ParseQuery(r.URL.RawQuery)
+    // Log the request with the client IP
+    log.WithFields(logrus.Fields{
+        "method": r.Method,
+        "url":    r.URL.String(),
+        "remote": clientIP,
+    }).Info("Incoming request")
+
+    // Parse URL and query parameters
+    p := r.URL.Path
+    a, err := url.ParseQuery(r.URL.RawQuery)
+    if err != nil {
+        log.Warn("Failed to parse query parameters")
+        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        return
+    }
+
+    fileStorePath := strings.TrimPrefix(p, "/")
+    if fileStorePath == "" || fileStorePath == "/" {
+        log.Warn("Access to root directory is forbidden")
+        http.Error(w, "Forbidden", http.StatusForbidden)
+        return
+    } else if fileStorePath[0] == '/' {
+        fileStorePath = fileStorePath[1:]
+    }
+
+	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
 	if err != nil {
-		log.Warn("Failed to parse query parameters")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		log.WithFields(logrus.Fields{
+			"file":  fileStorePath,
+			"error": err,
+		}).Warn("Invalid file path")
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
 
-	fileStorePath := strings.TrimPrefix(p, "/")
-	if fileStorePath == "" || fileStorePath == "/" {
-		log.Warn("Access to root directory is forbidden")
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	} else if fileStorePath[0] == '/' {
-		fileStorePath = fileStorePath[1:]
-	}
-
-	absFilename := filepath.Join(conf.Server.StoreDir, fileStorePath)
-
-	switch r.Method {
-	case http.MethodPut:
-		handleUpload(w, r, absFilename, fileStorePath, a)
-	case http.MethodHead, http.MethodGet:
-		handleDownload(w, r, absFilename, fileStorePath)
-	case http.MethodOptions:
-		// Handled by NGINX; no action needed
-		w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
-		return
-	default:
-		log.WithField("method", r.Method).Warn("Invalid HTTP method for upload directory")
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
+    switch r.Method {
+    case http.MethodPut:
+        handleUpload(w, r, absFilename, fileStorePath, a)
+    case http.MethodHead, http.MethodGet:
+        handleDownload(w, r, absFilename, fileStorePath)
+    case http.MethodOptions:
+        // Handled by NGINX; no action needed
+        w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
+        return
+    default:
+        log.WithField("method", r.Method).Warn("Invalid HTTP method for upload directory")
+        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+        return
+    }
 }
 
 // Handle file uploads with extension restrictions and HMAC validation
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
-	// Determine protocol version based on query parameters
-	var protocolVersion string
-	if a.Get("v2") != "" {
-		protocolVersion = "v2"
-	} else if a.Get("token") != "" {
-		protocolVersion = "token"
-	} else if a.Get("v") != "" {
-		protocolVersion = "v"
-	} else {
-		log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
-		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
-		return
-	}
-	log.Debugf("Protocol version determined: %s", protocolVersion)
+    // Log the storage path being used
+    log.Infof("Using storage path: %s", conf.Server.StoragePath)
 
-	// Initialize HMAC
-	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
+    // Determine protocol version based on query parameters
+    var protocolVersion string
+    if a.Get("v2") != "" {
+        protocolVersion = "v2"
+    } else if a.Get("token") != "" {
+        protocolVersion = "token"
+    } else if a.Get("v") != "" {
+        protocolVersion = "v"
+    } else {
+        log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
+        http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
+        return
+    }
+    log.Debugf("Protocol version determined: %s", protocolVersion)
 
-	// Calculate MAC based on protocolVersion
-	if protocolVersion == "v" {
-		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+    // Initialize HMAC
+    mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
+
+    // Calculate MAC based on protocolVersion
+    if protocolVersion == "v" {
+        mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
 	} else if protocolVersion == "v2" || protocolVersion == "token" {
-		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-	}
+        contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+        if contentType == "" {
+            contentType = "application/octet-stream"
+        }
+        mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+    }
 
-	calculatedMAC := mac.Sum(nil)
-	log.Debugf("Calculated MAC: %x", calculatedMAC)
+    calculatedMAC := mac.Sum(nil)
+    log.Debugf("Calculated MAC: %x", calculatedMAC)
 
-	// Decode provided MAC from hex
-	providedMACHex := a.Get(protocolVersion)
-	providedMAC, err := hex.DecodeString(providedMACHex)
-	if err != nil {
-		log.Warn("Invalid MAC encoding")
-		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
-		return
-	}
-	log.Debugf("Provided MAC: %x", providedMAC)
+    // Decode provided MAC from hex
+    providedMACHex := a.Get(protocolVersion)
+    providedMAC, err := hex.DecodeString(providedMACHex)
+    if err != nil {
+        log.Warn("Invalid MAC encoding")
+        http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
+        return
+    }
+    log.Debugf("Provided MAC: %x", providedMAC)
 
-	// Validate the HMAC
-	if !hmac.Equal(calculatedMAC, providedMAC) {
-		log.Warn("Invalid MAC")
-		http.Error(w, "Invalid MAC", http.StatusForbidden)
-		return
-	}
-	log.Debug("HMAC validation successful")
+    // Validate the HMAC
+    if !hmac.Equal(calculatedMAC, providedMAC) {
+        log.Warn("Invalid MAC")
+        http.Error(w, "Invalid MAC", http.StatusForbidden)
+        return
+    }
+    log.Debug("HMAC validation successful")
 
-	// Validate file extension
-	if !isExtensionAllowed(fileStorePath) {
-		log.WithFields(logrus.Fields{
-			"filename":  fileStorePath,
-			"extension": filepath.Ext(fileStorePath),
-		}).Warn("Attempted upload with disallowed file extension")
-		http.Error(w, "Disallowed file extension. Allowed extensions are: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
+    // Validate file extension
+    if (!isExtensionAllowed(fileStorePath)) {
+        log.WithFields(logrus.Fields{
+	// No need to sanitize and validate the file path here since absFilename is already sanitized in handleRequest
+			"file":  fileStorePath,
+			"error": err,
+		}).Warn("Invalid file path")
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		uploadErrorsTotal.Inc()
 		return
 	}
+	// absFilename = sanitizedFilename
 
-	// Create an UploadTask with a result channel
-	result := make(chan error)
-	task := UploadTask{
-		AbsFilename: absFilename,
-		Request:     r,
-		Result:      result,
-	}
+    // Check if there is enough free space
+    err = checkStorageSpace(conf.Server.StoragePath, conf.Server.MinFreeBytes)
+    if err != nil {
+        log.WithFields(logrus.Fields{
+            "storage_path": conf.Server.StoragePath,
+            "error":        err,
+        }).Warn("Not enough free space")
+        http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
+        uploadErrorsTotal.Inc()
+        return
+    }
 
-	// Submit task to the upload queue
-	select {
-	case uploadQueue <- task:
-		// Successfully added to the queue
-		log.Debug("Upload task enqueued successfully")
-	default:
-		// Queue is full
-		log.Warn("Upload queue is full. Rejecting upload")
-		http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
-		uploadErrorsTotal.Inc()
-		return
-	}
+    // Create an UploadTask with a result channel
+    result := make(chan error)
+    task := UploadTask{
+        AbsFilename: absFilename,
+        Request:     r,
+        Result:      result,
+    }
 
-	// Wait for the worker to process the upload
-	err = <-result
-	if err != nil {
-		// The worker has already logged the error; send an appropriate HTTP response
-		http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
-		return
-	}
+    // Submit task to the upload queue
+    select {
+    case uploadQueue <- task:
+        // Successfully added to the queue
+        log.Debug("Upload task enqueued successfully")
+    default:
+        // Queue is full
+        log.Warn("Upload queue is full. Rejecting upload")
+        http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
+        uploadErrorsTotal.Inc()
+        return
+    }
 
-	// Upload was successful
-	w.WriteHeader(http.StatusCreated)
+    // Wait for the worker to process the upload
+    err = <-result
+    if err != nil {
+        // The worker has already logged the error; send an appropriate HTTP response
+        http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    // Upload was successful
+    w.WriteHeader(http.StatusCreated)
 }
 
 // Handle file downloads
@@ -1609,4 +1677,138 @@ func computeFileHash(filePath string) (string, error) {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// Handle multipart uploads
+func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename string) error {
+	err := r.ParseMultipartForm(32 << 20) // 32MB is the default used by FormFile
+	if err != nil {
+		log.WithError(err).Error("Failed to parse multipart form")
+		http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+		return err
+	}
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		log.WithError(err).Error("Failed to retrieve file from form data")
+		http.Error(w, "Failed to retrieve file from form data", http.StatusBadRequest)
+		return err
+	}
+	defer file.Close()
+
+	// Validate file extension
+	if !isExtensionAllowed(handler.Filename) {
+		log.WithFields(logrus.Fields{
+			"filename":  handler.Filename,
+			"extension": filepath.Ext(handler.Filename),
+		}).Warn("Attempted upload with disallowed file extension")
+		http.Error(w, "Disallowed file extension. Allowed extensions are: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
+		uploadErrorsTotal.Inc()
+		return fmt.Errorf("disallowed file extension")
+	}
+
+	// Create a temporary file
+	tempFilename := absFilename + ".tmp"
+	tempFile, err := os.OpenFile(tempFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		log.WithError(err).Error("Failed to create temporary file")
+		http.Error(w, "Failed to create temporary file", http.StatusInternalServerError)
+		return err
+	}
+	defer tempFile.Close()
+
+	// Copy the uploaded file to the temporary file
+	_, err = io.Copy(tempFile, file)
+	if err != nil {
+		log.WithError(err).Error("Failed to copy uploaded file to temporary file")
+		http.Error(w, "Failed to copy uploaded file", http.StatusInternalServerError)
+		return err
+	}
+
+	// Perform ClamAV scan on the temporary file
+	if clamClient != nil {
+		err := scanFileWithClamAV(tempFilename)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Warn("ClamAV detected a virus or scan failed")
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+	}
+
+	// Handle file versioning if enabled
+	if conf.Versioning.EnableVersioning {
+		existing, _ := fileExists(absFilename)
+		if existing {
+			err := versionFile(absFilename)
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"file":  absFilename,
+					"error": err,
+				}).Error("Error versioning file")
+				os.Remove(tempFilename)
+				return err
+			}
+		}
+	}
+
+	// Move the temporary file to the final destination
+	err = os.Rename(tempFilename, absFilename)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"temp_file":  tempFilename,
+			"final_file": absFilename,
+			"error":      err,
+		}).Error("Failed to move file to final destination")
+		os.Remove(tempFilename)
+		return err
+	}
+
+	log.WithFields(logrus.Fields{
+		"file": absFilename,
+	}).Info("File uploaded and scanned successfully")
+
+	uploadsTotal.Inc()
+	return nil
+}
+
+// sanitizeFilePath ensures that the file path is within the designated storage directory
+func sanitizeFilePath(baseDir, filePath string) (string, error) {
+	// Resolve the absolute path
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base directory: %w", err)
+	}
+
+	absFilePath, err := filepath.Abs(filepath.Join(absBaseDir, filePath))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve file path: %w", err)
+	}
+
+	// Check if the resolved file path is within the base directory
+	if !strings.HasPrefix(absFilePath, absBaseDir) {
+		return "", fmt.Errorf("invalid file path: %s", filePath)
+	}
+
+	return absFilePath, nil
+}
+
+// checkStorageSpace ensures that there is enough free space in the storage path
+func checkStorageSpace(storagePath string, minFreeBytes int64) error {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(storagePath, &stat)
+	if err != nil {
+		return fmt.Errorf("failed to get filesystem stats: %w", err)
+	}
+
+	// Calculate available bytes
+	availableBytes := stat.Bavail * uint64(stat.Bsize)
+	if int64(availableBytes) < minFreeBytes {
+		return fmt.Errorf("not enough free space: %d bytes available, %d bytes required", availableBytes, minFreeBytes)
+	}
+
+	return nil
 }
