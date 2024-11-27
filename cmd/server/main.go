@@ -41,15 +41,16 @@ import (
 
 // Configuration structure
 type ServerConfig struct {
-	ListenPort     string `mapstructure:"ListenPort"`
-	UnixSocket     bool   `mapstructure:"UnixSocket"`
-	StoragePath    string `mapstructure:"StoragePath"`
-	LogLevel       string `mapstructure:"LogLevel"`
-	LogFile        string `mapstructure:"LogFile"`
-	MetricsEnabled bool   `mapstructure:"MetricsEnabled"`
-	MetricsPort    string `mapstructure:"MetricsPort"`
-	FileTTL        string `mapstructure:"FileTTL"`
-	MinFreeBytes   int64  `mapstructure:"MinFreeBytes"` // Minimum free bytes required
+	ListenPort           string `mapstructure:"ListenPort"`
+	UnixSocket           bool   `mapstructure:"UnixSocket"`
+	StoragePath          string `mapstructure:"StoragePath"`
+	LogLevel             string `mapstructure:"LogLevel"`
+	LogFile              string `mapstructure:"LogFile"`
+	MetricsEnabled       bool   `mapstructure:"MetricsEnabled"`
+	MetricsPort          string `mapstructure:"MetricsPort"`
+	FileTTL              string `mapstructure:"FileTTL"`
+	MinFreeBytes         int64  `mapstructure:"MinFreeBytes"` // Minimum free bytes required
+	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
 }
 
 type TimeoutConfig struct {
@@ -357,6 +358,9 @@ func readConfig(configFilename string, conf *Config) error {
         return fmt.Errorf("configuration validation failed: %w", err)
     }
 
+    // Set Deduplication Enabled
+	conf.Server.DeduplicationEnabled = viper.GetBool("deduplication.Enabled")
+
     return nil
 }
 
@@ -411,6 +415,9 @@ func setDefaults() {
 	// Workers defaults
 	viper.SetDefault("workers.NumWorkers", 2)
 	viper.SetDefault("workers.UploadQueueSize", 50)
+
+	// Deduplication defaults
+	viper.SetDefault("deduplication.Enabled", true)
 }
 
 // Validate configuration fields
@@ -692,7 +699,7 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
-	// Move the temporary file to the final destination
+	// Rename temporary file to final destination
 	err := os.Rename(tempFilename, absFilename)
 	if err != nil {
 		log.WithFields(logrus.Fields{
@@ -702,6 +709,16 @@ func processUpload(task UploadTask) error {
 		}).Error("Failed to move file to final destination")
 		os.Remove(tempFilename)
 		return err
+	}
+
+	// Handle deduplication if enabled
+	if conf.Server.DeduplicationEnabled {
+		err = handleDeduplication(context.Background(), absFilename)
+		if err != nil {
+			log.WithError(err).Error("Deduplication failed")
+			uploadErrorsTotal.Inc()
+			return err
+		}
 	}
 
 	log.WithFields(logrus.Fields{
@@ -988,7 +1005,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
     // Decode provided MAC from hex
     providedMACHex := a.Get(protocolVersion)
     providedMAC, err := hex.DecodeString(providedMACHex)
-    if err != nil {
+    if (err != nil) {
         log.Warn("Invalid MAC encoding")
         http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
         return
@@ -996,7 +1013,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
     log.Debugf("Provided MAC: %x", providedMAC)
 
     // Validate the HMAC
-    if !hmac.Equal(calculatedMAC, providedMAC) {
+    if (!hmac.Equal(calculatedMAC, providedMAC)) {
         log.Warn("Invalid MAC")
         http.Error(w, "Invalid MAC", http.StatusForbidden)
         return
@@ -1811,4 +1828,54 @@ func checkStorageSpace(storagePath string, minFreeBytes int64) error {
 	}
 
 	return nil
+}
+
+// Function to compute SHA256 checksum of a file
+func computeSHA256(filePath string) (string, error) {
+    file, err := os.Open(filePath)
+    if err != nil {
+        return "", fmt.Errorf("failed to open file for checksum: %w", err)
+    }
+    defer file.Close()
+
+    hasher := sha256.New()
+    if _, err := io.Copy(hasher, file); err != nil {
+        return "", fmt.Errorf("failed to compute checksum: %w", err)
+    }
+
+    return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+// Function to check for duplicate and create hard link if exists
+func handleDeduplication(ctx context.Context, absFilename string) error {
+    // Compute checksum of the uploaded file
+    checksum, err := computeSHA256(absFilename)
+    if err != nil {
+        return fmt.Errorf("checksum computation failed: %w", err)
+    }
+
+    // Check Redis for existing checksum
+    existingPath, err := redisClient.Get(ctx, checksum).Result()
+    if err != nil && err != redis.Nil {
+		return fmt.Errorf("redis error: %w", err)
+    }
+
+    if err != redis.Nil {
+        // Duplicate found, create hard link
+        err = os.Link(existingPath, absFilename)
+        if err != nil {
+            return fmt.Errorf("failed to create hard link: %w", err)
+        }
+        log.Infof("Duplicate file detected. Created hard link from %s to %s", existingPath, absFilename)
+        return nil
+    }
+
+    // No duplicate found, store checksum in Redis
+    err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
+    if err != nil {
+        return fmt.Errorf("failed to store checksum in Redis: %w", err)
+    }
+
+    log.Infof("Stored new file checksum in Redis: %s -> %s", checksum, absFilename)
+    return nil
 }
