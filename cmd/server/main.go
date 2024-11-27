@@ -803,7 +803,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if conf.Server.MetricsEnabled {
+	if (conf.Server.MetricsEnabled) {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -922,7 +922,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
-		handleUpload(w, r, absFilename, fileStorePath, a)
+		handleUpload(w, r, absFilename, a)
 	case http.MethodHead, http.MethodGet:
 		handleDownload(w, r, absFilename, fileStorePath)
 	case http.MethodOptions:
@@ -937,7 +937,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // Handle file uploads with extension restrictions and HMAC validation
-func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
+func handleUpload(w http.ResponseWriter, r *http.Request, fileStorePath string, a url.Values) {
 	// Determine protocol version based on query parameters
 	var protocolVersion string
 	if a.Get("v2") != "" {
@@ -989,7 +989,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	log.Debug("HMAC validation successful")
 
 	// Validate file extension
-	if !isExtensionAllowed(fileStorePath) {
+	if (!isExtensionAllowed(fileStorePath)) {
 		log.WithFields(logrus.Fields{
 			"filename":  fileStorePath,
 			"extension": filepath.Ext(fileStorePath),
@@ -1000,7 +1000,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	}
 
 	// Sanitize and validate the file path
-	absFilename, err = sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
+	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
 	if err != nil {
 		log.WithFields(logrus.Fields{
 			"file":  fileStorePath,
@@ -1772,23 +1772,23 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 
 // sanitizeFilePath ensures that the file path is within the designated storage directory
 func sanitizeFilePath(baseDir, filePath string) (string, error) {
-	// Resolve the absolute path
-	absBaseDir, err := filepath.Abs(baseDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve base directory: %w", err)
-	}
+    // Resolve the absolute path
+    absBaseDir, err := filepath.Abs(baseDir)
+    if err != nil {
+        return "", fmt.Errorf("failed to resolve base directory: %w", err)
+    }
 
-	absFilePath, err := filepath.Abs(filepath.Join(absBaseDir, filePath))
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve file path: %w", err)
-	}
+    absFilePath, err := filepath.Abs(filepath.Join(absBaseDir, filePath))
+    if err != nil {
+        return "", fmt.Errorf("failed to resolve file path: %w", err)
+    }
 
-	// Check if the resolved file path is within the base directory
-	if !strings.HasPrefix(absFilePath, absBaseDir) {
-		return "", fmt.Errorf("invalid file path: %s", filePath)
-	}
+    // Check if the resolved file path is within the base directory
+    if !strings.HasPrefix(absFilePath, absBaseDir) {
+        return "", fmt.Errorf("invalid file path: %s", filePath)
+    }
 
-	return absFilePath, nil
+    return absFilePath, nil
 }
 
 // checkStorageSpace ensures that there is enough free space in the storage path
