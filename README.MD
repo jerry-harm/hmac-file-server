@@ -201,9 +201,6 @@ redishealthcheckinterval = "120s"
 [workers]
 numworkers = 2
 uploadqueuesize = 50
-
-[file]
-filerevision = 1
 ```
 
 This configuration file is set up with essential features like Prometheus integration, ClamAV scanning, and file handling with deduplication and versioning options. Adjust the settings according to your infrastructure needs.
