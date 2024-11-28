@@ -138,8 +138,8 @@ var (
 	fileInfoCache  *cache.Cache
 	clamClient     *clamd.Clamd  // Added for ClamAV integration
 	redisClient    *redis.Client // Redis client
+	redisConnected bool          // Redis connection status
 	mu             sync.RWMutex
-	redisConnected bool
 
 	// Prometheus metrics
 	uploadDuration      prometheus.Histogram
@@ -1565,19 +1565,12 @@ func initRedis() {
 	mu.Lock()
 	redisConnected = true
 	mu.Unlock()
+
+	// Start monitoring Redis health
+	go MonitorRedisHealth(context.Background(), redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
 }
 
-// Parse duration string to time.Duration
-func parseDuration(durationStr string) time.Duration {
-	duration, err := time.ParseDuration(durationStr)
-	if err != nil {
-		log.WithError(err).Warn("Invalid duration format, using default 30s")
-		return 30 * time.Second
-	}
-	return duration
-}
-
-// MonitorRedisHealth periodically checks Redis connectivity and logs the status.
+// MonitorRedisHealth periodically checks Redis connectivity and updates redisConnected status.
 func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval time.Duration) {
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
@@ -1589,14 +1582,32 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 			return
 		case <-ticker.C:
 			err := client.Ping(ctx).Err()
+			mu.Lock()
 			if err != nil {
-				log.Errorf("Redis health check failed: %v", err)
-				// Additional handling if necessary
+				if redisConnected {
+					log.Errorf("Redis health check failed: %v", err)
+				}
+				redisConnected = false
 			} else {
+				if !redisConnected {
+					log.Info("Redis reconnected successfully")
+				}
+				redisConnected = true
 				log.Debug("Redis health check succeeded.")
 			}
+			mu.Unlock()
 		}
 	}
+}
+
+// Helper function to parse duration strings
+func parseDuration(durationStr string) time.Duration {
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		log.WithError(err).Warn("Invalid duration format, using default 30s")
+		return 30 * time.Second
+	}
+	return duration
 }
 
 // RunFileCleaner periodically deletes files that exceed the FileTTL duration.
