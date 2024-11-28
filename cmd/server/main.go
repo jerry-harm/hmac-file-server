@@ -130,47 +130,31 @@ type NetworkEvent struct {
 }
 
 var (
-	conf          Config
-	versionString string = "v2.0-dev"
-	log                  = logrus.New()
-	uploadQueue   chan UploadTask
-	networkEvents chan NetworkEvent
-	fileInfoCache *cache.Cache
+	conf           Config
+	versionString  string = "v2.0-dev"
+	log                   = logrus.New()
+	uploadQueue    chan UploadTask
+	networkEvents  chan NetworkEvent
+	fileInfoCache  *cache.Cache
+	clamClient     *clamd.Clamd  // Added for ClamAV integration
+	redisClient    *redis.Client // Redis client
+	redisConnected bool          // Redis connection status
+	mu             sync.RWMutex
 
 	// Prometheus metrics
-	uploadDuration      = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds.", Buckets: prometheus.DefBuckets})
-	uploadErrorsTotal   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
-	uploadsTotal        = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
-	downloadDuration    = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
-	downloadsTotal      = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
-	downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
-	memoryUsage         = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
-	cpuUsage            = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
-	activeConnections   = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
-	requestsTotal       = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
-	goroutines          = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
-	uploadSizeBytes     = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "hmac",
-		Name:      "file_server_upload_size_bytes",
-		Help:      "Histogram of uploaded file sizes in bytes.",
-		Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
-	})
-	downloadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "hmac",
-		Name:      "file_server_download_size_bytes",
-		Help:      "Histogram of downloaded file sizes in bytes.",
-		Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
-	})
-
-	// ClamAV client
-	clamClient *clamd.Clamd // Added for ClamAV integration
-
-	// Redis Client
-	redisClient *redis.Client // Redis client
-
-	// Redis connection status
-	redisConnected bool = false
-	mu             sync.RWMutex
+	uploadDuration      prometheus.Histogram
+	uploadErrorsTotal   prometheus.Counter
+	uploadsTotal        prometheus.Counter
+	downloadDuration    prometheus.Histogram
+	downloadsTotal      prometheus.Counter
+	downloadErrorsTotal prometheus.Counter
+	memoryUsage         prometheus.Gauge
+	cpuUsage            prometheus.Gauge
+	activeConnections   prometheus.Gauge
+	requestsTotal       *prometheus.CounterVec
+	goroutines          prometheus.Gauge
+	uploadSizeBytes     prometheus.Histogram
+	downloadSizeBytes   prometheus.Histogram
 
 	// Constants for worker pool
 	MinWorkers      = 5     // Increased from 10 to 20 for better concurrency
@@ -193,8 +177,9 @@ func main() {
 	// Load configuration
 	err := readConfig(configFile, &conf)
 	if err != nil {
-		log.Fatalf("Error reading config: %v", err)
+		log.Fatalf("Error reading config: %v", err) // Fatal: application cannot proceed
 	}
+	log.Info("Configuration loaded successfully.")
 
 	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
@@ -214,11 +199,13 @@ func main() {
 
 	// Initialize Prometheus metrics
 	initMetrics()
+	log.Info("Prometheus metrics initialized.")
 
 	// Initialize upload and scan queues
 	uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
-	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize) // Adjust size as needed
+	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
 	networkEvents = make(chan NetworkEvent, 100)
+	log.Info("Upload, scan, and network event channels initialized.")
 
 	// Context for goroutines
 	ctx, cancel := context.WithCancel(context.Background())
@@ -246,6 +233,22 @@ func main() {
 	// Initialize Redis client if enabled
 	if conf.Redis.RedisEnabled {
 		initRedis()
+	}
+
+	// Redis Initialization
+	initRedis()
+	log.Info("Redis client initialized and connected successfully.")
+
+	// ClamAV Initialization
+	if conf.ClamAV.ClamAVEnabled {
+		clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"error": err.Error(),
+			}).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+		} else {
+			log.Info("ClamAV client initialized successfully.")
+		}
 	}
 
 	// Initialize worker pools
@@ -333,35 +336,35 @@ func main() {
 
 // Function to load configuration using Viper
 func readConfig(configFilename string, conf *Config) error {
-    viper.SetConfigFile(configFilename)
-    viper.SetConfigType("toml")
+	viper.SetConfigFile(configFilename)
+	viper.SetConfigType("toml")
 
-    // Read in environment variables that match
-    viper.AutomaticEnv()
-    viper.SetEnvPrefix("HMAC") // Prefix for environment variables
+	// Read in environment variables that match
+	viper.AutomaticEnv()
+	viper.SetEnvPrefix("HMAC") // Prefix for environment variables
 
-    // Read the config file
-    if err := viper.ReadInConfig(); err != nil {
-        return fmt.Errorf("error reading config file: %w", err)
-    }
+	// Read the config file
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("error reading config file: %w", err)
+	}
 
-    // Unmarshal the config into the Config struct
-    if err := viper.Unmarshal(conf); err != nil {
-        return fmt.Errorf("unable to decode into struct: %w", err)
-    }
+	// Unmarshal the config into the Config struct
+	if err := viper.Unmarshal(conf); err != nil {
+		return fmt.Errorf("unable to decode into struct: %w", err)
+	}
 
-    // Debug log the loaded configuration
-    log.Debugf("Loaded Configuration: %+v", conf.Server)
+	// Debug log the loaded configuration
+	log.Debugf("Loaded Configuration: %+v", conf.Server)
 
-    // Validate the configuration
-    if err := validateConfig(conf); err != nil {
-        return fmt.Errorf("configuration validation failed: %w", err)
-    }
+	// Validate the configuration
+	if err := validateConfig(conf); err != nil {
+		return fmt.Errorf("configuration validation failed: %w", err)
+	}
 
-    // Set Deduplication Enabled
+	// Set Deduplication Enabled
 	conf.Server.DeduplicationEnabled = viper.GetBool("deduplication.Enabled")
 
-    return nil
+	return nil
 }
 
 // Set default configuration values
@@ -461,7 +464,7 @@ func validateConfig(conf *Config) error {
 // Setup logging
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -526,7 +529,32 @@ func logSystemInfo() {
 }
 
 // Initialize Prometheus metrics
+// Duplicate initMetrics function removed
 func initMetrics() {
+	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds.", Buckets: prometheus.DefBuckets})
+	uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
+	uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
+	downloadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
+	downloadsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
+	downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
+	memoryUsage = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
+	cpuUsage = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
+	activeConnections = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
+	requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
+	goroutines = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
+	uploadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac",
+		Name:      "file_server_upload_size_bytes",
+		Help:      "Histogram of uploaded file sizes in bytes.",
+		Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
+	})
+	downloadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "hmac",
+		Name:      "file_server_download_size_bytes",
+		Help:      "Histogram of downloaded file sizes in bytes.",
+		Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
+	})
+
 	if conf.Server.MetricsEnabled {
 		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
 		prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
@@ -535,7 +563,7 @@ func initMetrics() {
 	}
 }
 
-// Update system metrics periodically
+// Update system metrics
 func updateSystemMetrics(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -644,10 +672,12 @@ func processUpload(task UploadTask) error {
 	tempFilename := absFilename + ".tmp"
 	r := task.Request
 
+	log.Infof("Processing upload for file: %s", absFilename)
 	startTime := time.Now()
 
 	// Handle uploads and write to a temporary file
 	if conf.Uploads.ChunkedUploadsEnabled {
+		log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
 		err := handleChunkedUpload(tempFilename, r)
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
@@ -658,6 +688,7 @@ func processUpload(task UploadTask) error {
 			return err
 		}
 	} else {
+		log.Debugf("Handling standard upload for %s", tempFilename)
 		err := createFile(tempFilename, r)
 		if err != nil {
 			log.WithFields(logrus.Fields{
@@ -671,6 +702,7 @@ func processUpload(task UploadTask) error {
 
 	// Perform ClamAV scan on the temporary file
 	if clamClient != nil {
+		log.Debugf("Scanning %s with ClamAV", tempFilename)
 		err := scanFileWithClamAV(tempFilename)
 		if err != nil {
 			log.WithFields(logrus.Fields{
@@ -681,12 +713,14 @@ func processUpload(task UploadTask) error {
 			uploadErrorsTotal.Inc()
 			return err
 		}
+		log.Infof("ClamAV scan passed for file: %s", tempFilename)
 	}
 
 	// Handle file versioning if enabled
 	if conf.Versioning.EnableVersioning {
 		existing, _ := fileExists(absFilename)
 		if existing {
+			log.Infof("File %s exists. Initiating versioning.", absFilename)
 			err := versionFile(absFilename)
 			if err != nil {
 				log.WithFields(logrus.Fields{
@@ -696,6 +730,7 @@ func processUpload(task UploadTask) error {
 				os.Remove(tempFilename)
 				return err
 			}
+			log.Infof("File versioned successfully: %s", absFilename)
 		}
 	}
 
@@ -710,56 +745,49 @@ func processUpload(task UploadTask) error {
 		os.Remove(tempFilename)
 		return err
 	}
+	log.Infof("File moved to final destination: %s", absFilename)
 
 	// Handle deduplication if enabled
 	if conf.Server.DeduplicationEnabled {
+		log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
 		err = handleDeduplication(context.Background(), absFilename)
 		if err != nil {
 			log.WithError(err).Error("Deduplication failed")
 			uploadErrorsTotal.Inc()
 			return err
 		}
+		log.Infof("Deduplication handled successfully for file: %s", absFilename)
 	}
 
 	log.WithFields(logrus.Fields{
 		"file": absFilename,
-	}).Info("File uploaded and scanned successfully")
+	}).Info("File uploaded and processed successfully")
 
 	uploadDuration.Observe(time.Since(startTime).Seconds())
 	uploadsTotal.Inc()
 	return nil
 }
 
-// Worker function to process upload tasks
+// uploadWorker processes upload tasks from the uploadQueue
 func uploadWorker(ctx context.Context, workerID int) {
-	log.WithField("worker_id", workerID).Info("Upload worker started")
+	log.Infof("Upload worker %d started.", workerID)
+	defer log.Infof("Upload worker %d stopped.", workerID)
 	for {
 		select {
 		case <-ctx.Done():
-			log.WithField("worker_id", workerID).Info("Upload worker stopping")
 			return
 		case task, ok := <-uploadQueue:
 			if !ok {
-				log.WithField("worker_id", workerID).Info("Upload queue closed")
+				log.Warnf("Upload queue closed. Worker %d exiting.", workerID)
 				return
 			}
-			log.WithFields(logrus.Fields{
-				"worker_id": workerID,
-				"file":      task.AbsFilename,
-			}).Info("Processing upload task")
+			log.Infof("Worker %d processing upload for file: %s", workerID, task.AbsFilename)
 			err := processUpload(task)
 			if err != nil {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-					"error":     err,
-				}).Error("Failed to process upload task")
+				log.Errorf("Worker %d failed to process upload for %s: %v", workerID, task.AbsFilename, err)
 				uploadErrorsTotal.Inc()
 			} else {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-				}).Info("Successfully processed upload task")
+				log.Infof("Worker %d successfully processed upload for %s", workerID, task.AbsFilename)
 			}
 			task.Result <- err
 			close(task.Result)
@@ -823,7 +851,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if (conf.Server.MetricsEnabled) {
+	if conf.Server.MetricsEnabled {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -881,63 +909,63 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // Handle file uploads and downloads
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-    if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
-        absFilename, err := sanitizeFilePath(conf.Server.StoragePath, strings.TrimPrefix(r.URL.Path, "/"))
-        if err != nil {
-            log.WithError(err).Error("Invalid file path")
-            http.Error(w, "Invalid file path", http.StatusBadRequest)
-            return
-        }
-        err = handleMultipartUpload(w, r, absFilename)
-        if err != nil {
-            log.WithError(err).Error("Failed to handle multipart upload")
-            http.Error(w, "Failed to handle multipart upload", http.StatusInternalServerError)
-            return
-        }
-        w.WriteHeader(http.StatusCreated)
-        return
-    }
+	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+		absFilename, err := sanitizeFilePath(conf.Server.StoragePath, strings.TrimPrefix(r.URL.Path, "/"))
+		if err != nil {
+			log.WithError(err).Error("Invalid file path")
+			http.Error(w, "Invalid file path", http.StatusBadRequest)
+			return
+		}
+		err = handleMultipartUpload(w, r, absFilename)
+		if err != nil {
+			log.WithError(err).Error("Failed to handle multipart upload")
+			http.Error(w, "Failed to handle multipart upload", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		return
+	}
 
-    // Get client IP address
-    clientIP := r.Header.Get("X-Real-IP")
-    if clientIP == "" {
-        clientIP = r.Header.Get("X-Forwarded-For")
-    }
-    if clientIP == "" {
-        // Fallback to RemoteAddr
-        host, _, err := net.SplitHostPort(r.RemoteAddr)
-        if err != nil {
-            log.WithError(err).Warn("Failed to parse RemoteAddr")
-            clientIP = r.RemoteAddr
-        } else {
-            clientIP = host
-        }
-    }
+	// Get client IP address
+	clientIP := r.Header.Get("X-Real-IP")
+	if clientIP == "" {
+		clientIP = r.Header.Get("X-Forwarded-For")
+	}
+	if clientIP == "" {
+		// Fallback to RemoteAddr
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			log.WithError(err).Warn("Failed to parse RemoteAddr")
+			clientIP = r.RemoteAddr
+		} else {
+			clientIP = host
+		}
+	}
 
-    // Log the request with the client IP
-    log.WithFields(logrus.Fields{
-        "method": r.Method,
-        "url":    r.URL.String(),
-        "remote": clientIP,
-    }).Info("Incoming request")
+	// Log the request with the client IP
+	log.WithFields(logrus.Fields{
+		"method": r.Method,
+		"url":    r.URL.String(),
+		"remote": clientIP,
+	}).Info("Incoming request")
 
-    // Parse URL and query parameters
-    p := r.URL.Path
-    a, err := url.ParseQuery(r.URL.RawQuery)
-    if err != nil {
-        log.Warn("Failed to parse query parameters")
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
-    }
+	// Parse URL and query parameters
+	p := r.URL.Path
+	a, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		log.Warn("Failed to parse query parameters")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-    fileStorePath := strings.TrimPrefix(p, "/")
-    if fileStorePath == "" || fileStorePath == "/" {
-        log.Warn("Access to root directory is forbidden")
-        http.Error(w, "Forbidden", http.StatusForbidden)
-        return
-    } else if fileStorePath[0] == '/' {
-        fileStorePath = fileStorePath[1:]
-    }
+	fileStorePath := strings.TrimPrefix(p, "/")
+	if fileStorePath == "" || fileStorePath == "/" {
+		log.Warn("Access to root directory is forbidden")
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	} else if fileStorePath[0] == '/' {
+		fileStorePath = fileStorePath[1:]
+	}
 
 	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
 	if err != nil {
@@ -949,81 +977,81 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-    switch r.Method {
-    case http.MethodPut:
-        handleUpload(w, r, absFilename, fileStorePath, a)
-    case http.MethodHead, http.MethodGet:
-        handleDownload(w, r, absFilename, fileStorePath)
-    case http.MethodOptions:
-        // Handled by NGINX; no action needed
-        w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
-        return
-    default:
-        log.WithField("method", r.Method).Warn("Invalid HTTP method for upload directory")
-        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-        return
-    }
+	switch r.Method {
+	case http.MethodPut:
+		handleUpload(w, r, absFilename, fileStorePath, a)
+	case http.MethodHead, http.MethodGet:
+		handleDownload(w, r, absFilename, fileStorePath)
+	case http.MethodOptions:
+		// Handled by NGINX; no action needed
+		w.Header().Set("Allow", "OPTIONS, GET, PUT, HEAD")
+		return
+	default:
+		log.WithField("method", r.Method).Warn("Invalid HTTP method for upload directory")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 }
 
 // Handle file uploads with extension restrictions and HMAC validation
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
-    // Log the storage path being used
-    log.Infof("Using storage path: %s", conf.Server.StoragePath)
+	// Log the storage path being used
+	log.Infof("Using storage path: %s", conf.Server.StoragePath)
 
-    // Determine protocol version based on query parameters
-    var protocolVersion string
-    if a.Get("v2") != "" {
-        protocolVersion = "v2"
-    } else if a.Get("token") != "" {
-        protocolVersion = "token"
-    } else if a.Get("v") != "" {
-        protocolVersion = "v"
-    } else {
-        log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
-        http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
-        return
-    }
-    log.Debugf("Protocol version determined: %s", protocolVersion)
+	// Determine protocol version based on query parameters
+	var protocolVersion string
+	if a.Get("v2") != "" {
+		protocolVersion = "v2"
+	} else if a.Get("token") != "" {
+		protocolVersion = "token"
+	} else if a.Get("v") != "" {
+		protocolVersion = "v"
+	} else {
+		log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
+		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
+		return
+	}
+	log.Debugf("Protocol version determined: %s", protocolVersion)
 
-    // Initialize HMAC
-    mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
+	// Initialize HMAC
+	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
 
-    // Calculate MAC based on protocolVersion
-    if protocolVersion == "v" {
-        mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+	// Calculate MAC based on protocolVersion
+	if protocolVersion == "v" {
+		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
 	} else if protocolVersion == "v2" || protocolVersion == "token" {
-        contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-        if contentType == "" {
-            contentType = "application/octet-stream"
-        }
-        mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-    }
+		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+	}
 
-    calculatedMAC := mac.Sum(nil)
-    log.Debugf("Calculated MAC: %x", calculatedMAC)
+	calculatedMAC := mac.Sum(nil)
+	log.Debugf("Calculated MAC: %x", calculatedMAC)
 
-    // Decode provided MAC from hex
-    providedMACHex := a.Get(protocolVersion)
-    providedMAC, err := hex.DecodeString(providedMACHex)
-    if (err != nil) {
-        log.Warn("Invalid MAC encoding")
-        http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
-        return
-    }
-    log.Debugf("Provided MAC: %x", providedMAC)
+	// Decode provided MAC from hex
+	providedMACHex := a.Get(protocolVersion)
+	providedMAC, err := hex.DecodeString(providedMACHex)
+	if err != nil {
+		log.Warn("Invalid MAC encoding")
+		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
+		return
+	}
+	log.Debugf("Provided MAC: %x", providedMAC)
 
-    // Validate the HMAC
-    if (!hmac.Equal(calculatedMAC, providedMAC)) {
-        log.Warn("Invalid MAC")
-        http.Error(w, "Invalid MAC", http.StatusForbidden)
-        return
-    }
-    log.Debug("HMAC validation successful")
+	// Validate the HMAC
+	if !hmac.Equal(calculatedMAC, providedMAC) {
+		log.Warn("Invalid MAC")
+		http.Error(w, "Invalid MAC", http.StatusForbidden)
+		return
+	}
+	log.Debug("HMAC validation successful")
 
-    // Validate file extension
-    if (!isExtensionAllowed(fileStorePath)) {
-        log.WithFields(logrus.Fields{
-	// No need to sanitize and validate the file path here since absFilename is already sanitized in handleRequest
+	// Validate file extension
+	if !isExtensionAllowed(fileStorePath) {
+		log.WithFields(logrus.Fields{
+			// No need to sanitize and validate the file path here since absFilename is already sanitized in handleRequest
 			"file":  fileStorePath,
 			"error": err,
 		}).Warn("Invalid file path")
@@ -1033,49 +1061,49 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	}
 	// absFilename = sanitizedFilename
 
-    // Check if there is enough free space
-    err = checkStorageSpace(conf.Server.StoragePath, conf.Server.MinFreeBytes)
-    if err != nil {
-        log.WithFields(logrus.Fields{
-            "storage_path": conf.Server.StoragePath,
-            "error":        err,
-        }).Warn("Not enough free space")
-        http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	// Check if there is enough free space
+	err = checkStorageSpace(conf.Server.StoragePath, conf.Server.MinFreeBytes)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"storage_path": conf.Server.StoragePath,
+			"error":        err,
+		}).Warn("Not enough free space")
+		http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    // Create an UploadTask with a result channel
-    result := make(chan error)
-    task := UploadTask{
-        AbsFilename: absFilename,
-        Request:     r,
-        Result:      result,
-    }
+	// Create an UploadTask with a result channel
+	result := make(chan error)
+	task := UploadTask{
+		AbsFilename: absFilename,
+		Request:     r,
+		Result:      result,
+	}
 
-    // Submit task to the upload queue
-    select {
-    case uploadQueue <- task:
-        // Successfully added to the queue
-        log.Debug("Upload task enqueued successfully")
-    default:
-        // Queue is full
-        log.Warn("Upload queue is full. Rejecting upload")
-        http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	// Submit task to the upload queue
+	select {
+	case uploadQueue <- task:
+		// Successfully added to the queue
+		log.Debug("Upload task enqueued successfully")
+	default:
+		// Queue is full
+		log.Warn("Upload queue is full. Rejecting upload")
+		http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    // Wait for the worker to process the upload
-    err = <-result
-    if err != nil {
-        // The worker has already logged the error; send an appropriate HTTP response
-        http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
-        return
-    }
+	// Wait for the worker to process the upload
+	err = <-result
+	if err != nil {
+		// The worker has already logged the error; send an appropriate HTTP response
+		http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-    // Upload was successful
-    w.WriteHeader(http.StatusCreated)
+	// Upload was successful
+	w.WriteHeader(http.StatusCreated)
 }
 
 // Handle file downloads
@@ -1112,10 +1140,12 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	} else {
 		// Measure download duration
 		startTime := time.Now()
+		log.Infof("Initiating download for file: %s", absFilename)
 		http.ServeFile(w, r, absFilename)
 		downloadDuration.Observe(time.Since(startTime).Seconds())
 		downloadSizeBytes.Observe(float64(fileInfo.Size()))
 		downloadsTotal.Inc()
+		log.Infof("File downloaded successfully: %s", absFilename)
 		return
 	}
 }
@@ -1215,18 +1245,21 @@ func scanFileWithClamAV(filePath string) error {
 	}
 }
 
-// Initialize ClamAV client (Optional)
+// initClamAV initializes the ClamAV client and logs the status
 func initClamAV(socket string) (*clamd.Clamd, error) {
 	if socket == "" {
+		log.Error("ClamAV socket path is not configured.")
 		return nil, fmt.Errorf("ClamAV socket path is not configured")
 	}
 
 	clamClient := clamd.NewClamd("unix:" + socket)
 	err := clamClient.Ping()
 	if err != nil {
+		log.Errorf("Failed to connect to ClamAV at %s: %v", socket, err)
 		return nil, fmt.Errorf("failed to connect to ClamAV: %w", err)
 	}
 
+	log.Info("Connected to ClamAV successfully.")
 	return clamClient, nil
 }
 
@@ -1470,31 +1503,37 @@ func getCurrentIPAddress() string {
 	return ""
 }
 
-// Setup graceful shutdown
+// setupGracefulShutdown sets up handling for graceful server shutdown
 func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-quit
-		log.Info("Shutting down server...")
+		sig := <-quit
+		log.Infof("Received signal %s. Initiating shutdown...", sig)
 
 		// Create a deadline to wait for.
 		ctxShutdown, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 
+		// Attempt graceful shutdown
 		if err := server.Shutdown(ctxShutdown); err != nil {
-			log.WithError(err).Fatal("Server Shutdown Failed")
+			log.Errorf("Server shutdown failed: %v", err)
+		} else {
+			log.Info("Server shutdown gracefully.")
 		}
 
 		// Signal other goroutines to stop
 		cancel()
 
-		// Close the upload and scan queues and network events channel
+		// Close the upload, scan, and network event channels
 		close(uploadQueue)
+		log.Info("Upload queue closed.")
 		close(scanQueue)
+		log.Info("Scan queue closed.")
 		close(networkEvents)
+		log.Info("Network events channel closed.")
 
-		log.Info("Server gracefully stopped.")
+		log.Info("Shutdown process completed. Exiting application.")
 		os.Exit(0)
 	}()
 }
@@ -1526,19 +1565,12 @@ func initRedis() {
 	mu.Lock()
 	redisConnected = true
 	mu.Unlock()
+
+	// Start monitoring Redis health
+	go MonitorRedisHealth(context.Background(), redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
 }
 
-// Parse duration string to time.Duration
-func parseDuration(durationStr string) time.Duration {
-	duration, err := time.ParseDuration(durationStr)
-	if err != nil {
-		log.WithError(err).Warn("Invalid duration format, using default 30s")
-		return 30 * time.Second
-	}
-	return duration
-}
-
-// MonitorRedisHealth periodically checks Redis connectivity and logs the status.
+// MonitorRedisHealth periodically checks Redis connectivity and updates redisConnected status.
 func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval time.Duration) {
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
@@ -1550,28 +1582,32 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 			return
 		case <-ticker.C:
 			err := client.Ping(ctx).Err()
+			mu.Lock()
 			if err != nil {
-				log.WithError(err).Error("Redis health check failed")
-				// Update connection status
-				mu.Lock()
 				if redisConnected {
-					redisConnected = false
-					log.Warn("Redis connection lost")
+					log.Errorf("Redis health check failed: %v", err)
 				}
-				mu.Unlock()
-				// Optionally implement fallback logic here
+				redisConnected = false
 			} else {
-				log.Info("Redis health check succeeded")
-				// Update connection status
-				mu.Lock()
 				if !redisConnected {
-					redisConnected = true
-					log.Info("Redis connection restored")
+					log.Info("Redis reconnected successfully")
 				}
-				mu.Unlock()
+				redisConnected = true
+				log.Debug("Redis health check succeeded.")
 			}
+			mu.Unlock()
 		}
 	}
+}
+
+// Helper function to parse duration strings
+func parseDuration(durationStr string) time.Duration {
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		log.WithError(err).Warn("Invalid duration format, using default 30s")
+		return 30 * time.Second
+	}
+	return duration
 }
 
 // RunFileCleaner periodically deletes files that exceed the FileTTL duration.
@@ -1832,50 +1868,56 @@ func checkStorageSpace(storagePath string, minFreeBytes int64) error {
 
 // Function to compute SHA256 checksum of a file
 func computeSHA256(filePath string) (string, error) {
-    file, err := os.Open(filePath)
-    if err != nil {
-        return "", fmt.Errorf("failed to open file for checksum: %w", err)
-    }
-    defer file.Close()
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file for checksum: %w", err)
+	}
+	defer file.Close()
 
-    hasher := sha256.New()
-    if _, err := io.Copy(hasher, file); err != nil {
-        return "", fmt.Errorf("failed to compute checksum: %w", err)
-    }
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", fmt.Errorf("failed to compute checksum: %w", err)
+	}
 
-    return hex.EncodeToString(hasher.Sum(nil)), nil
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// Function to check for duplicate and create hard link if exists
+// handleDeduplication handles file deduplication using SHA256 checksum and hard links
 func handleDeduplication(ctx context.Context, absFilename string) error {
-    // Compute checksum of the uploaded file
-    checksum, err := computeSHA256(absFilename)
-    if err != nil {
-        return fmt.Errorf("checksum computation failed: %w", err)
-    }
+	// Compute checksum of the uploaded file
+	checksum, err := computeSHA256(absFilename)
+	if err != nil {
+		log.Errorf("Failed to compute SHA256 for %s: %v", absFilename, err)
+		return fmt.Errorf("checksum computation failed: %w", err)
+	}
+	log.Debugf("Computed checksum for %s: %s", absFilename, checksum)
 
-    // Check Redis for existing checksum
-    existingPath, err := redisClient.Get(ctx, checksum).Result()
-    if err != nil && err != redis.Nil {
+	// Check Redis for existing checksum
+	existingPath, err := redisClient.Get(ctx, checksum).Result()
+	if err != nil && err != redis.Nil {
+		log.Errorf("Redis error while fetching checksum %s: %v", checksum, err)
 		return fmt.Errorf("redis error: %w", err)
-    }
+	}
 
-    if err != redis.Nil {
-        // Duplicate found, create hard link
-        err = os.Link(existingPath, absFilename)
-        if err != nil {
-            return fmt.Errorf("failed to create hard link: %w", err)
-        }
-        log.Infof("Duplicate file detected. Created hard link from %s to %s", existingPath, absFilename)
-        return nil
-    }
+	if err != redis.Nil {
+		// Duplicate found, create hard link
+		log.Infof("Duplicate detected: %s already exists at %s", absFilename, existingPath)
+		err = os.Link(existingPath, absFilename)
+		if err != nil {
+			log.Errorf("Failed to create hard link from %s to %s: %v", existingPath, absFilename, err)
+			return fmt.Errorf("failed to create hard link: %w", err)
+		}
+		log.Infof("Created hard link from %s to %s", existingPath, absFilename)
+		return nil
+	}
 
-    // No duplicate found, store checksum in Redis
-    err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
-    if err != nil {
-        return fmt.Errorf("failed to store checksum in Redis: %w", err)
-    }
+	// No duplicate found, store checksum in Redis
+	err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
+	if err != nil {
+		log.Errorf("Failed to store checksum %s in Redis: %v", checksum, err)
+		return fmt.Errorf("failed to store checksum in Redis: %w", err)
+	}
 
-    log.Infof("Stored new file checksum in Redis: %s -> %s", checksum, absFilename)
-    return nil
+	log.Infof("Stored new file checksum in Redis: %s -> %s", checksum, absFilename)
+	return nil
 }
