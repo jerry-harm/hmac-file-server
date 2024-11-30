@@ -165,6 +165,10 @@ var (
 	ScanWorkers = 5 // Number of ClamAV scan workers
 )
 
+const (
+    MinFreeBytes = 1 << 30 // 1 GB
+)
+
 func main() {
 	// Set default configuration values
 	setDefaults()
@@ -1924,4 +1928,19 @@ func handleDeduplication(ctx context.Context, absFilename string) error {
 
 	log.Infof("Stored new file checksum in Redis: %s -> %s", checksum, absFilename)
 	return nil
+}
+
+// Usage in checkFreeSpace function
+func checkFreeSpace(path string) error {
+    var stat syscall.Statfs_t
+    if err := syscall.Statfs(path, &stat); err != nil {
+        return fmt.Errorf("failed to get filesystem stats: %w", err)
+    }
+
+    availableBytes := stat.Bavail * uint64(stat.Bsize)
+    if int64(availableBytes) < MinFreeBytes {
+        return fmt.Errorf("not enough free space: %d bytes available, %d bytes required", availableBytes, MinFreeBytes)
+    }
+
+    return nil
 }
