@@ -806,10 +806,10 @@ func uploadWorker(ctx context.Context, workerID int) {
 
 // Initialize upload worker pool
 func initializeUploadWorkerPool(ctx context.Context) {
-	for i := 0; i < MinWorkers; i++ {
-		go uploadWorker(ctx, i)
-	}
-	log.Infof("Initialized %d upload workers", MinWorkers)
+    for i := 0; i < conf.Workers.NumWorkers; i++ {
+        go uploadWorker(ctx, i)
+    }
+    log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
 // Worker function to process scan tasks
@@ -850,17 +850,17 @@ func scanWorker(ctx context.Context, workerID int) {
 
 // Initialize scan worker pool
 func initializeScanWorkerPool(ctx context.Context) {
-	for i := 0; i < ScanWorkers; i++ {
-		go scanWorker(ctx, i)
-	}
-	log.Infof("Initialized %d scan workers", ScanWorkers)
+    for i := 0; i < conf.ClamAV.NumScanWorkers; i++ {
+        go scanWorker(ctx, i)
+    }
+    log.Infof("Initialized %d scan workers", conf.ClamAV.NumScanWorkers)
 }
 
 // Setup router with middleware
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if conf.Server.MetricsEnabled {
+	if (conf.Server.MetricsEnabled) {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -1728,7 +1728,7 @@ func DeduplicateFiles(storeDir string) error {
 // computeFileHash computes the SHA256 hash of the given file.
 func computeFileHash(filePath string) (string, error) {
 	file, err := os.Open(filePath)
-	if err != nil {
+	if (err != nil) {
 		return "", fmt.Errorf("unable to open file %s: %w", filePath, err)
 	}
 	defer file.Close()
