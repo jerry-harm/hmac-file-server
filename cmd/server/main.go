@@ -1866,17 +1866,21 @@ func checkStorageSpace(storagePath string, minFreeBytes int64) error {
 	return nil
 }
 
-// Function to compute SHA256 checksum of a file
+// Function to compute SHA256 checksum with input validation
 func computeSHA256(filePath string) (string, error) {
+	if filePath == "" {
+		return "", fmt.Errorf("computeSHA256: filePath cannot be empty")
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to open file for checksum: %w", err)
+		return "", fmt.Errorf("computeSHA256: failed to open file %s: %w", filePath, err)
 	}
 	defer file.Close()
 
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, file); err != nil {
-		return "", fmt.Errorf("failed to compute checksum: %w", err)
+		return "", fmt.Errorf("computeSHA256: failed to compute checksum for file %s: %w", filePath, err)
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
