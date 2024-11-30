@@ -165,7 +165,7 @@ var (
 )
 
 const (
-    MinFreeBytes = 1 << 30 // 1 GB
+	MinFreeBytes = 1 << 30 // 1 GB
 )
 
 func main() {
@@ -1598,7 +1598,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -1877,75 +1877,73 @@ func checkStorageSpace(storagePath string, minFreeBytes int64) error {
 
 // Helper function to create formatted errors
 
-
 // handleDeduplication handles file deduplication using SHA256 checksum and hard links
 func handleDeduplication(ctx context.Context, absFilename string) error {
-    // Compute checksum of the uploaded file
-    checksum, err := computeSHA256(ctx, absFilename)
-    if err != nil {
-        log.Errorf("Failed to compute SHA256 for %s: %v", absFilename, err)
-        return fmt.Errorf("checksum computation failed: %w", err)
-    }
-    log.Debugf("Computed checksum for %s: %s", absFilename, checksum)
+	// Compute checksum of the uploaded file
+	checksum, err := computeSHA256(ctx, absFilename)
+	if err != nil {
+		log.Errorf("Failed to compute SHA256 for %s: %v", absFilename, err)
+		return fmt.Errorf("checksum computation failed: %w", err)
+	}
+	log.Debugf("Computed checksum for %s: %s", absFilename, checksum)
 
-    // Check Redis for existing checksum
-    existingPath, err := redisClient.Get(ctx, checksum).Result()
-    if err != nil {
-        if err == redis.Nil {
-            // Checksum does not exist, store it in Redis
-            err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
-            if err != nil {
-                log.Errorf("Redis error while setting checksum %s: %v", checksum, err)
-                return fmt.Errorf("redis error: %w", err)
-            }
-            log.Infof("Stored new checksum %s for file %s", checksum, absFilename)
-            return nil
-        }
-        // Handle other Redis errors
-        log.Errorf("Redis error while fetching checksum %s: %v", checksum, err)
-        return fmt.Errorf("redis error: %w", err)
-    }
+	// Check Redis for existing checksum
+	existingPath, err := redisClient.Get(ctx, checksum).Result()
+	if err != nil {
+		if err == redis.Nil {
+			// Checksum does not exist, store it in Redis
+			err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
+			if err != nil {
+				log.Errorf("Redis error while setting checksum %s: %v", checksum, err)
+				return fmt.Errorf("redis error: %w", err)
+			}
+			log.Infof("Stored new checksum %s for file %s", checksum, absFilename)
+			return nil
+		}
+		// Handle other Redis errors
+		log.Errorf("Redis error while fetching checksum %s: %v", checksum, err)
+		return fmt.Errorf("redis error: %w", err)
+	}
 
-    // Checksum exists, create a hard link to the existing file
-    if existingPath != absFilename {
-        // Verify that existingPath exists before creating a hard link
-        if _, err := os.Stat(existingPath); os.IsNotExist(err) {
-            log.Errorf("Existing file for checksum %s does not exist at path %s", checksum, existingPath)
-            return fmt.Errorf("existing file does not exist: %w", err)
-        }
+	// Checksum exists, create a hard link to the existing file
+	if existingPath != absFilename {
+		// Verify that existingPath exists before creating a hard link
+		if _, err := os.Stat(existingPath); os.IsNotExist(err) {
+			log.Errorf("Existing file for checksum %s does not exist at path %s", checksum, existingPath)
+			return fmt.Errorf("existing file does not exist: %w", err)
+		}
 
-        // Attempt to create a hard link
-        err = os.Link(existingPath, absFilename)
-        if err != nil {
-            log.Errorf("Failed to create hard link from %s to %s: %v", existingPath, absFilename, err)
-            return fmt.Errorf("failed to create hard link: %w", err)
-        }
-        log.Infof("Created hard link for duplicate file %s pointing to %s", absFilename, existingPath)
-    } else {
-        log.Infof("File %s already exists with the same checksum", absFilename)
-    }
+		// Attempt to create a hard link
+		err = os.Link(existingPath, absFilename)
+		if err != nil {
+			log.Errorf("Failed to create hard link from %s to %s: %v", existingPath, absFilename, err)
+			return fmt.Errorf("failed to create hard link: %w", err)
+		}
+		log.Infof("Created hard link for duplicate file %s pointing to %s", absFilename, existingPath)
+	} else {
+		log.Infof("File %s already exists with the same checksum", absFilename)
+	}
 
-    return nil
+	return nil
 }
 
 // Usage in checkFreeSpace function
 
-
 // Function to compute SHA256 with context support
 func computeSHA256(ctx context.Context, filePath string) (string, error) {
-    if filePath == "" {
-        return "", fmt.Errorf("computeSHA256: filePath cannot be empty")
-    }
+	if filePath == "" {
+		return "", fmt.Errorf("computeSHA256: filePath cannot be empty")
+	}
 
-    file, err := os.Open(filePath)
-    if err != nil {
-        log.Errorf("Failed to open file for checksum: %v", err)
-        return "", fmt.Errorf("computeSHA256: failed to open file %s: %w", filePath, err)
-    }
-    defer file.Close()
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Errorf("Failed to open file for checksum: %v", err)
+		return "", fmt.Errorf("computeSHA256: failed to open file %s: %w", filePath, err)
+	}
+	defer file.Close()
 
-    hasher := sha256.New()
-    reader := bufio.NewReader(file)
+	hasher := sha256.New()
+	reader := bufio.NewReader(file)
 
 	buffer := make([]byte, 4096)
 	for {
@@ -1973,13 +1971,13 @@ func computeSHA256(ctx context.Context, filePath string) (string, error) {
 
 // Function to check free space with retry mechanism
 func checkFreeSpaceWithRetry(path string, retries int, delay time.Duration) error {
-    for i := 0; i < retries; i++ {
+	for i := 0; i < retries; i++ {
 		if err := checkStorageSpace(path, MinFreeBytes); err != nil {
-            log.Warnf("Free space check failed (attempt %d/%d): %v", i+1, retries, err)
-            time.Sleep(delay)
-            continue
-        }
-        return nil
-    }
-    return fmt.Errorf("checkFreeSpace: insufficient free space after %d attempts", retries)
+			log.Warnf("Free space check failed (attempt %d/%d): %v", i+1, retries, err)
+			time.Sleep(delay)
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("checkFreeSpace: insufficient free space after %d attempts", retries)
 }
