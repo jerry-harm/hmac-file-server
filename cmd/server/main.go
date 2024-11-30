@@ -155,10 +155,6 @@ var (
 	uploadSizeBytes     prometheus.Histogram
 	downloadSizeBytes   prometheus.Histogram
 
-	// Constants for worker pool
-	MinWorkers      = 5     // Increased from 10 to 20 for better concurrency
-	UploadQueueSize = 10000 // Increased from 5000 to 10000
-
 	// Channels
 	scanQueue   chan ScanTask
 	ScanWorkers = 5 // Number of ClamAV scan workers
@@ -212,6 +208,7 @@ func main() {
 
 	// Initialize upload and scan queues
 	uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
+	log.Infof("Upload queue initialized with size: %d", conf.Workers.UploadQueueSize)
 	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
 	networkEvents = make(chan NetworkEvent, 100)
 	log.Info("Upload, scan, and network event channels initialized.")
