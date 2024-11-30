@@ -1738,7 +1738,7 @@ func computeFileHash(filePath string) (string, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// Handle multipart uploads
+// handleMultipartUpload handles multipart file uploads
 func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename string) error {
 	err := r.ParseMultipartForm(32 << 20) // 32MB is the default used by FormFile
 	if err != nil {
