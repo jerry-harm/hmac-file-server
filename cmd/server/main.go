@@ -103,6 +103,7 @@ type ISOConfig struct {
 	Enabled    bool   `mapstructure:"enabled"`
 	Size       string `mapstructure:"size"`
 	MountPoint string `mapstructure:"mountpoint"`
+	Charset    string `mapstructure:"charset"` // Add this line
 }
 
 // Add ISO configuration to the main configuration structure
@@ -362,7 +363,7 @@ func main() {
 	isoPath := "/path/to/container.iso"
 
 	// Create ISO container
-	err = CreateISOContainer(files, isoPath, conf.ISO.Size)
+	err = CreateISOContainer(files, isoPath, conf.ISO.Size, conf.ISO.Charset)
 	if err != nil {
 		fmt.Printf("Failed to create ISO container: %v\n", err)
 		return
@@ -470,6 +471,12 @@ func setDefaults() {
 
 	// Deduplication defaults
 	viper.SetDefault("deduplication.Enabled", true)
+
+	// ISO defaults
+	viper.SetDefault("iso.Enabled", true)
+	viper.SetDefault("iso.Size", "1GB")
+	viper.SetDefault("iso.MountPoint", "/mnt/iso")
+	viper.SetDefault("iso.Charset", "utf-8") // Add this line
 }
 
 // Validate configuration fields
@@ -2034,13 +2041,13 @@ func checkFreeSpaceWithRetry(path string, retries int, delay time.Duration) erro
 }
 
 // CreateISOContainer creates an ISO container with the specified size
-func CreateISOContainer(files []string, isoPath string, size string) error {
-	args := []string{"-o", isoPath, "-V", "ISO_CONTAINER", "-J", "-R"}
-	args = append(args, files...)
-	cmd := exec.Command("genisoimage", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+func CreateISOContainer(files []string, isoPath string, size string, charset string) error {
+    args := []string{"-o", isoPath, "-V", "ISO_CONTAINER", "-J", "-R", "-input-charset", charset}
+    args = append(args, files...)
+    cmd := exec.Command("genisoimage", args...)
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    return cmd.Run()
 }
 
 // MountISOContainer mounts the ISO container to the specified mount point
@@ -2060,54 +2067,54 @@ func UnmountISOContainer(mountPoint string) error {
 }
 
 func handleISOContainer(absFilename string) error {
-	isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
+    isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
 
-	// Create ISO container
-	err := CreateISOContainer([]string{absFilename}, isoPath, conf.ISO.Size)
-	if err != nil {
-		return fmt.Errorf("failed to create ISO container: %w", err)
-	}
+    // Create ISO container
+    err := CreateISOContainer([]string{absFilename}, isoPath, conf.ISO.Size, conf.ISO.Charset)
+    if err != nil {
+        return fmt.Errorf("failed to create ISO container: %w", err)
+    }
 
-	// Mount ISO container
-	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
-	if err != nil {
-		return fmt.Errorf("failed to mount ISO container: %w", err)
-	}
+    // Mount ISO container
+    err = MountISOContainer(isoPath, conf.ISO.MountPoint)
+    if err != nil {
+        return fmt.Errorf("failed to mount ISO container: %w", err)
+    }
 
-	// Unmount ISO container (example)
-	err = UnmountISOContainer(conf.ISO.MountPoint)
-	if err != nil {
-		return fmt.Errorf("failed to unmount ISO container: %w", err)
-	}
+    // Unmount ISO container (example)
+    err = UnmountISOContainer(conf.ISO.MountPoint)
+    if err != nil {
+        return fmt.Errorf("failed to unmount ISO container: %w", err)
+    }
 
-	return nil
+    return nil
 }
 
 // Verify and create ISO container if it doesn't exist
 func verifyAndCreateISOContainer() error {
-	isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
+    isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
 
-	// Check if ISO file exists
-	if _, err := os.Stat(isoPath); os.IsNotExist(err) {
-		log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
+    // Check if ISO file exists
+    if _, err := os.Stat(isoPath); os.IsNotExist(err) {
+        log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
 
-		// Example files to include in the ISO container
-		files := []string{conf.Server.StoragePath}
+        // Example files to include in the ISO container
+        files := []string{conf.Server.StoragePath}
 
-		// Create ISO container
-		err := CreateISOContainer(files, isoPath, conf.ISO.Size)
-		if err != nil {
-			return fmt.Errorf("failed to create ISO container: %w", err)
-		}
-		log.Infof("ISO container created successfully at %s", isoPath)
-	}
+        // Create ISO container
+        err := CreateISOContainer(files, isoPath, conf.ISO.Size, conf.ISO.Charset)
+        if err != nil {
+            return fmt.Errorf("failed to create ISO container: %w", err)
+        }
+        log.Infof("ISO container created successfully at %s", isoPath)
+    }
 
-	// Mount ISO container
-	err := MountISOContainer(isoPath, conf.ISO.MountPoint)
-	if err != nil {
-		return fmt.Errorf("failed to mount ISO container: %w", err)
-	}
-	log.Infof("ISO container mounted successfully at %s", conf.ISO.MountPoint)
+    // Mount ISO container
+    err := MountISOContainer(isoPath, conf.ISO.MountPoint)
+    if err != nil {
+        return fmt.Errorf("failed to mount ISO container: %w", err)
+    }
+    log.Infof("ISO container mounted successfully at %s", conf.ISO.MountPoint)
 
-	return nil
+    return nil
 }
