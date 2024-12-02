@@ -1656,7 +1656,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if !redisConnected {
+				if (!redisConnected) {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -1799,7 +1799,7 @@ func computeFileHash(filePath string) (string, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// Handle multipart uploads
+// handleMultipartUpload handles multipart uploads
 func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename string) error {
 	err := r.ParseMultipartForm(32 << 20) // 32MB is the default used by FormFile
 	if err != nil {
@@ -2052,10 +2052,17 @@ func CreateISOContainer(files []string, isoPath string, size string, charset str
 
 // MountISOContainer mounts the ISO container to the specified mount point
 func MountISOContainer(isoPath string, mountPoint string) error {
-	cmd := exec.Command("mount", "-o", "loop,ro", isoPath, mountPoint)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+    // Ensure the mount point directory exists
+    if err := os.MkdirAll(mountPoint, os.ModePerm); err != nil {
+        return fmt.Errorf("failed to create mount point directory: %w", err)
+    }
+
+    cmd := exec.Command("mount", "-o", "loop,ro", isoPath, mountPoint)
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        return fmt.Errorf("failed to mount ISO container: %w, output: %s", err, string(output))
+    }
+    return nil
 }
 
 // UnmountISOContainer unmounts the ISO container from the specified mount point
@@ -2073,6 +2080,11 @@ func handleISOContainer(absFilename string) error {
     err := CreateISOContainer([]string{absFilename}, isoPath, conf.ISO.Size, conf.ISO.Charset)
     if err != nil {
         return fmt.Errorf("failed to create ISO container: %w", err)
+    }
+
+    // Ensure the mount point directory exists
+    if err := os.MkdirAll(conf.ISO.MountPoint, os.ModePerm); err != nil {
+        return fmt.Errorf("failed to create mount point directory: %w", err)
     }
 
     // Mount ISO container
@@ -2095,7 +2107,7 @@ func verifyAndCreateISOContainer() error {
     isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
 
     // Check if ISO file exists
-    if _, err := os.Stat(isoPath); os.IsNotExist(err) {
+	if _, err := os.Stat(isoPath); os.IsNotExist(err) {
         log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
 
         // Example files to include in the ISO container
@@ -2107,6 +2119,11 @@ func verifyAndCreateISOContainer() error {
             return fmt.Errorf("failed to create ISO container: %w", err)
         }
         log.Infof("ISO container created successfully at %s", isoPath)
+    }
+
+    // Ensure the mount point directory exists
+    if err := os.MkdirAll(conf.ISO.MountPoint, os.ModePerm); err != nil {
+        return fmt.Errorf("failed to create mount point directory: %w", err)
     }
 
     // Mount ISO container
