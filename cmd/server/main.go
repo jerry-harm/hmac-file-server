@@ -2107,7 +2107,7 @@ func verifyAndCreateISOContainer() error {
     isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
 
     // Check if ISO file exists
-	if _, err := os.Stat(isoPath); os.IsNotExist(err) {
+    if _, err := os.Stat(isoPath); os.IsNotExist(err) {
         log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
 
         // Example files to include in the ISO container
