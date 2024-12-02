@@ -481,46 +481,59 @@ func setDefaults() {
 
 // Validate configuration fields
 func validateConfig(conf *Config) error {
-	if conf.Server.ListenPort == "" {
-		return fmt.Errorf("ListenPort must be set")
-	}
-	if conf.Security.Secret == "" {
-		return fmt.Errorf("secret must be set")
-	}
-	if conf.Server.StoragePath == "" {
-		return fmt.Errorf("StoragePath must be set")
-	}
-	if conf.Server.FileTTL == "" {
-		return fmt.Errorf("FileTTL must be set")
-	}
+    if conf.Server.ListenPort == "" {
+        return fmt.Errorf("ListenPort must be set")
+    }
+    if conf.Security.Secret == "" {
+        return fmt.Errorf("secret must be set")
+    }
+    if conf.Server.StoragePath == "" {
+        return fmt.Errorf("StoragePath must be set")
+    }
+    if conf.Server.FileTTL == "" {
+        return fmt.Errorf("FileTTL must be set")
+    }
 
-	// Validate timeouts
-	if _, err := time.ParseDuration(conf.Timeouts.ReadTimeout); err != nil {
-		return fmt.Errorf("invalid ReadTimeout: %v", err)
-	}
-	if _, err := time.ParseDuration(conf.Timeouts.WriteTimeout); err != nil {
-		return fmt.Errorf("invalid WriteTimeout: %v", err)
-	}
-	if _, err := time.ParseDuration(conf.Timeouts.IdleTimeout); err != nil {
-		return fmt.Errorf("invalid IdleTimeout: %v", err)
-	}
+    // Validate timeouts
+    if _, err := time.ParseDuration(conf.Timeouts.ReadTimeout); err != nil {
+        return fmt.Errorf("invalid ReadTimeout: %v", err)
+    }
+    if _, err := time.ParseDuration(conf.Timeouts.WriteTimeout); err != nil {
+        return fmt.Errorf("invalid WriteTimeout: %v", err)
+    }
+    if _, err := time.ParseDuration(conf.Timeouts.IdleTimeout); err != nil {
+        return fmt.Errorf("invalid IdleTimeout: %v", err)
+    }
 
-	// Validate Redis configuration if enabled
-	if conf.Redis.RedisEnabled {
-		if conf.Redis.RedisAddr == "" {
-			return fmt.Errorf("RedisAddr must be set when Redis is enabled")
-		}
-	}
+    // Validate Redis configuration if enabled
+    if conf.Redis.RedisEnabled {
+        if conf.Redis.RedisAddr == "" {
+            return fmt.Errorf("RedisAddr must be set when Redis is enabled")
+        }
+    }
 
-	// Add more validations as needed
+    // Validate ISO configuration
+    if conf.ISO.Enabled {
+        if conf.ISO.Size == "" {
+            return fmt.Errorf("ISO size must be set")
+        }
+        if conf.ISO.MountPoint == "" {
+            return fmt.Errorf("ISO mount point must be set")
+        }
+        if conf.ISO.Charset == "" {
+            return fmt.Errorf("ISO charset must be set")
+        }
+    }
 
-	return nil
+    // Add more validations as needed
+
+    return nil
 }
 
 // Setup logging
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if err != nil {
+	if (err != nil) {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -918,7 +931,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if conf.Server.MetricsEnabled {
+	if (conf.Server.MetricsEnabled) {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -1607,7 +1620,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if !conf.Redis.RedisEnabled {
+	if (!conf.Redis.RedisEnabled) {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1736,7 +1749,7 @@ func DeduplicateFiles(storeDir string) error {
 
 				mu.Lock()
 				original, exists := hashMap[hash]
-				if !exists {
+				if (!exists) {
 					hashMap[hash] = filePath
 					mu.Unlock()
 					continue
@@ -2050,19 +2063,26 @@ func CreateISOContainer(files []string, isoPath string, size string, charset str
     return cmd.Run()
 }
 
-// MountISOContainer mounts the ISO container to the specified mount point
+// MountISOContainer mounts the ISO container to the specified mount point with retries
 func MountISOContainer(isoPath string, mountPoint string) error {
     // Ensure the mount point directory exists
     if err := os.MkdirAll(mountPoint, os.ModePerm); err != nil {
         return fmt.Errorf("failed to create mount point directory: %w", err)
     }
 
-    cmd := exec.Command("mount", "-o", "loop,ro", isoPath, mountPoint)
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return fmt.Errorf("failed to mount ISO container: %w, output: %s", err, string(output))
+    var output []byte
+    var err error
+    for i := 0; i < 3; i++ {
+        cmd := exec.Command("mount", "-o", "loop,ro", isoPath, mountPoint)
+        output, err = cmd.CombinedOutput()
+        if err == nil {
+            log.Infof("ISO container mounted successfully at %s", mountPoint)
+            return nil
+        }
+        log.Warnf("Failed to mount ISO container (attempt %d/3): %v, output: %s", i+1, err, string(output))
+        time.Sleep(2 * time.Second)
     }
-    return nil
+    return fmt.Errorf("failed to mount ISO container: %w, output: %s", err, string(output))
 }
 
 // UnmountISOContainer unmounts the ISO container from the specified mount point
