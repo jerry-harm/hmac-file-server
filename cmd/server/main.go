@@ -640,17 +640,14 @@ func updateSystemMetrics(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("Stopping system metrics updater.")
 			return
 		case <-ticker.C:
 			v, _ := mem.VirtualMemory()
-			memoryUsage.Set(float64(v.Used))
-
-			cpuPercent, _ := cpu.Percent(0, false)
-			if len(cpuPercent) > 0 {
-				cpuUsage.Set(cpuPercent[0])
+			memoryUsage.Set(float64(v.Used) / float64(v.Total) * 100)
+			c, _ := cpu.Percent(0, false)
+			if len(c) > 0 {
+				cpuUsage.Set(c[0])
 			}
-
 			goroutines.Set(float64(runtime.NumGoroutine()))
 		}
 	}
@@ -858,19 +855,10 @@ func uploadWorker(ctx context.Context, workerID int) {
 			return
 		case task, ok := <-uploadQueue:
 			if !ok {
-				log.Warnf("Upload queue closed. Worker %d exiting.", workerID)
 				return
 			}
-			log.Infof("Worker %d processing upload for file: %s", workerID, task.AbsFilename)
 			err := processUpload(task)
-			if err != nil {
-				log.Errorf("Worker %d failed to process upload for %s: %v", workerID, task.AbsFilename, err)
-				uploadErrorsTotal.Inc()
-			} else {
-				log.Infof("Worker %d successfully processed upload for %s", workerID, task.AbsFilename)
-			}
 			task.Result <- err
-			close(task.Result)
 		}
 	}
 }
@@ -1230,47 +1218,46 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	}
 }
 
-// Improved createFile function with proper resource management
+// Improved createFile function with proper resource management and larger buffer size
 func createFile(tempFilename string, r *http.Request) error {
 	absDirectory := filepath.Dir(tempFilename)
 	err := os.MkdirAll(absDirectory, os.ModePerm)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create directory: %v", err)
 	}
 
 	// Open the file for writing
 	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", tempFilename, err)
+		return fmt.Errorf("failed to open file: %v", err)
 	}
 	defer targetFile.Close()
 
-	// Use a large buffer for efficient file writing
-	bufferSize := 4 * 1024 * 1024 // 4 MB buffer
+	// Use a larger buffer for efficient file writing
+	bufferSize := 8 * 1024 * 1024 // 8 MB buffer
 	writer := bufio.NewWriterSize(targetFile, bufferSize)
 	buffer := make([]byte, bufferSize)
 
 	totalBytes := int64(0)
 	for {
-		n, readErr := r.Body.Read(buffer)
-		if n > 0 {
-			totalBytes += int64(n)
-			_, writeErr := writer.Write(buffer[:n])
-			if writeErr != nil {
-				return fmt.Errorf("failed to write to file %s: %w", tempFilename, writeErr)
-			}
+		n, err := r.Body.Read(buffer)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("failed to read request body: %v", err)
 		}
-		if readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
-			return fmt.Errorf("failed to read request body: %w", readErr)
+		if n == 0 {
+			break
 		}
+
+		_, err = writer.Write(buffer[:n])
+		if err != nil {
+			return fmt.Errorf("failed to write to file: %v", err)
+		}
+		totalBytes += int64(n)
 	}
 
 	err = writer.Flush()
 	if err != nil {
-		return fmt.Errorf("failed to flush buffer to file %s: %w", tempFilename, err)
+		return fmt.Errorf("failed to flush writer: %v", err)
 	}
 
 	log.WithFields(logrus.Fields{
@@ -1439,14 +1426,12 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 	absDirectory := filepath.Dir(tempFilename)
 	err := os.MkdirAll(absDirectory, os.ModePerm)
 	if err != nil {
-		log.WithError(err).Errorf("Failed to create directory %s for chunked upload", absDirectory)
-		return fmt.Errorf("failed to create directory %s: %w", absDirectory, err)
+		return fmt.Errorf("failed to create directory: %v", err)
 	}
 
 	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		log.WithError(err).Error("Failed to open temporary file for chunked upload")
-		return err
+		return fmt.Errorf("failed to open file: %v", err)
 	}
 	defer targetFile.Close()
 
@@ -1456,27 +1441,23 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 	totalBytes := int64(0)
 	for {
 		n, err := r.Body.Read(buffer)
-		if n > 0 {
-			totalBytes += int64(n)
-			_, writeErr := writer.Write(buffer[:n])
-			if writeErr != nil {
-				log.WithError(writeErr).Error("Failed to write chunk to temporary file")
-				return writeErr
-			}
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("failed to read request body: %v", err)
 		}
+		if n == 0 {
+			break
+		}
+
+		_, err = writer.Write(buffer[:n])
 		if err != nil {
-			if err == io.EOF {
-				break // Finished reading the body
-			}
-			log.WithError(err).Error("Error reading from request body")
-			return err
+			return fmt.Errorf("failed to write to file: %v", err)
 		}
+		totalBytes += int64(n)
 	}
 
 	err = writer.Flush()
 	if err != nil {
-		log.WithError(err).Error("Failed to flush buffer to temporary file")
-		return err
+		return fmt.Errorf("failed to flush writer: %v", err)
 	}
 
 	log.WithFields(logrus.Fields{
