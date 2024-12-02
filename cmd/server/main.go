@@ -848,39 +848,39 @@ func processUpload(task UploadTask) error {
 	return nil
 }
 
-// uploadWorker processes upload tasks from the uploadQueue
+// Improved uploadWorker function with better concurrency handling
 func uploadWorker(ctx context.Context, workerID int) {
-	log.Infof("Upload worker %d started.", workerID)
-	defer log.Infof("Upload worker %d stopped.", workerID)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case task, ok := <-uploadQueue:
-			if !ok {
-				log.Warnf("Upload queue closed. Worker %d exiting.", workerID)
-				return
-			}
-			log.Infof("Worker %d processing upload for file: %s", workerID, task.AbsFilename)
-			err := processUpload(task)
-			if err != nil {
-				log.Errorf("Worker %d failed to process upload for %s: %v", workerID, task.AbsFilename, err)
-				uploadErrorsTotal.Inc()
-			} else {
-				log.Infof("Worker %d successfully processed upload for %s", workerID, task.AbsFilename)
-			}
-			task.Result <- err
-			close(task.Result)
-		}
-	}
+    log.Infof("Upload worker %d started.", workerID)
+    defer log.Infof("Upload worker %d stopped.", workerID)
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case task, ok := <-uploadQueue:
+            if (!ok) {
+                log.Warnf("Upload queue closed. Worker %d exiting.", workerID)
+                return
+            }
+            log.Infof("Worker %d processing upload for file: %s", workerID, task.AbsFilename)
+            err := processUpload(task)
+            if err != nil {
+                log.Errorf("Worker %d failed to process upload for %s: %v", workerID, task.AbsFilename, err)
+                uploadErrorsTotal.Inc()
+            } else {
+                log.Infof("Worker %d successfully processed upload for %s", workerID, task.AbsFilename)
+            }
+            task.Result <- err
+            close(task.Result)
+        }
+    }
 }
 
-// Initialize upload worker pool
+// Improved initializeUploadWorkerPool function
 func initializeUploadWorkerPool(ctx context.Context) {
-	for i := 0; i < conf.Workers.NumWorkers; i++ {
-		go uploadWorker(ctx, i)
-	}
-	log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
+    for i := 0; i < conf.Workers.NumWorkers; i++ {
+        go uploadWorker(ctx, i)
+    }
+    log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
 // Worker function to process scan tasks
@@ -1230,61 +1230,56 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	}
 }
 
-// Create the file for upload with buffered Writer
+// Improved createFile function with proper resource management
 func createFile(tempFilename string, r *http.Request) error {
-	absDirectory := filepath.Dir(tempFilename)
+    absDirectory := filepath.Dir(tempFilename)
 	err := os.MkdirAll(absDirectory, os.ModePerm)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to create directory %s", absDirectory)
-		return fmt.Errorf("failed to create directory %s: %w", absDirectory, err)
-	}
+    if err != nil {
+        return err
+    }
 
-	// Open the file for writing
-	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		log.WithError(err).Errorf("Failed to create file %s", tempFilename)
-		return fmt.Errorf("failed to create file %s: %w", tempFilename, err)
-	}
-	defer targetFile.Close()
+    // Open the file for writing
+    targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+    if err != nil {
+        return fmt.Errorf("failed to create file %s: %w", tempFilename, err)
+    }
+    defer targetFile.Close()
 
-	// Use a large buffer for efficient file writing
-	bufferSize := 4 * 1024 * 1024 // 4 MB buffer
-	writer := bufio.NewWriterSize(targetFile, bufferSize)
-	buffer := make([]byte, bufferSize)
+    // Use a large buffer for efficient file writing
+    bufferSize := 4 * 1024 * 1024 // 4 MB buffer
+    writer := bufio.NewWriterSize(targetFile, bufferSize)
+    buffer := make([]byte, bufferSize)
 
-	totalBytes := int64(0)
-	for {
-		n, readErr := r.Body.Read(buffer)
-		if n > 0 {
-			totalBytes += int64(n)
-			_, writeErr := writer.Write(buffer[:n])
-			if writeErr != nil {
-				log.WithError(writeErr).Errorf("Failed to write to file %s", tempFilename)
-				return fmt.Errorf("failed to write to file %s: %w", tempFilename, writeErr)
-			}
-		}
-		if readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
-			log.WithError(readErr).Error("Failed to read request body")
-			return fmt.Errorf("failed to read request body: %w", readErr)
-		}
-	}
+    totalBytes := int64(0)
+    for {
+        n, readErr := r.Body.Read(buffer)
+        if n > 0 {
+            totalBytes += int64(n)
+            _, writeErr := writer.Write(buffer[:n])
+            if writeErr != nil {
+                return fmt.Errorf("failed to write to file %s: %w", tempFilename, writeErr)
+            }
+        }
+        if readErr != nil {
+            if readErr == io.EOF {
+                break
+            }
+            return fmt.Errorf("failed to read request body: %w", readErr)
+        }
+    }
 
-	err = writer.Flush()
-	if err != nil {
-		log.WithError(err).Errorf("Failed to flush buffer to file %s", tempFilename)
-		return fmt.Errorf("failed to flush buffer to file %s: %w", tempFilename, err)
-	}
+    err = writer.Flush()
+    if err != nil {
+        return fmt.Errorf("failed to flush buffer to file %s: %w", tempFilename, err)
+    }
 
-	log.WithFields(logrus.Fields{
-		"temp_file":   tempFilename,
-		"total_bytes": totalBytes,
-	}).Info("File uploaded successfully")
+    log.WithFields(logrus.Fields{
+        "temp_file":   tempFilename,
+        "total_bytes": totalBytes,
+    }).Info("File uploaded successfully")
 
-	uploadSizeBytes.Observe(float64(totalBytes))
-	return nil
+    uploadSizeBytes.Observe(float64(totalBytes))
+    return nil
 }
 
 // Scan the uploaded file with ClamAV (Optional)
@@ -1542,7 +1537,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if !ok {
+			if (!ok) {
 				log.Info("Network events channel closed.")
 				return
 			}
@@ -2127,7 +2122,7 @@ func verifyAndCreateISOContainer() error {
     isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
 
     // Check if ISO file exists
-    if _, err := os.Stat(isoPath); os.IsNotExist(err) {
+	if _, err := os.Stat(isoPath); os.IsNotExist(err) {
         log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
 
         // Example files to include in the ISO container
