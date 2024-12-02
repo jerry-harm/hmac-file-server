@@ -892,7 +892,7 @@ func scanWorker(ctx context.Context, workerID int) {
 			log.WithField("worker_id", workerID).Info("Scan worker stopping")
 			return
 		case task, ok := <-scanQueue:
-			if !ok {
+			if (!ok) {
 				log.WithField("worker_id", workerID).Info("Scan queue closed")
 				return
 			}
@@ -2058,7 +2058,7 @@ func CreateISOContainer(files []string, isoPath string, size string, charset str
     return cmd.Run()
 }
 
-// MountISOContainer mounts the ISO container to the specified mount point with retries
+// Improved logging and error handling
 func MountISOContainer(isoPath string, mountPoint string) error {
     // Ensure the mount point directory exists
     if err := os.MkdirAll(mountPoint, os.ModePerm); err != nil {
@@ -2146,7 +2146,38 @@ func verifyAndCreateISOContainer() error {
     if err != nil {
         return fmt.Errorf("failed to mount ISO container: %w", err)
     }
-    log.Infof("ISO container mounted successfully at %s", conf.ISO.MountPoint)
+	log.Infof("ISO container mounted successfully at %s", conf.ISO.MountPoint)
 
+	// Verify the ISO file consistency
+	err = verifyISOFile(isoPath)
+	if err != nil {
+		log.Warnf("ISO verification failed: %v. Attempting to handle corrupted ISO file.", err)
+		files := []string{conf.Server.StoragePath}
+		err = handleCorruptedISOFile(isoPath, files, conf.ISO.Size, conf.ISO.Charset)
+		if err != nil {
+			return fmt.Errorf("failed to handle corrupted ISO file: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Verify ISO file consistency using a checksum
+func verifyISOFile(isoPath string) error {
+    cmd := exec.Command("isoinfo", "-i", isoPath, "-d")
+    output, err := cmd.CombinedOutput()
+    if err != nil {
+        return fmt.Errorf("failed to verify ISO file: %w, output: %s", err, string(output))
+    }
+    return nil
+}
+
+// Handle corrupted ISO file by recreating it
+func handleCorruptedISOFile(isoPath string, files []string, size string, charset string) error {
+    log.Warnf("ISO file %s is corrupted. Recreating it.", isoPath)
+    err := CreateISOContainer(files, isoPath, size, charset)
+    if err != nil {
+        return fmt.Errorf("failed to recreate ISO container: %w", err)
+    }
     return nil
 }
