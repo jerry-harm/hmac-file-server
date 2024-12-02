@@ -140,7 +140,7 @@ type NetworkEvent struct {
 
 var (
 	conf           Config
-	versionString  string = "v2.0-stable"
+	versionString  string = "v2.0-dev"
 	log                   = logrus.New()
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
@@ -189,6 +189,14 @@ func main() {
 		log.Fatalf("Error reading config: %v", err) // Fatal: application cannot proceed
 	}
 	log.Info("Configuration loaded successfully.")
+
+	// Verify and create ISO container if it doesn't exist
+	if conf.ISO.Enabled {
+		err = verifyAndCreateISOContainer()
+		if err != nil {
+			log.Fatalf("ISO container verification failed: %v", err)
+		}
+	}
 
 	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
@@ -2052,12 +2060,10 @@ func UnmountISOContainer(mountPoint string) error {
 }
 
 func handleISOContainer(absFilename string) error {
-	// Example files to include in the ISO container
-	files := []string{absFilename}
-	isoPath := filepath.Join(conf.ISO.MountPoint, filepath.Base(absFilename)+".iso")
+	isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
 
 	// Create ISO container
-	err := CreateISOContainer(files, isoPath, conf.ISO.Size)
+	err := CreateISOContainer([]string{absFilename}, isoPath, conf.ISO.Size)
 	if err != nil {
 		return fmt.Errorf("failed to create ISO container: %w", err)
 	}
@@ -2073,6 +2079,35 @@ func handleISOContainer(absFilename string) error {
 	if err != nil {
 		return fmt.Errorf("failed to unmount ISO container: %w", err)
 	}
+
+	return nil
+}
+
+// Verify and create ISO container if it doesn't exist
+func verifyAndCreateISOContainer() error {
+	isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
+
+	// Check if ISO file exists
+	if _, err := os.Stat(isoPath); os.IsNotExist(err) {
+		log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
+
+		// Example files to include in the ISO container
+		files := []string{conf.Server.StoragePath}
+
+		// Create ISO container
+		err := CreateISOContainer(files, isoPath, conf.ISO.Size)
+		if err != nil {
+			return fmt.Errorf("failed to create ISO container: %w", err)
+		}
+		log.Infof("ISO container created successfully at %s", isoPath)
+	}
+
+	// Mount ISO container
+	err := MountISOContainer(isoPath, conf.ISO.MountPoint)
+	if err != nil {
+		return fmt.Errorf("failed to mount ISO container: %w", err)
+	}
+	log.Infof("ISO container mounted successfully at %s", conf.ISO.MountPoint)
 
 	return nil
 }
