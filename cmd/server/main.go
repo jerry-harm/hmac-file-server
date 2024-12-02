@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -97,6 +98,14 @@ type FileConfig struct {
 	FileRevision int `mapstructure:"FileRevision"`
 }
 
+// Configuration structure for ISO settings
+type ISOConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	Size       string `mapstructure:"size"`
+	MountPoint string `mapstructure:"mountpoint"`
+}
+
+// Add ISO configuration to the main configuration structure
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server"`
 	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
@@ -107,6 +116,7 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	Workers    WorkersConfig    `mapstructure:"workers"`
 	File       FileConfig       `mapstructure:"file"`
+	ISO        ISOConfig        `mapstructure:"iso"`
 }
 
 // UploadTask represents a file upload task
@@ -130,7 +140,7 @@ type NetworkEvent struct {
 
 var (
 	conf           Config
-	versionString  string = "v2.0-dev"
+	versionString  string = "v2.0-stable"
 	log                   = logrus.New()
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
@@ -337,6 +347,31 @@ func main() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}
+	}
+
+	// Example files to include in the ISO container
+	files := []string{"file1.txt", "file2.txt"}
+	isoPath := "/path/to/container.iso"
+
+	// Create ISO container
+	err = CreateISOContainer(files, isoPath, conf.ISO.Size)
+	if err != nil {
+		fmt.Printf("Failed to create ISO container: %v\n", err)
+		return
+	}
+
+	// Mount ISO container
+	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
+	if err != nil {
+		fmt.Printf("Failed to mount ISO container: %v\n", err)
+		return
+	}
+
+	// Unmount ISO container (example)
+	err = UnmountISOContainer(conf.ISO.MountPoint)
+	if err != nil {
+		fmt.Printf("Failed to unmount ISO container: %v\n", err)
+		return
 	}
 }
 
@@ -763,6 +798,17 @@ func processUpload(task UploadTask) error {
 			return err
 		}
 		log.Infof("Deduplication handled successfully for file: %s", absFilename)
+	}
+
+	// Handle ISO container if enabled
+	if conf.ISO.Enabled {
+		err = handleISOContainer(absFilename)
+		if err != nil {
+			log.WithError(err).Error("ISO container handling failed")
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("ISO container handled successfully for file: %s", absFilename)
 	}
 
 	log.WithFields(logrus.Fields{
@@ -1738,7 +1784,7 @@ func computeFileHash(filePath string) (string, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// handleMultipartUpload handles multipart file uploads
+// Handle multipart uploads
 func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename string) error {
 	err := r.ParseMultipartForm(32 << 20) // 32MB is the default used by FormFile
 	if err != nil {
@@ -1977,4 +2023,56 @@ func checkFreeSpaceWithRetry(path string, retries int, delay time.Duration) erro
 		return nil
 	}
 	return fmt.Errorf("checkFreeSpace: insufficient free space after %d attempts", retries)
+}
+
+// CreateISOContainer creates an ISO container with the specified size
+func CreateISOContainer(files []string, isoPath string, size string) error {
+	args := []string{"-o", isoPath, "-V", "ISO_CONTAINER", "-J", "-R"}
+	args = append(args, files...)
+	cmd := exec.Command("genisoimage", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// MountISOContainer mounts the ISO container to the specified mount point
+func MountISOContainer(isoPath string, mountPoint string) error {
+	cmd := exec.Command("mount", "-o", "loop,ro", isoPath, mountPoint)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// UnmountISOContainer unmounts the ISO container from the specified mount point
+func UnmountISOContainer(mountPoint string) error {
+	cmd := exec.Command("umount", mountPoint)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func handleISOContainer(absFilename string) error {
+	// Example files to include in the ISO container
+	files := []string{absFilename}
+	isoPath := filepath.Join(conf.ISO.MountPoint, filepath.Base(absFilename)+".iso")
+
+	// Create ISO container
+	err := CreateISOContainer(files, isoPath, conf.ISO.Size)
+	if err != nil {
+		return fmt.Errorf("failed to create ISO container: %w", err)
+	}
+
+	// Mount ISO container
+	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
+	if err != nil {
+		return fmt.Errorf("failed to mount ISO container: %w", err)
+	}
+
+	// Unmount ISO container (example)
+	err = UnmountISOContainer(conf.ISO.MountPoint)
+	if err != nil {
+		return fmt.Errorf("failed to unmount ISO container: %w", err)
+	}
+
+	return nil
 }
