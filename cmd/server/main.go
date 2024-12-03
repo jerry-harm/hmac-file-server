@@ -71,7 +71,7 @@ type VersioningConfig struct {
 type UploadsConfig struct {
 	ResumableUploadsEnabled bool     `mapstructure:"ResumableUploadsEnabled"`
 	ChunkedUploadsEnabled   bool     `mapstructure:"ChunkedUploadsEnabled"`
-	ChunkSize               int64    `mapstructure:"ChunkSize"`
+	ChunkSize               string   `mapstructure:"ChunkSize"`
 	AllowedExtensions       []string `mapstructure:"AllowedExtensions"`
 }
 
@@ -445,7 +445,7 @@ func setDefaults() {
 	// Uploads defaults
 	viper.SetDefault("uploads.ResumableUploadsEnabled", true)
 	viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
-	viper.SetDefault("uploads.ChunkSize", 8192)
+	viper.SetDefault("uploads.ChunkSize", "8192")
 	viper.SetDefault("uploads.AllowedExtensions", []string{
 		".txt", ".pdf",
 		".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
@@ -744,7 +744,16 @@ func processUpload(task UploadTask) error {
 	// Handle uploads and write to a temporary file
 	if conf.Uploads.ChunkedUploadsEnabled {
 		log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
-		err := handleChunkedUpload(tempFilename, r)
+		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Error parsing chunk size")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return err
+		}
+		err = handleChunkedUpload(tempFilename, r, chunkSize)
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			log.WithFields(logrus.Fields{
@@ -1413,7 +1422,7 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
 }
 
 // Handle chunked uploads with bufio.Writer
-func handleChunkedUpload(tempFilename string, r *http.Request) error {
+func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) error {
 	log.WithField("file", tempFilename).Info("Handling chunked upload to temporary file")
 
 	// Ensure the directory exists
@@ -1429,8 +1438,8 @@ func handleChunkedUpload(tempFilename string, r *http.Request) error {
 	}
 	defer targetFile.Close()
 
-	writer := bufio.NewWriterSize(targetFile, int(conf.Uploads.ChunkSize))
-	buffer := make([]byte, conf.Uploads.ChunkSize)
+	writer := bufio.NewWriterSize(targetFile, chunkSize)
+	buffer := make([]byte, chunkSize)
 
 	totalBytes := int64(0)
 	for {
@@ -1639,7 +1648,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if !redisConnected {
+				if (!redisConnected) {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -2155,4 +2164,28 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 		return fmt.Errorf("failed to recreate ISO container: %w", err)
 	}
 	return nil
+}
+
+// parseSize converts a human-readable size string (e.g., "1KB", "1MB") to bytes
+func parseSize(sizeStr string) (int, error) {
+    sizeStr = strings.TrimSpace(sizeStr)
+    if len(sizeStr) < 2 {
+        return 0, fmt.Errorf("invalid size: %s", sizeStr)
+    }
+
+    unit := sizeStr[len(sizeStr)-2:]
+    valueStr := sizeStr[:len(sizeStr)-2]
+    value, err := strconv.Atoi(valueStr)
+    if err != nil {
+        return 0, fmt.Errorf("invalid size value: %s", valueStr)
+    }
+
+    switch strings.ToUpper(unit) {
+    case "KB":
+        return value * 1024, nil
+    case "MB":
+        return value * 1024 * 1024, nil
+    default:
+        return 0, fmt.Errorf("unknown size unit: %s", unit)
+    }
 }
