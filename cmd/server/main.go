@@ -51,6 +51,7 @@ type ServerConfig struct {
 	FileTTL              string `mapstructure:"FileTTL"`
 	MinFreeBytes         int64  `mapstructure:"MinFreeBytes"` // Minimum free bytes required
 	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
+	MinFreeByte          string `mapstructure:"MinFreeByte"`
 }
 
 type TimeoutConfig struct {
