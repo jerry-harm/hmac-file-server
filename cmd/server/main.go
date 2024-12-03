@@ -39,6 +39,58 @@ import (
 	"github.com/spf13/viper"
 )
 
+// var log = logrus.New() // Removed redundant declaration
+
+// parseSize converts a human-readable size string (e.g., "1KB", "1MB") to bytes
+func parseSize(sizeStr string) (int, error) {
+    sizeStr = strings.TrimSpace(sizeStr)
+    if len(sizeStr) < 2 {
+        return 0, fmt.Errorf("invalid size: %s", sizeStr)
+    }
+
+    unit := sizeStr[len(sizeStr)-2:]
+    valueStr := sizeStr[:len(sizeStr)-2]
+    value, err := strconv.Atoi(valueStr)
+    if err != nil {
+        return 0, fmt.Errorf("invalid size value: %s", valueStr)
+    }
+
+    switch strings.ToUpper(unit) {
+    case "KB":
+        return value * 1024, nil
+    case "MB":
+        return value * 1024 * 1024, nil
+    default:
+        return 0, fmt.Errorf("unknown size unit: %s", unit)
+    }
+}
+
+// parseTTL converts a human-readable TTL string (e.g., "1D", "1M", "1Y") to a time.Duration
+func parseTTL(ttlStr string) (time.Duration, error) {
+    ttlStr = strings.TrimSpace(ttlStr)
+    if len(ttlStr) < 2 {
+        return 0, fmt.Errorf("invalid TTL: %s", ttlStr)
+    }
+
+    unit := ttlStr[len(ttlStr)-1:]
+    valueStr := ttlStr[:len(ttlStr)-1]
+    value, err := strconv.Atoi(valueStr)
+    if err != nil {
+        return 0, fmt.Errorf("invalid TTL value: %s", valueStr)
+    }
+
+    switch strings.ToUpper(unit) {
+    case "D":
+        return time.Duration(value) * 24 * time.Hour, nil
+    case "M":
+        return time.Duration(value) * 30 * 24 * time.Hour, nil
+    case "Y":
+        return time.Duration(value) * 365 * 24 * time.Hour, nil
+    default:
+        return 0, fmt.Errorf("unknown TTL unit: %s", unit)
+    }
+}
+
 // Configuration structure
 type ServerConfig struct {
 	ListenPort           string `mapstructure:"ListenPort"`
@@ -1313,7 +1365,7 @@ func scanFileWithClamAV(filePath string) error {
 
 // initClamAV initializes the ClamAV client and logs the status
 func initClamAV(socket string) (*clamd.Clamd, error) {
-	if socket == "" {
+	if (socket == "") {
 		log.Error("ClamAV socket path is not configured.")
 		return nil, fmt.Errorf("ClamAV socket path is not configured")
 	}
@@ -1508,11 +1560,11 @@ func monitorNetwork(ctx context.Context) {
 					log.WithField("new_ip", currentIP).Info("Queued IP_CHANGE event")
 				default:
 					log.Warn("Network event channel is full. Dropping IP_CHANGE event.")
+					}
 				}
 			}
 		}
 	}
-}
 
 // Handle network events
 func handleNetworkEvents(ctx context.Context) {
@@ -2165,28 +2217,4 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 		return fmt.Errorf("failed to recreate ISO container: %w", err)
 	}
 	return nil
-}
-
-// parseSize converts a human-readable size string (e.g., "1KB", "1MB") to bytes
-func parseSize(sizeStr string) (int, error) {
-    sizeStr = strings.TrimSpace(sizeStr)
-    if len(sizeStr) < 2 {
-        return 0, fmt.Errorf("invalid size: %s", sizeStr)
-    }
-
-    unit := sizeStr[len(sizeStr)-2:]
-    valueStr := sizeStr[:len(sizeStr)-2]
-    value, err := strconv.Atoi(valueStr)
-    if err != nil {
-        return 0, fmt.Errorf("invalid size value: %s", valueStr)
-    }
-
-    switch strings.ToUpper(unit) {
-    case "KB":
-        return value * 1024, nil
-    case "MB":
-        return value * 1024 * 1024, nil
-    default:
-        return 0, fmt.Errorf("unknown size unit: %s", unit)
-    }
 }
