@@ -8,7 +8,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
 	"mime"
@@ -41,8 +40,8 @@ import (
 
 // var log = logrus.New() // Removed redundant declaration
 
-// parseSize converts a human-readable size string (e.g., "1KB", "1MB") to bytes
-func parseSize(sizeStr string) (int, error) {
+// parseSize converts a human-readable size string (e.g., "1KB", "1MB", "1GB") to bytes
+func parseSize(sizeStr string) (int64, error) {
     sizeStr = strings.TrimSpace(sizeStr)
     if len(sizeStr) < 2 {
         return 0, fmt.Errorf("invalid size: %s", sizeStr)
@@ -57,9 +56,13 @@ func parseSize(sizeStr string) (int, error) {
 
     switch strings.ToUpper(unit) {
     case "KB":
-        return value * 1024, nil
+        return int64(value) * 1024, nil
     case "MB":
-        return value * 1024 * 1024, nil
+        return int64(value) * 1024 * 1024, nil
+    case "GB":
+        return int64(value) * 1024 * 1024 * 1024, nil
+    case "TB":
+        return int64(value) * 1024 * 1024 * 1024 * 1024, nil
     default:
         return 0, fmt.Errorf("unknown size unit: %s", unit)
     }
@@ -101,7 +104,7 @@ type ServerConfig struct {
 	MetricsEnabled       bool   `mapstructure:"MetricsEnabled"`
 	MetricsPort          string `mapstructure:"MetricsPort"`
 	FileTTL              string `mapstructure:"FileTTL"`
-	MinFreeBytes         int64  `mapstructure:"MinFreeBytes"` // Minimum free bytes required
+	MinFreeBytes         string `mapstructure:"MinFreeBytes"` // Changed to string
 	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
 	MinFreeByte          string `mapstructure:"MinFreeByte"`
 }
@@ -229,212 +232,152 @@ const (
 )
 
 func main() {
-	// Set default configuration values
-	setDefaults()
+    // Load configuration
+    viper.SetConfigName("config")
+    viper.AddConfigPath(".")
+    if err := viper.ReadInConfig(); err != nil {
+        log.Fatalf("Error reading config file: %v", err)
+    }
 
-	// Flags for configuration file
-	var configFile string
-	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
-	flag.Parse()
+    var conf Config
+    if err := viper.Unmarshal(&conf); err != nil {
+        log.Fatalf("Error unmarshaling config: %v", err)
+    }
 
-	// Load configuration
-	err := readConfig(configFile, &conf)
+	// Parse MinFreeBytes
+	_, err := parseSize(conf.Server.MinFreeBytes)
 	if err != nil {
-		log.Fatalf("Error reading config: %v", err) // Fatal: application cannot proceed
-	}
-	log.Info("Configuration loaded successfully.")
-
-	// Verify and create ISO container if it doesn't exist
-	if conf.ISO.Enabled {
-		err = verifyAndCreateISOContainer()
-		if err != nil {
-			log.Fatalf("ISO container verification failed: %v", err)
-		}
+		log.Fatalf("Error parsing min free bytes: %v", err)
 	}
 
-	// Initialize file info cache
-	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
+    // Parse FileTTL
+    fileTTL, err := parseTTL(conf.Server.FileTTL)
+    if err != nil {
+        log.Fatalf("Error parsing file TTL: %v", err)
+    }
 
-	// Create store directory
-	err = os.MkdirAll(conf.Server.StoragePath, os.ModePerm)
-	if err != nil {
-		log.Fatalf("Error creating store directory: %v", err)
-	}
-	log.WithField("directory", conf.Server.StoragePath).Info("Store directory is ready")
+    // Setup logging
+    setupLogging()
 
-	// Check free space with retry
-	err = checkFreeSpaceWithRetry(conf.Server.StoragePath, 3, 5*time.Second)
-	if err != nil {
-		log.Fatalf("Insufficient free space: %v", err)
-	}
+    // Log system information
+    logSystemInfo()
 
-	// Setup logging
-	setupLogging()
+    // Initialize Prometheus metrics
+    initMetrics()
+    log.Info("Prometheus metrics initialized.")
 
-	// Log system information
-	logSystemInfo()
+    // Initialize upload and scan queues
+    uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
+    log.Infof("Upload queue initialized with size: %d", conf.Workers.UploadQueueSize)
+    scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
+    networkEvents = make(chan NetworkEvent, 100)
+    log.Info("Upload, scan, and network event channels initialized.")
 
-	// Initialize Prometheus metrics
-	initMetrics()
-	log.Info("Prometheus metrics initialized.")
+    // Context for goroutines
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
 
-	// Initialize upload and scan queues
-	uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
-	log.Infof("Upload queue initialized with size: %d", conf.Workers.UploadQueueSize)
-	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
-	networkEvents = make(chan NetworkEvent, 100)
-	log.Info("Upload, scan, and network event channels initialized.")
+    // Start network monitoring
+    go monitorNetwork(ctx)
+    go handleNetworkEvents(ctx)
 
-	// Context for goroutines
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+    // Update system metrics
+    go updateSystemMetrics(ctx)
 
-	// Start network monitoring
-	go monitorNetwork(ctx)
-	go handleNetworkEvents(ctx)
+    // Initialize ClamAV client if enabled
+    if conf.ClamAV.ClamAVEnabled {
+        clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
+        if err != nil {
+            log.WithFields(logrus.Fields{
+                "error": err.Error(),
+            }).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+        } else {
+            log.Info("ClamAV client initialized successfully.")
+        }
+    }
 
-	// Update system metrics
-	go updateSystemMetrics(ctx)
+    // Initialize Redis client if enabled
+    if conf.Redis.RedisEnabled {
+        initRedis()
+    }
 
-	// Initialize ClamAV client if enabled
-	if conf.ClamAV.ClamAVEnabled {
-		clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error": err.Error(),
-			}).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
-		} else {
-			log.Info("ClamAV client initialized successfully.")
-		}
-	}
+    // Initialize worker pools
+    initializeUploadWorkerPool(ctx)
+    if conf.ClamAV.ClamAVEnabled && clamClient != nil {
+        initializeScanWorkerPool(ctx)
+    }
 
-	// Initialize Redis client if enabled
-	if conf.Redis.RedisEnabled {
-		initRedis()
-	}
+    // Start Redis health monitor if Redis is enabled
+    if conf.Redis.RedisEnabled && redisClient != nil {
+        go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
+    }
 
-	// Redis Initialization
-	initRedis()
-	log.Info("Redis client initialized and connected successfully.")
+    // Setup router
+    router := setupRouter()
 
-	// ClamAV Initialization
-	if conf.ClamAV.ClamAVEnabled {
-		clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error": err.Error(),
-			}).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
-		} else {
-			log.Info("ClamAV client initialized successfully.")
-		}
-	}
+    // Start file cleaner
+    go runFileCleaner(ctx, conf.Server.StoragePath, fileTTL)
 
-	// Initialize worker pools
-	initializeUploadWorkerPool(ctx)
-	if conf.ClamAV.ClamAVEnabled && clamClient != nil {
-		initializeScanWorkerPool(ctx)
-	}
+    // Parse timeout durations
+    readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
+    if err != nil {
+        log.Fatalf("Invalid ReadTimeout: %v", err)
+    }
 
-	// Start Redis health monitor if Redis is enabled
-	if conf.Redis.RedisEnabled && redisClient != nil {
-		go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
-	}
+    writeTimeout, err := time.ParseDuration(conf.Timeouts.WriteTimeout)
+    if err != nil {
+        log.Fatalf("Invalid WriteTimeout: %v", err)
+    }
 
-	// Setup router
-	router := setupRouter()
+    idleTimeout, err := time.ParseDuration(conf.Timeouts.IdleTimeout)
+    if err != nil {
+        log.Fatalf("Invalid IdleTimeout: %v", err)
+    }
 
-	// Start file cleaner
-	fileTTL, err := time.ParseDuration(conf.Server.FileTTL)
-	if err != nil {
-		log.Fatalf("Invalid FileTTL: %v", err)
-	}
-	go runFileCleaner(ctx, conf.Server.StoragePath, fileTTL)
+    // Configure HTTP server
+    server := &http.Server{
+        Addr:         ":" + conf.Server.ListenPort, // Prepend colon to ListenPort
+        Handler:      router,
+        ReadTimeout:  readTimeout,
+        WriteTimeout: writeTimeout,
+        IdleTimeout:  idleTimeout,
+    }
 
-	// Parse timeout durations
-	readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
-	if err != nil {
-		log.Fatalf("Invalid ReadTimeout: %v", err)
-	}
+    // Start metrics server if enabled
+    if conf.Server.MetricsEnabled {
+        go func() {
+            http.Handle("/metrics", promhttp.Handler())
+            log.Infof("Metrics server started on port %s", conf.Server.MetricsPort)
+            if err := http.ListenAndServe(":"+conf.Server.MetricsPort, nil); err != nil {
+                log.Fatalf("Metrics server failed: %v", err)
+            }
+        }()
+    }
 
-	writeTimeout, err := time.ParseDuration(conf.Timeouts.WriteTimeout)
-	if err != nil {
-		log.Fatalf("Invalid WriteTimeout: %v", err)
-	}
+    // Setup graceful shutdown
+    setupGracefulShutdown(server, cancel)
 
-	idleTimeout, err := time.ParseDuration(conf.Timeouts.IdleTimeout)
-	if err != nil {
-		log.Fatalf("Invalid IdleTimeout: %v", err)
-	}
-
-	// Configure HTTP server
-	server := &http.Server{
-		Addr:         ":" + conf.Server.ListenPort, // Prepend colon to ListenPort
-		Handler:      router,
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout,
-		IdleTimeout:  idleTimeout,
-	}
-
-	// Start metrics server if enabled
-	if conf.Server.MetricsEnabled {
-		go func() {
-			http.Handle("/metrics", promhttp.Handler())
-			log.Infof("Metrics server started on port %s", conf.Server.MetricsPort)
-			if err := http.ListenAndServe(":"+conf.Server.MetricsPort, nil); err != nil {
-				log.Fatalf("Metrics server failed: %v", err)
-			}
-		}()
-	}
-
-	// Setup graceful shutdown
-	setupGracefulShutdown(server, cancel)
-
-	// Start server
-	log.Infof("Starting HMAC file server %s...", versionString)
-	if conf.Server.UnixSocket {
-		// Listen on Unix socket
-		if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
-			log.Fatalf("Failed to remove existing Unix socket: %v", err)
-		}
-		listener, err := net.Listen("unix", conf.Server.ListenPort)
-		if err != nil {
-			log.Fatalf("Failed to listen on Unix socket %s: %v", conf.Server.ListenPort, err)
-		}
-		defer listener.Close()
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
-		}
-	} else {
-		// Listen on TCP port
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
-		}
-	}
-
-	// Example files to include in the ISO container
-	files := []string{"file1.txt", "file2.txt"}
-	isoPath := "/path/to/container.iso"
-
-	// Create ISO container
-	err = CreateISOContainer(files, isoPath, conf.ISO.Size, conf.ISO.Charset)
-	if err != nil {
-		fmt.Printf("Failed to create ISO container: %v\n", err)
-		return
-	}
-
-	// Mount ISO container
-	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
-	if err != nil {
-		fmt.Printf("Failed to mount ISO container: %v\n", err)
-		return
-	}
-
-	// Unmount ISO container (example)
-	err = UnmountISOContainer(conf.ISO.MountPoint)
-	if err != nil {
-		fmt.Printf("Failed to unmount ISO container: %v\n", err)
-		return
-	}
+    // Start server
+    log.Infof("Starting HMAC file server %s...", versionString)
+    if conf.Server.UnixSocket {
+        // Listen on Unix socket
+        if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
+            log.Fatalf("Failed to remove existing Unix socket: %v", err)
+        }
+        listener, err := net.Listen("unix", conf.Server.ListenPort)
+        if err != nil {
+            log.Fatalf("Failed to listen on Unix socket %s: %v", conf.Server.ListenPort, err)
+        }
+        defer listener.Close()
+        if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("Server failed: %v", err)
+        }
+    } else {
+        // Listen on TCP port
+        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("Server failed: %v", err)
+        }
+    }
 }
 
 // Function to load configuration using Viper
@@ -812,7 +755,7 @@ func processUpload(task UploadTask) error {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			return err
 		}
-		err = handleChunkedUpload(tempFilename, r, chunkSize)
+		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			log.WithFields(logrus.Fields{
@@ -922,7 +865,7 @@ func uploadWorker(ctx context.Context, workerID int) {
         case <-ctx.Done():
             return
         case task, ok := <-uploadQueue:
-            if !ok {
+            if (!ok) {
                 return
             }
             err := processUpload(task)
@@ -948,7 +891,7 @@ func scanWorker(ctx context.Context, workerID int) {
 			log.WithField("worker_id", workerID).Info("Scan worker stopping")
 			return
 		case task, ok := <-scanQueue:
-			if !ok {
+			if (!ok) {
 				log.WithField("worker_id", workerID).Info("Scan queue closed")
 				return
 			}
@@ -1192,7 +1135,17 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	// absFilename = sanitizedFilename
 
 	// Check if there is enough free space
-	err = checkStorageSpace(conf.Server.StoragePath, conf.Server.MinFreeBytes)
+	minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"min_free_bytes": conf.Server.MinFreeBytes,
+			"error":          err,
+		}).Error("Failed to parse MinFreeBytes")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		uploadErrorsTotal.Inc()
+		return
+	}
+	err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
 	if err != nil {
 		log.WithFields(logrus.Fields{
 			"storage_path": conf.Server.StoragePath,
@@ -1580,7 +1533,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if !ok {
+			if (!ok) {
 				log.Info("Network events channel closed.")
 				return
 			}
