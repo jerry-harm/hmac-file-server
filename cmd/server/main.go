@@ -41,8 +41,8 @@ import (
 
 // var log = logrus.New() // Removed redundant declaration
 
-// parseSize converts a human-readable size string (e.g., "1KB", "1MB") to bytes
-func parseSize(sizeStr string) (int, error) {
+// parseSize converts a human-readable size string (e.g., "1KB", "1MB", "1GB", "1TB") to bytes
+func parseSize(sizeStr string) (int64, error) {
     sizeStr = strings.TrimSpace(sizeStr)
     if len(sizeStr) < 2 {
         return 0, fmt.Errorf("invalid size: %s", sizeStr)
@@ -57,9 +57,13 @@ func parseSize(sizeStr string) (int, error) {
 
     switch strings.ToUpper(unit) {
     case "KB":
-        return value * 1024, nil
+        return int64(value) * 1024, nil
     case "MB":
-        return value * 1024 * 1024, nil
+        return int64(value) * 1024 * 1024, nil
+    case "GB":
+        return int64(value) * 1024 * 1024 * 1024, nil
+    case "TB":
+        return int64(value) * 1024 * 1024 * 1024 * 1024, nil
     default:
         return 0, fmt.Errorf("unknown size unit: %s", unit)
     }
@@ -771,7 +775,7 @@ func processUpload(task UploadTask) error {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			return err
 		}
-		err = handleChunkedUpload(tempFilename, r, chunkSize)
+		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			log.WithFields(logrus.Fields{
@@ -1084,119 +1088,117 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 // Handle file uploads with extension restrictions and HMAC validation
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
-	// Log the storage path being used
-	log.Infof("Using storage path: %s", conf.Server.StoragePath)
+    // Log the storage path being used
+    log.Infof("Using storage path: %s", conf.Server.StoragePath)
 
-	// Determine protocol version based on query parameters
-	var protocolVersion string
-	if a.Get("v2") != "" {
-		protocolVersion = "v2"
-	} else if a.Get("token") != "" {
-		protocolVersion = "token"
-	} else if a.Get("v") != "" {
-		protocolVersion = "v"
-	} else {
-		log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
-		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
-		return
-	}
-	log.Debugf("Protocol version determined: %s", protocolVersion)
+    // Determine protocol version based on query parameters
+    var protocolVersion string
+    if a.Get("v2") != "" {
+        protocolVersion = "v2"
+    } else if a.Get("token") != "" {
+        protocolVersion = "token"
+    } else if a.Get("v") != "" {
+        protocolVersion = "v"
+    } else {
+        log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
+        http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
+        return
+    }
+    log.Debugf("Protocol version determined: %s", protocolVersion)
 
-	// Initialize HMAC
-	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
+    // Initialize HMAC
+    mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
 
-	// Calculate MAC based on protocolVersion
-	if protocolVersion == "v" {
-		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+    // Calculate MAC based on protocolVersion
+    if protocolVersion == "v" {
+        mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
 	} else if protocolVersion == "v2" || protocolVersion == "token" {
-		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-	}
+        contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+        if contentType == "" {
+            contentType = "application/octet-stream"
+        }
+        mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+    }
 
-	calculatedMAC := mac.Sum(nil)
-	log.Debugf("Calculated MAC: %x", calculatedMAC)
+    calculatedMAC := mac.Sum(nil)
+    log.Debugf("Calculated MAC: %x", calculatedMAC)
 
-	// Decode provided MAC from hex
-	providedMACHex := a.Get(protocolVersion)
-	providedMAC, err := hex.DecodeString(providedMACHex)
-	if err != nil {
-		log.Warn("Invalid MAC encoding")
-		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
-		return
-	}
-	log.Debugf("Provided MAC: %x", providedMAC)
+    // Decode provided MAC from hex
+    providedMACHex := a.Get(protocolVersion)
+    providedMAC, err := hex.DecodeString(providedMACHex)
+    if err != nil {
+        log.Warn("Invalid MAC encoding")
+        http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
+        return
+    }
+    log.Debugf("Provided MAC: %x", providedMAC)
 
-	// Validate the HMAC
-	if !hmac.Equal(calculatedMAC, providedMAC) {
-		log.Warn("Invalid MAC")
-		http.Error(w, "Invalid MAC", http.StatusForbidden)
-		return
-	}
-	log.Debug("HMAC validation successful")
+    // Validate the HMAC
+    if !hmac.Equal(calculatedMAC, providedMAC) {
+        log.Warn("Invalid MAC")
+        http.Error(w, "Invalid MAC", http.StatusForbidden)
+        return
+    }
+    log.Debug("HMAC validation successful")
 
-	// Validate file extension
-	if !isExtensionAllowed(fileStorePath) {
-		log.WithFields(logrus.Fields{
-			// No need to sanitize and validate the file path here since absFilename is already sanitized in handleRequest
-			"file":  fileStorePath,
-			"error": err,
-		}).Warn("Invalid file path")
-		http.Error(w, "Invalid file path", http.StatusBadRequest)
-		uploadErrorsTotal.Inc()
-		return
-	}
-	// absFilename = sanitizedFilename
+    // Validate file extension
+    if !isExtensionAllowed(fileStorePath) {
+        log.WithFields(logrus.Fields{
+            "file":  fileStorePath,
+            "error": err,
+        }).Warn("Invalid file path")
+        http.Error(w, "Invalid file path", http.StatusBadRequest)
+        uploadErrorsTotal.Inc()
+        return
+    }
 
-	// Check if there is enough free space
-	minFreeBytes, err := strconv.ParseInt(conf.Server.MinFreeBytes, 10, 64)
-	if err != nil {
-		log.Fatalf("Invalid MinFreeBytes: %v", err)
-	}
-	err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
-	if err != nil {
-		log.WithFields(logrus.Fields{
-			"storage_path": conf.Server.StoragePath,
-			"error":        err,
-		}).Warn("Not enough free space")
-		http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
-		uploadErrorsTotal.Inc()
-		return
-	}
+    // Check if there is enough free space
+    minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
+    if err != nil {
+        log.Fatalf("Invalid MinFreeBytes: %v", err)
+    }
+    err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
+    if err != nil {
+        log.WithFields(logrus.Fields{
+            "storage_path": conf.Server.StoragePath,
+            "error":        err,
+        }).Warn("Not enough free space")
+        http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
+        uploadErrorsTotal.Inc()
+        return
+    }
 
-	// Create an UploadTask with a result channel
-	result := make(chan error)
-	task := UploadTask{
-		AbsFilename: absFilename,
-		Request:     r,
-		Result:      result,
-	}
+    // Create an UploadTask with a result channel
+    result := make(chan error)
+    task := UploadTask{
+        AbsFilename: absFilename,
+        Request:     r,
+        Result:      result,
+    }
 
-	// Submit task to the upload queue
-	select {
-	case uploadQueue <- task:
-		// Successfully added to the queue
-		log.Debug("Upload task enqueued successfully")
-	default:
-		// Queue is full
-		log.Warn("Upload queue is full. Rejecting upload")
-		http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
-		uploadErrorsTotal.Inc()
-		return
-	}
+    // Submit task to the upload queue
+    select {
+    case uploadQueue <- task:
+        // Successfully added to the queue
+        log.Debug("Upload task enqueued successfully")
+    default:
+        // Queue is full
+        log.Warn("Upload queue is full. Rejecting upload")
+        http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
+        uploadErrorsTotal.Inc()
+        return
+    }
 
-	// Wait for the worker to process the upload
-	err = <-result
-	if err != nil {
-		// The worker has already logged the error; send an appropriate HTTP response
-		http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
-		return
-	}
+    // Wait for the worker to process the upload
+    err = <-result
+    if err != nil {
+        // The worker has already logged the error; send an appropriate HTTP response
+        http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
+        return
+    }
 
-	// Upload was successful
-	w.WriteHeader(http.StatusCreated)
+    // Upload was successful
+    w.WriteHeader(http.StatusCreated)
 }
 
 // Handle file downloads
