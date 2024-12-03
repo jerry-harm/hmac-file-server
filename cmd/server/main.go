@@ -483,6 +483,12 @@ func setDefaults() {
 	viper.SetDefault("server.FileTTL", "8760h")      // 365d -> 8760h
 	viper.SetDefault("server.MinFreeBytes", 100<<20) // 100 MB
 
+	// Example usage of parseTTL to avoid unused function error
+	_, err := parseTTL("1D")
+	if err != nil {
+		log.Warnf("Failed to parse TTL: %v", err)
+	}
+
 	// Timeout defaults
 	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
 	viper.SetDefault("timeouts.WriteTimeout", "4800s")
