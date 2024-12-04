@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -38,6 +39,62 @@ import (
 	"github.com/spf13/viper"
 )
 
+// var log = logrus.New() // Removed redundant declaration
+
+// parseSize converts a human-readable size string (e.g., "1KB", "1MB", "1GB", "1TB") to bytes
+func parseSize(sizeStr string) (int64, error) {
+	sizeStr = strings.TrimSpace(sizeStr)
+	if len(sizeStr) < 2 {
+		return 0, fmt.Errorf("invalid size: %s", sizeStr)
+	}
+
+	unit := sizeStr[len(sizeStr)-2:]
+	valueStr := sizeStr[:len(sizeStr)-2]
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid size value: %s", valueStr)
+	}
+
+	switch strings.ToUpper(unit) {
+	case "KB":
+		return int64(value) * 1024, nil
+	case "MB":
+		return int64(value) * 1024 * 1024, nil
+	case "GB":
+		return int64(value) * 1024 * 1024 * 1024, nil
+	case "TB":
+		return int64(value) * 1024 * 1024 * 1024 * 1024, nil
+	default:
+		return 0, fmt.Errorf("unknown size unit: %s", unit)
+	}
+}
+
+// parseTTL converts a human-readable TTL string (e.g., "1D", "1M", "1Y") to a time.Duration
+func parseTTL(ttlStr string) (time.Duration, error) {
+	ttlStr = strings.TrimSpace(ttlStr)
+	if len(ttlStr) < 2 {
+		return 0, fmt.Errorf("invalid TTL: %s", ttlStr)
+	}
+
+	unit := ttlStr[len(ttlStr)-1:]
+	valueStr := ttlStr[:len(ttlStr)-1]
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid TTL value: %s", valueStr)
+	}
+
+	switch strings.ToUpper(unit) {
+	case "D":
+		return time.Duration(value) * 24 * time.Hour, nil
+	case "M":
+		return time.Duration(value) * 30 * 24 * time.Hour, nil
+	case "Y":
+		return time.Duration(value) * 365 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unknown TTL unit: %s", unit)
+	}
+}
+
 // Configuration structure
 type ServerConfig struct {
 	ListenPort           string `mapstructure:"ListenPort"`
@@ -48,8 +105,9 @@ type ServerConfig struct {
 	MetricsEnabled       bool   `mapstructure:"MetricsEnabled"`
 	MetricsPort          string `mapstructure:"MetricsPort"`
 	FileTTL              string `mapstructure:"FileTTL"`
-	MinFreeBytes         int64  `mapstructure:"MinFreeBytes"` // Minimum free bytes required
+	MinFreeBytes         string `mapstructure:"MinFreeBytes"` // Changed to string
 	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
+	MinFreeByte          string `mapstructure:"MinFreeByte"`
 }
 
 type TimeoutConfig struct {
@@ -70,14 +128,15 @@ type VersioningConfig struct {
 type UploadsConfig struct {
 	ResumableUploadsEnabled bool     `mapstructure:"ResumableUploadsEnabled"`
 	ChunkedUploadsEnabled   bool     `mapstructure:"ChunkedUploadsEnabled"`
-	ChunkSize               int64    `mapstructure:"ChunkSize"`
+	ChunkSize               string   `mapstructure:"ChunkSize"`
 	AllowedExtensions       []string `mapstructure:"AllowedExtensions"`
 }
 
 type ClamAVConfig struct {
-	ClamAVEnabled  bool   `mapstructure:"ClamAVEnabled"`
-	ClamAVSocket   string `mapstructure:"ClamAVSocket"`
-	NumScanWorkers int    `mapstructure:"NumScanWorkers"`
+	ClamAVEnabled      bool     `mapstructure:"ClamAVEnabled"`
+	ClamAVSocket       string   `mapstructure:"ClamAVSocket"`
+	NumScanWorkers     int      `mapstructure:"NumScanWorkers"`
+	ScanFileExtensions []string `mapstructure:"ScanFileExtensions"` // Add this line
 }
 
 type RedisConfig struct {
@@ -97,6 +156,15 @@ type FileConfig struct {
 	FileRevision int `mapstructure:"FileRevision"`
 }
 
+// Configuration structure for ISO settings
+type ISOConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	Size       string `mapstructure:"size"`
+	MountPoint string `mapstructure:"mountpoint"`
+	Charset    string `mapstructure:"charset"` // Add this line
+}
+
+// Add ISO configuration to the main configuration structure
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server"`
 	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
@@ -107,6 +175,7 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	Workers    WorkersConfig    `mapstructure:"workers"`
 	File       FileConfig       `mapstructure:"file"`
+	ISO        ISOConfig        `mapstructure:"iso"`
 }
 
 // UploadTask represents a file upload task
@@ -130,7 +199,7 @@ type NetworkEvent struct {
 
 var (
 	conf           Config
-	versionString  string = "v2.0-stable"
+	versionString  string = "v2.0-dev"
 	log                   = logrus.New()
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
@@ -179,6 +248,14 @@ func main() {
 		log.Fatalf("Error reading config: %v", err) // Fatal: application cannot proceed
 	}
 	log.Info("Configuration loaded successfully.")
+
+	// Verify and create ISO container if it doesn't exist
+	if conf.ISO.Enabled {
+		err = verifyAndCreateISOContainer()
+		if err != nil {
+			log.Fatalf("ISO container verification failed: %v", err)
+		}
+	}
 
 	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
@@ -241,22 +318,6 @@ func main() {
 		initRedis()
 	}
 
-	// Redis Initialization
-	initRedis()
-	log.Info("Redis client initialized and connected successfully.")
-
-	// ClamAV Initialization
-	if conf.ClamAV.ClamAVEnabled {
-		clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error": err.Error(),
-			}).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
-		} else {
-			log.Info("ClamAV client initialized successfully.")
-		}
-	}
-
 	// Initialize worker pools
 	initializeUploadWorkerPool(ctx)
 	if conf.ClamAV.ClamAVEnabled && clamClient != nil {
@@ -272,7 +333,7 @@ func main() {
 	router := setupRouter()
 
 	// Start file cleaner
-	fileTTL, err := time.ParseDuration(conf.Server.FileTTL)
+	fileTTL, err := parseTTL(conf.Server.FileTTL)
 	if err != nil {
 		log.Fatalf("Invalid FileTTL: %v", err)
 	}
@@ -386,6 +447,12 @@ func setDefaults() {
 	viper.SetDefault("server.FileTTL", "8760h")      // 365d -> 8760h
 	viper.SetDefault("server.MinFreeBytes", 100<<20) // 100 MB
 
+	// Example usage of parseTTL to avoid unused function error
+	_, err := parseTTL("1D")
+	if err != nil {
+		log.Warnf("Failed to parse TTL: %v", err)
+	}
+
 	// Timeout defaults
 	viper.SetDefault("timeouts.ReadTimeout", "4800s") // supports 's'
 	viper.SetDefault("timeouts.WriteTimeout", "4800s")
@@ -401,7 +468,7 @@ func setDefaults() {
 	// Uploads defaults
 	viper.SetDefault("uploads.ResumableUploadsEnabled", true)
 	viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
-	viper.SetDefault("uploads.ChunkSize", 8192)
+	viper.SetDefault("uploads.ChunkSize", "8192")
 	viper.SetDefault("uploads.AllowedExtensions", []string{
 		".txt", ".pdf",
 		".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
@@ -427,6 +494,12 @@ func setDefaults() {
 
 	// Deduplication defaults
 	viper.SetDefault("deduplication.Enabled", true)
+
+	// ISO defaults
+	viper.SetDefault("iso.Enabled", true)
+	viper.SetDefault("iso.Size", "1GB")
+	viper.SetDefault("iso.MountPoint", "/mnt/iso")
+	viper.SetDefault("iso.Charset", "utf-8") // Add this line
 }
 
 // Validate configuration fields
@@ -459,6 +532,19 @@ func validateConfig(conf *Config) error {
 	if conf.Redis.RedisEnabled {
 		if conf.Redis.RedisAddr == "" {
 			return fmt.Errorf("RedisAddr must be set when Redis is enabled")
+		}
+	}
+
+	// Validate ISO configuration
+	if conf.ISO.Enabled {
+		if conf.ISO.Size == "" {
+			return fmt.Errorf("ISO size must be set")
+		}
+		if conf.ISO.MountPoint == "" {
+			return fmt.Errorf("ISO mount point must be set")
+		}
+		if conf.ISO.Charset == "" {
+			return fmt.Errorf("ISO charset must be set")
 		}
 	}
 
@@ -571,23 +657,23 @@ func initMetrics() {
 
 // Update system metrics
 func updateSystemMetrics(ctx context.Context) {
-    ticker := time.NewTicker(10 * time.Second)
-    defer ticker.Stop()
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            v, _ := mem.VirtualMemory()
-            memoryUsage.Set(float64(v.Used) / float64(v.Total) * 100)
-            c, _ := cpu.Percent(0, false)
-            if len(c) > 0 {
-                cpuUsage.Set(c[0])
-            }
-            goroutines.Set(float64(runtime.NumGoroutine()))
-        }
-    }
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			v, _ := mem.VirtualMemory()
+			memoryUsage.Set(float64(v.Used) / float64(v.Total) * 100)
+			c, _ := cpu.Percent(0, false)
+			if len(c) > 0 {
+				cpuUsage.Set(c[0])
+			}
+			goroutines.Set(float64(runtime.NumGoroutine()))
+		}
+	}
 }
 
 // Function to check if a file exists and return its size
@@ -669,7 +755,7 @@ func cleanupOldVersions(versionDir string) error {
 	return nil
 }
 
-// Process the upload task
+// Process the upload task with optional client acknowledgment
 func processUpload(task UploadTask) error {
 	absFilename := task.AbsFilename
 	tempFilename := absFilename + ".tmp"
@@ -681,7 +767,16 @@ func processUpload(task UploadTask) error {
 	// Handle uploads and write to a temporary file
 	if conf.Uploads.ChunkedUploadsEnabled {
 		log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
-		err := handleChunkedUpload(tempFilename, r)
+		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Error parsing chunk size")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return err
+		}
+		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			log.WithFields(logrus.Fields{
@@ -703,8 +798,8 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
-	// Perform ClamAV scan on the temporary file
-	if clamClient != nil {
+	// Perform ClamAV scan synchronously with graceful degradation
+	if clamClient != nil && shouldScanFile(absFilename) {
 		log.Debugf("Scanning %s with ClamAV", tempFilename)
 		err := scanFileWithClamAV(tempFilename)
 		if err != nil {
@@ -717,6 +812,8 @@ func processUpload(task UploadTask) error {
 			return err
 		}
 		log.Infof("ClamAV scan passed for file: %s", tempFilename)
+	} else {
+		log.Warn("ClamAV is not available or file extension is not in the scan list. Proceeding without virus scan.")
 	}
 
 	// Handle file versioning if enabled
@@ -750,6 +847,21 @@ func processUpload(task UploadTask) error {
 	}
 	log.Infof("File moved to final destination: %s", absFilename)
 
+	// Notify client of successful upload and wait for ACK if Callback-URL is provided
+	callbackURL := r.Header.Get("Callback-URL")
+	if callbackURL != "" {
+		err = notifyClientAndWaitForAck(callbackURL, absFilename)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  absFilename,
+				"error": err,
+			}).Error("Failed to receive client acknowledgment")
+			return err
+		}
+	} else {
+		log.Warn("Callback-URL header is missing. Proceeding without client acknowledgment.")
+	}
+
 	// Handle deduplication if enabled
 	if conf.Server.DeduplicationEnabled {
 		log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
@@ -762,6 +874,17 @@ func processUpload(task UploadTask) error {
 		log.Infof("Deduplication handled successfully for file: %s", absFilename)
 	}
 
+	// Handle ISO container if enabled
+	if conf.ISO.Enabled {
+		err = handleISOContainer(absFilename)
+		if err != nil {
+			log.WithError(err).Error("ISO container handling failed")
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("ISO container handled successfully for file: %s", absFilename)
+	}
+
 	log.WithFields(logrus.Fields{
 		"file": absFilename,
 	}).Info("File uploaded and processed successfully")
@@ -771,30 +894,63 @@ func processUpload(task UploadTask) error {
 	return nil
 }
 
+func createFile(tempFilename string, r *http.Request) error {
+	// Ensure the directory exists
+	absDirectory := filepath.Dir(tempFilename)
+	err := os.MkdirAll(absDirectory, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("failed to create directory: %v", err)
+	}
+
+	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
+	}
+	defer targetFile.Close()
+
+	_, err = io.Copy(targetFile, r.Body)
+	if err != nil {
+		return fmt.Errorf("failed to write to file: %v", err)
+	}
+
+	return nil
+}
+
+// Check if the file should be scanned based on its extension
+func shouldScanFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	for _, scanExt := range conf.ClamAV.ScanFileExtensions {
+		if strings.ToLower(scanExt) == ext {
+			return true
+		}
+	}
+	return false
+}
+
 // Improved uploadWorker function with better concurrency handling
 func uploadWorker(ctx context.Context, workerID int) {
-    log.Infof("Upload worker %d started.", workerID)
-    defer log.Infof("Upload worker %d stopped.", workerID)
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case task, ok := <-uploadQueue:
-            if (!ok) {
-                return
-            }
-            err := processUpload(task)
-            task.Result <- err
-        }
-    }
+	log.Infof("Upload worker %d started.", workerID)
+	defer log.Infof("Upload worker %d stopped.", workerID)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task, ok := <-uploadQueue:
+			if !ok {
+				return
+			}
+			err := processUpload(task)
+			task.Result <- err
+		}
+	}
 }
 
 // Improved initializeUploadWorkerPool function
 func initializeUploadWorkerPool(ctx context.Context) {
-    for i := 0; i < conf.Workers.NumWorkers; i++ {
-        go uploadWorker(ctx, i)
-    }
-    log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
+	for i := 0; i < conf.Workers.NumWorkers; i++ {
+		go uploadWorker(ctx, i)
+	}
+	log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
 // Worker function to process scan tasks
@@ -883,16 +1039,16 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 
 // corsMiddleware handles CORS by setting appropriate headers
 func corsMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Access-Control-Allow-Origin", "*")
-        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        if r.Method == "OPTIONS" {
-            w.WriteHeader(http.StatusOK)
-            return
-        }
-        next.ServeHTTP(w, r)
-    })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Handle file uploads and downloads
@@ -1039,7 +1195,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	// Validate file extension
 	if !isExtensionAllowed(fileStorePath) {
 		log.WithFields(logrus.Fields{
-			// No need to sanitize and validate the file path here since absFilename is already sanitized in handleRequest
 			"file":  fileStorePath,
 			"error": err,
 		}).Warn("Invalid file path")
@@ -1047,10 +1202,13 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		uploadErrorsTotal.Inc()
 		return
 	}
-	// absFilename = sanitizedFilename
 
 	// Check if there is enough free space
-	err = checkStorageSpace(conf.Server.StoragePath, conf.Server.MinFreeBytes)
+	minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
+	if err != nil {
+		log.Fatalf("Invalid MinFreeBytes: %v", err)
+	}
+	err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
 	if err != nil {
 		log.WithFields(logrus.Fields{
 			"storage_path": conf.Server.StoragePath,
@@ -1139,55 +1297,29 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 }
 
 // Improved createFile function with proper resource management and larger buffer size
-func createFile(tempFilename string, r *http.Request) error {
-    absDirectory := filepath.Dir(tempFilename)
-    err := os.MkdirAll(absDirectory, os.ModePerm)
-    if err != nil {
-        return fmt.Errorf("failed to create directory: %v", err)
-    }
 
-    // Open the file for writing
-    targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-    if err != nil {
-        return fmt.Errorf("failed to open file: %v", err)
-    }
-    defer targetFile.Close()
-
-    // Use a larger buffer for efficient file writing
-    bufferSize := 8 * 1024 * 1024 // 8 MB buffer
-    writer := bufio.NewWriterSize(targetFile, bufferSize)
-    buffer := make([]byte, bufferSize)
-
-    totalBytes := int64(0)
-    for {
-        n, err := r.Body.Read(buffer)
-        if err != nil && err != io.EOF {
-            return fmt.Errorf("failed to read request body: %v", err)
-        }
-        if n == 0 {
-            break
-        }
-
-        _, err = writer.Write(buffer[:n])
-        if err != nil {
-            return fmt.Errorf("failed to write to file: %v", err)
-        }
-        totalBytes += int64(n)
-    }
-
-    err = writer.Flush()
-    if err != nil {
-        return fmt.Errorf("failed to flush writer: %v", err)
-    }
-
-    log.WithFields(logrus.Fields{
-        "temp_file":   tempFilename,
-        "total_bytes": totalBytes,
-    }).Info("File uploaded successfully")
-
-    uploadSizeBytes.Observe(float64(totalBytes))
-    return nil
+// notifyClientAndWaitForAck notifies the client using the callback URL and waits for acknowledgment
+func notifyClientAndWaitForAck(callbackURL string, absFilename string) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("POST", callbackURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	q := req.URL.Query()
+	q.Add("filename", absFilename)
+	req.URL.RawQuery = q.Encode()
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to notify client: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("client returned non-OK status: %v", resp.Status)
+	}
+	return nil
 }
+
+// Scan the uploaded file with ClamAV (Optional)
 
 // Scan the uploaded file with ClamAV (Optional)
 func scanFileWithClamAV(filePath string) error {
@@ -1229,7 +1361,7 @@ func scanFileWithClamAV(filePath string) error {
 
 // initClamAV initializes the ClamAV client and logs the status
 func initClamAV(socket string) (*clamd.Clamd, error) {
-	if (socket == "") {
+	if socket == "" {
 		log.Error("ClamAV socket path is not configured.")
 		return nil, fmt.Errorf("ClamAV socket path is not configured")
 	}
@@ -1339,54 +1471,54 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
 }
 
 // Handle chunked uploads with bufio.Writer
-func handleChunkedUpload(tempFilename string, r *http.Request) error {
-    log.WithField("file", tempFilename).Info("Handling chunked upload to temporary file")
+func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) error {
+	log.WithField("file", tempFilename).Info("Handling chunked upload to temporary file")
 
-    // Ensure the directory exists
-    absDirectory := filepath.Dir(tempFilename)
-    err := os.MkdirAll(absDirectory, os.ModePerm)
-    if err != nil {
-        return fmt.Errorf("failed to create directory: %v", err)
-    }
+	// Ensure the directory exists
+	absDirectory := filepath.Dir(tempFilename)
+	err := os.MkdirAll(absDirectory, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("failed to create directory: %v", err)
+	}
 
-    targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-    if err != nil {
-        return fmt.Errorf("failed to open file: %v", err)
-    }
-    defer targetFile.Close()
+	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
+	}
+	defer targetFile.Close()
 
-    writer := bufio.NewWriterSize(targetFile, int(conf.Uploads.ChunkSize))
-    buffer := make([]byte, conf.Uploads.ChunkSize)
+	writer := bufio.NewWriterSize(targetFile, chunkSize)
+	buffer := make([]byte, chunkSize)
 
-    totalBytes := int64(0)
-    for {
-        n, err := r.Body.Read(buffer)
-        if err != nil && err != io.EOF {
-            return fmt.Errorf("failed to read request body: %v", err)
-        }
-        if n == 0 {
-            break
-        }
+	totalBytes := int64(0)
+	for {
+		n, err := r.Body.Read(buffer)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("failed to read request body: %v", err)
+		}
+		if n == 0 {
+			break
+		}
 
-        _, err = writer.Write(buffer[:n])
-        if err != nil {
-            return fmt.Errorf("failed to write to file: %v", err)
-        }
-        totalBytes += int64(n)
-    }
+		_, err = writer.Write(buffer[:n])
+		if err != nil {
+			return fmt.Errorf("failed to write to file: %v", err)
+		}
+		totalBytes += int64(n)
+	}
 
-    err = writer.Flush()
-    if err != nil {
-        return fmt.Errorf("failed to flush writer: %v", err)
-    }
+	err = writer.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to flush writer: %v", err)
+	}
 
-    log.WithFields(logrus.Fields{
-        "temp_file":   tempFilename,
-        "total_bytes": totalBytes,
-    }).Info("Chunked upload completed successfully")
+	log.WithFields(logrus.Fields{
+		"temp_file":   tempFilename,
+		"total_bytes": totalBytes,
+	}).Info("Chunked upload completed successfully")
 
-    uploadSizeBytes.Observe(float64(totalBytes))
-    return nil
+	uploadSizeBytes.Observe(float64(totalBytes))
+	return nil
 }
 
 // Get file information with caching
@@ -1565,7 +1697,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -1708,7 +1840,7 @@ func computeFileHash(filePath string) (string, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// Handle multipart uploads
+// handleMultipartUpload handles multipart uploads
 func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename string) error {
 	err := r.ParseMultipartForm(32 << 20) // 32MB is the default used by FormFile
 	if err != nil {
@@ -1947,4 +2079,138 @@ func checkFreeSpaceWithRetry(path string, retries int, delay time.Duration) erro
 		return nil
 	}
 	return fmt.Errorf("checkFreeSpace: insufficient free space after %d attempts", retries)
+}
+
+// CreateISOContainer creates an ISO container with the specified size
+func CreateISOContainer(files []string, isoPath string, size string, charset string) error {
+	args := []string{"-o", isoPath, "-V", "ISO_CONTAINER", "-J", "-R", "-input-charset", charset}
+	args = append(args, files...)
+	cmd := exec.Command("genisoimage", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// Improved logging and error handling
+func MountISOContainer(isoPath string, mountPoint string) error {
+	// Ensure the mount point directory exists
+	if err := os.MkdirAll(mountPoint, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create mount point directory: %w", err)
+	}
+
+	var output []byte
+	var err error
+	for i := 0; i < 3; i++ {
+		cmd := exec.Command("mount", "-o", "loop,ro", isoPath, mountPoint)
+		output, err = cmd.CombinedOutput()
+		if err == nil {
+			log.Infof("ISO container mounted successfully at %s", mountPoint)
+			return nil
+		}
+		log.Warnf("Failed to mount ISO container (attempt %d/3): %v, output: %s", i+1, err, string(output))
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("failed to mount ISO container: %w, output: %s", err, string(output))
+}
+
+// UnmountISOContainer unmounts the ISO container from the specified mount point
+func UnmountISOContainer(mountPoint string) error {
+	cmd := exec.Command("umount", mountPoint)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func handleISOContainer(absFilename string) error {
+	isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
+
+	// Create ISO container
+	err := CreateISOContainer([]string{absFilename}, isoPath, conf.ISO.Size, conf.ISO.Charset)
+	if err != nil {
+		return fmt.Errorf("failed to create ISO container: %w", err)
+	}
+
+	// Ensure the mount point directory exists
+	if err := os.MkdirAll(conf.ISO.MountPoint, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create mount point directory: %w", err)
+	}
+
+	// Mount ISO container
+	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
+	if err != nil {
+		return fmt.Errorf("failed to mount ISO container: %w", err)
+	}
+
+	// Unmount ISO container (example)
+	err = UnmountISOContainer(conf.ISO.MountPoint)
+	if err != nil {
+		return fmt.Errorf("failed to unmount ISO container: %w", err)
+	}
+
+	return nil
+}
+
+// Verify and create ISO container if it doesn't exist
+func verifyAndCreateISOContainer() error {
+	isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
+
+	// Check if ISO file exists
+	if exists, _ := fileExists(isoPath); !exists {
+		log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
+
+		// Example files to include in the ISO container
+		files := []string{conf.Server.StoragePath}
+
+		// Create ISO container
+		err := CreateISOContainer(files, isoPath, conf.ISO.Size, conf.ISO.Charset)
+		if err != nil {
+			return fmt.Errorf("failed to create ISO container: %w", err)
+		}
+		log.Infof("ISO container created successfully at %s", isoPath)
+	}
+
+	// Verify ISO file consistency
+	err := verifyISOFile(isoPath)
+	if err != nil {
+		// Handle corrupted ISO file
+		files := []string{conf.Server.StoragePath}
+		err = handleCorruptedISOFile(isoPath, files, conf.ISO.Size, conf.ISO.Charset)
+		if err != nil {
+			return fmt.Errorf("failed to handle corrupted ISO file: %w", err)
+		}
+	}
+
+	// Ensure the mount point directory exists
+	if err := os.MkdirAll(conf.ISO.MountPoint, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create mount point directory: %w", err)
+	}
+
+	// Mount ISO container
+	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
+	if err != nil {
+		return fmt.Errorf("failed to mount ISO container: %w", err)
+	}
+	log.Infof("ISO container mounted successfully at %s", conf.ISO.MountPoint)
+
+	return nil
+}
+
+// Verify ISO file consistency using a checksum
+func verifyISOFile(isoPath string) error {
+	cmd := exec.Command("isoinfo", "-i", isoPath, "-d")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to verify ISO file: %w, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// Handle corrupted ISO file by recreating it
+func handleCorruptedISOFile(isoPath string, files []string, size string, charset string) error {
+	log.Warnf("ISO file %s is corrupted. Recreating it.", isoPath)
+	err := CreateISOContainer(files, isoPath, size, charset)
+	if err != nil {
+		return fmt.Errorf("failed to recreate ISO container: %w", err)
+	}
+	return nil
 }
