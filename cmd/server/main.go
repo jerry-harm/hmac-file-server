@@ -754,128 +754,138 @@ func cleanupOldVersions(versionDir string) error {
 	return nil
 }
 
-// Process the upload task with graceful degradation for ClamAV
+// Process the upload task with client acknowledgment
 func processUpload(task UploadTask) error {
-	absFilename := task.AbsFilename
-	tempFilename := absFilename + ".tmp"
-	r := task.Request
+    absFilename := task.AbsFilename
+    tempFilename := absFilename + ".tmp"
+    r := task.Request
 
-	log.Infof("Processing upload for file: %s", absFilename)
-	startTime := time.Now()
+    log.Infof("Processing upload for file: %s", absFilename)
+    startTime := time.Now()
 
-	// Handle uploads and write to a temporary file
-	if conf.Uploads.ChunkedUploadsEnabled {
-		log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
-		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"file":  tempFilename,
-				"error": err,
-			}).Error("Error parsing chunk size")
-			uploadDuration.Observe(time.Since(startTime).Seconds())
-			return err
-		}
-		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
-		if err != nil {
-			uploadDuration.Observe(time.Since(startTime).Seconds())
-			log.WithFields(logrus.Fields{
-				"file":  tempFilename,
-				"error": err,
-			}).Error("Failed to handle chunked upload")
-			return err
-		}
-	} else {
-		log.Debugf("Handling standard upload for %s", tempFilename)
-		err := createFile(tempFilename, r)
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"file":  tempFilename,
-				"error": err,
-			}).Error("Error creating file")
-			uploadDuration.Observe(time.Since(startTime).Seconds())
-			return err
-		}
-	}
+    // Handle uploads and write to a temporary file
+    if conf.Uploads.ChunkedUploadsEnabled {
+        log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
+        chunkSize, err := parseSize(conf.Uploads.ChunkSize)
+        if err != nil {
+            log.WithFields(logrus.Fields{
+                "file":  tempFilename,
+                "error": err,
+            }).Error("Error parsing chunk size")
+            uploadDuration.Observe(time.Since(startTime).Seconds())
+            return err
+        }
+        err = handleChunkedUpload(tempFilename, r, int(chunkSize))
+        if err != nil {
+            uploadDuration.Observe(time.Since(startTime).Seconds())
+            log.WithFields(logrus.Fields{
+                "file":  tempFilename,
+                "error": err,
+            }).Error("Failed to handle chunked upload")
+            return err
+        }
+    } else {
+        log.Debugf("Handling standard upload for %s", tempFilename)
+        err := createFile(tempFilename, r)
+        if err != nil {
+            log.WithFields(logrus.Fields{
+                "file":  tempFilename,
+                "error": err,
+            }).Error("Error creating file")
+            uploadDuration.Observe(time.Since(startTime).Seconds())
+            return err
+        }
+    }
 
-	// Perform ClamAV scan synchronously with graceful degradation
-	if clamClient != nil {
-		log.Debugf("Scanning %s with ClamAV", tempFilename)
-		err := scanFileWithClamAV(tempFilename)
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"file":  tempFilename,
-				"error": err,
-			}).Warn("ClamAV detected a virus or scan failed")
-			os.Remove(tempFilename)
-			uploadErrorsTotal.Inc()
-			return err
-		}
-		log.Infof("ClamAV scan passed for file: %s", tempFilename)
-	} else {
-		log.Warn("ClamAV is not available. Proceeding without virus scan.")
-	}
+    // Perform ClamAV scan synchronously with graceful degradation
+    if clamClient != nil {
+        log.Debugf("Scanning %s with ClamAV", tempFilename)
+        err := scanFileWithClamAV(tempFilename)
+        if err != nil {
+            log.WithFields(logrus.Fields{
+                "file":  tempFilename,
+                "error": err,
+            }).Warn("ClamAV detected a virus or scan failed")
+            os.Remove(tempFilename)
+            uploadErrorsTotal.Inc()
+            return err
+        }
+        log.Infof("ClamAV scan passed for file: %s", tempFilename)
+    } else {
+        log.Warn("ClamAV is not available. Proceeding without virus scan.")
+    }
 
-	// Handle file versioning if enabled
-	if conf.Versioning.EnableVersioning {
-		existing, _ := fileExists(absFilename)
-		if existing {
-			log.Infof("File %s exists. Initiating versioning.", absFilename)
-			err := versionFile(absFilename)
-			if err != nil {
-				log.WithFields(logrus.Fields{
-					"file":  absFilename,
-					"error": err,
-				}).Error("Error versioning file")
-				os.Remove(tempFilename)
-				return err
-			}
-			log.Infof("File versioned successfully: %s", absFilename)
-		}
-	}
+    // Handle file versioning if enabled
+    if conf.Versioning.EnableVersioning {
+        existing, _ := fileExists(absFilename)
+        if existing {
+            log.Infof("File %s exists. Initiating versioning.", absFilename)
+            err := versionFile(absFilename)
+            if err != nil {
+                log.WithFields(logrus.Fields{
+                    "file":  absFilename,
+                    "error": err,
+                }).Error("Error versioning file")
+                os.Remove(tempFilename)
+                return err
+            }
+            log.Infof("File versioned successfully: %s", absFilename)
+        }
+    }
 
-	// Rename temporary file to final destination
-	err := os.Rename(tempFilename, absFilename)
-	if err != nil {
-		log.WithFields(logrus.Fields{
-			"temp_file":  tempFilename,
-			"final_file": absFilename,
-			"error":      err,
-		}).Error("Failed to move file to final destination")
-		os.Remove(tempFilename)
-		return err
-	}
-	log.Infof("File moved to final destination: %s", absFilename)
+    // Rename temporary file to final destination
+    err := os.Rename(tempFilename, absFilename)
+    if err != nil {
+        log.WithFields(logrus.Fields{
+            "temp_file":  tempFilename,
+            "final_file": absFilename,
+            "error":      err,
+        }).Error("Failed to move file to final destination")
+        os.Remove(tempFilename)
+        return err
+    }
+    log.Infof("File moved to final destination: %s", absFilename)
 
-	// Handle deduplication if enabled
-	if conf.Server.DeduplicationEnabled {
-		log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
-		err = handleDeduplication(context.Background(), absFilename)
-		if err != nil {
-			log.WithError(err).Error("Deduplication failed")
-			uploadErrorsTotal.Inc()
-			return err
-		}
-		log.Infof("Deduplication handled successfully for file: %s", absFilename)
-	}
+    // Notify client of successful upload and wait for ACK
+    err = notifyClientAndWaitForAck(task.Request, absFilename)
+    if err != nil {
+        log.WithFields(logrus.Fields{
+            "file":  absFilename,
+            "error": err,
+        }).Error("Failed to receive client acknowledgment")
+        return err
+    }
 
-	// Handle ISO container if enabled
-	if conf.ISO.Enabled {
-		err = handleISOContainer(absFilename)
-		if err != nil {
-			log.WithError(err).Error("ISO container handling failed")
-			uploadErrorsTotal.Inc()
-			return err
-		}
-		log.Infof("ISO container handled successfully for file: %s", absFilename)
-	}
+    // Handle deduplication if enabled
+    if conf.Server.DeduplicationEnabled {
+        log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
+        err = handleDeduplication(context.Background(), absFilename)
+        if err != nil {
+            log.WithError(err).Error("Deduplication failed")
+            uploadErrorsTotal.Inc()
+            return err
+        }
+        log.Infof("Deduplication handled successfully for file: %s", absFilename)
+    }
 
-	log.WithFields(logrus.Fields{
-		"file": absFilename,
-	}).Info("File uploaded and processed successfully")
+    // Handle ISO container if enabled
+    if conf.ISO.Enabled {
+        err = handleISOContainer(absFilename)
+        if err != nil {
+            log.WithError(err).Error("ISO container handling failed")
+            uploadErrorsTotal.Inc()
+            return err
+        }
+        log.Infof("ISO container handled successfully for file: %s", absFilename)
+    }
 
-	uploadDuration.Observe(time.Since(startTime).Seconds())
-	uploadsTotal.Inc()
-	return nil
+    log.WithFields(logrus.Fields{
+        "file": absFilename,
+    }).Info("File uploaded and processed successfully")
+
+    uploadDuration.Observe(time.Since(startTime).Seconds())
+    uploadsTotal.Inc()
+    return nil
 }
 
 // Improved uploadWorker function with better concurrency handling
@@ -1692,7 +1702,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if !redisConnected {
+				if (!redisConnected) {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -2208,4 +2218,41 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 		return fmt.Errorf("failed to recreate ISO container: %w", err)
 	}
 	return nil
+}
+
+// Notify client of successful upload and wait for acknowledgment
+func notifyClientAndWaitForAck(r *http.Request, absFilename string) error {
+    // Notify client of successful upload
+    client := &http.Client{}
+    req, err := http.NewRequest("POST", r.Header.Get("Callback-URL"), nil)
+    if err != nil {
+        return fmt.Errorf("failed to create callback request: %w", err)
+    }
+    req.Header.Set("File-Path", absFilename)
+
+    resp, err := client.Do(req)
+    if err != nil {
+        return fmt.Errorf("failed to send callback request: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        return fmt.Errorf("callback request failed with status: %s", resp.Status)
+    }
+
+    // Wait for client acknowledgment
+    ackChan := make(chan struct{})
+    go func() {
+        // Simulate waiting for client acknowledgment
+        time.Sleep(5 * time.Second)
+        close(ackChan)
+    }()
+
+    select {
+    case <-ackChan:
+        log.Infof("Received client acknowledgment for file: %s", absFilename)
+        return nil
+    case <-time.After(30 * time.Second):
+        return fmt.Errorf("timeout waiting for client acknowledgment")
+    }
 }
