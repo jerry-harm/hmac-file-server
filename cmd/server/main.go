@@ -906,38 +906,38 @@ func initializeUploadWorkerPool(ctx context.Context) {
 
 // Worker function to process scan tasks with fault tolerance
 func scanWorker(ctx context.Context, workerID int) {
-	log.WithField("worker_id", workerID).Info("Scan worker started")
-	for {
-		select {
-		case <-ctx.Done():
-			log.WithField("worker_id", workerID).Info("Scan worker stopping")
-			return
-		case task, ok := <-scanQueue:
-			if !ok {
-				log.WithField("worker_id", workerID).Info("Scan queue closed")
-				return
-			}
-			log.WithFields(logrus.Fields{
-				"worker_id": workerID,
-				"file":      task.AbsFilename,
-			}).Info("Processing scan task")
-			err := scanFileWithClamAV(task.AbsFilename)
-			if err != nil {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-					"error":     err,
-				}).Error("Failed to scan file")
-			} else {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-				}).Info("Successfully scanned file")
-			}
-			task.Result <- err
-			close(task.Result)
-		}
-	}
+    log.WithField("worker_id", workerID).Info("Scan worker started")
+    for {
+        select {
+        case <-ctx.Done():
+            log.WithField("worker_id", workerID).Info("Scan worker stopping")
+            return
+        case task, ok := <-scanQueue:
+            if !ok {
+                log.WithField("worker_id", workerID).Info("Scan queue closed")
+                return
+            }
+            log.WithFields(logrus.Fields{
+                "worker_id": workerID,
+                "file":      task.AbsFilename,
+            }).Info("Processing scan task")
+            err := scanFileWithClamAV(task.AbsFilename)
+            if err != nil {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                    "error":     err,
+                }).Error("Failed to scan file")
+            } else {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                }).Info("Successfully scanned file")
+            }
+            task.Result <- err
+            close(task.Result)
+        }
+    }
 }
 
 // Initialize scan worker pool with fault tolerance
