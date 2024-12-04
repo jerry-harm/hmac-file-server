@@ -43,56 +43,56 @@ import (
 
 // parseSize converts a human-readable size string (e.g., "1KB", "1MB", "1GB", "1TB") to bytes
 func parseSize(sizeStr string) (int64, error) {
-    sizeStr = strings.TrimSpace(sizeStr)
-    if len(sizeStr) < 2 {
-        return 0, fmt.Errorf("invalid size: %s", sizeStr)
-    }
+	sizeStr = strings.TrimSpace(sizeStr)
+	if len(sizeStr) < 2 {
+		return 0, fmt.Errorf("invalid size: %s", sizeStr)
+	}
 
-    unit := sizeStr[len(sizeStr)-2:]
-    valueStr := sizeStr[:len(sizeStr)-2]
-    value, err := strconv.Atoi(valueStr)
-    if err != nil {
-        return 0, fmt.Errorf("invalid size value: %s", valueStr)
-    }
+	unit := sizeStr[len(sizeStr)-2:]
+	valueStr := sizeStr[:len(sizeStr)-2]
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid size value: %s", valueStr)
+	}
 
-    switch strings.ToUpper(unit) {
-    case "KB":
-        return int64(value) * 1024, nil
-    case "MB":
-        return int64(value) * 1024 * 1024, nil
-    case "GB":
-        return int64(value) * 1024 * 1024 * 1024, nil
-    case "TB":
-        return int64(value) * 1024 * 1024 * 1024 * 1024, nil
-    default:
-        return 0, fmt.Errorf("unknown size unit: %s", unit)
-    }
+	switch strings.ToUpper(unit) {
+	case "KB":
+		return int64(value) * 1024, nil
+	case "MB":
+		return int64(value) * 1024 * 1024, nil
+	case "GB":
+		return int64(value) * 1024 * 1024 * 1024, nil
+	case "TB":
+		return int64(value) * 1024 * 1024 * 1024 * 1024, nil
+	default:
+		return 0, fmt.Errorf("unknown size unit: %s", unit)
+	}
 }
 
 // parseTTL converts a human-readable TTL string (e.g., "1D", "1M", "1Y") to a time.Duration
 func parseTTL(ttlStr string) (time.Duration, error) {
-    ttlStr = strings.TrimSpace(ttlStr)
-    if len(ttlStr) < 2 {
-        return 0, fmt.Errorf("invalid TTL: %s", ttlStr)
-    }
+	ttlStr = strings.TrimSpace(ttlStr)
+	if len(ttlStr) < 2 {
+		return 0, fmt.Errorf("invalid TTL: %s", ttlStr)
+	}
 
-    unit := ttlStr[len(ttlStr)-1:]
-    valueStr := ttlStr[:len(ttlStr)-1]
-    value, err := strconv.Atoi(valueStr)
-    if err != nil {
-        return 0, fmt.Errorf("invalid TTL value: %s", valueStr)
-    }
+	unit := ttlStr[len(ttlStr)-1:]
+	valueStr := ttlStr[:len(ttlStr)-1]
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid TTL value: %s", valueStr)
+	}
 
-    switch strings.ToUpper(unit) {
-    case "D":
-        return time.Duration(value) * 24 * time.Hour, nil
-    case "M":
-        return time.Duration(value) * 30 * 24 * time.Hour, nil
-    case "Y":
-        return time.Duration(value) * 365 * 24 * time.Hour, nil
-    default:
-        return 0, fmt.Errorf("unknown TTL unit: %s", unit)
-    }
+	switch strings.ToUpper(unit) {
+	case "D":
+		return time.Duration(value) * 24 * time.Hour, nil
+	case "M":
+		return time.Duration(value) * 30 * 24 * time.Hour, nil
+	case "Y":
+		return time.Duration(value) * 365 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unknown TTL unit: %s", unit)
+	}
 }
 
 // Configuration structure
@@ -233,171 +233,171 @@ const (
 )
 
 func main() {
-    // Set default configuration values
-    setDefaults()
+	// Set default configuration values
+	setDefaults()
 
-    // Flags for configuration file
-    var configFile string
-    flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
-    flag.Parse()
+	// Flags for configuration file
+	var configFile string
+	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
+	flag.Parse()
 
-    // Load configuration
-    err := readConfig(configFile, &conf)
-    if err != nil {
-        log.Fatalf("Error reading config: %v", err) // Fatal: application cannot proceed
-    }
-    log.Info("Configuration loaded successfully.")
+	// Load configuration
+	err := readConfig(configFile, &conf)
+	if err != nil {
+		log.Fatalf("Error reading config: %v", err) // Fatal: application cannot proceed
+	}
+	log.Info("Configuration loaded successfully.")
 
-    // Verify and create ISO container if it doesn't exist
-    if conf.ISO.Enabled {
-        err = verifyAndCreateISOContainer()
-        if err != nil {
-            log.Fatalf("ISO container verification failed: %v", err)
-        }
-    }
+	// Verify and create ISO container if it doesn't exist
+	if conf.ISO.Enabled {
+		err = verifyAndCreateISOContainer()
+		if err != nil {
+			log.Fatalf("ISO container verification failed: %v", err)
+		}
+	}
 
-    // Initialize file info cache
-    fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
+	// Initialize file info cache
+	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 
-    // Create store directory
-    err = os.MkdirAll(conf.Server.StoragePath, os.ModePerm)
-    if err != nil {
-        log.Fatalf("Error creating store directory: %v", err)
-    }
-    log.WithField("directory", conf.Server.StoragePath).Info("Store directory is ready")
+	// Create store directory
+	err = os.MkdirAll(conf.Server.StoragePath, os.ModePerm)
+	if err != nil {
+		log.Fatalf("Error creating store directory: %v", err)
+	}
+	log.WithField("directory", conf.Server.StoragePath).Info("Store directory is ready")
 
-    // Check free space with retry
-    err = checkFreeSpaceWithRetry(conf.Server.StoragePath, 3, 5*time.Second)
-    if err != nil {
-        log.Fatalf("Insufficient free space: %v", err)
-    }
+	// Check free space with retry
+	err = checkFreeSpaceWithRetry(conf.Server.StoragePath, 3, 5*time.Second)
+	if err != nil {
+		log.Fatalf("Insufficient free space: %v", err)
+	}
 
-    // Setup logging
-    setupLogging()
+	// Setup logging
+	setupLogging()
 
-    // Log system information
-    logSystemInfo()
+	// Log system information
+	logSystemInfo()
 
-    // Initialize Prometheus metrics
-    initMetrics()
-    log.Info("Prometheus metrics initialized.")
+	// Initialize Prometheus metrics
+	initMetrics()
+	log.Info("Prometheus metrics initialized.")
 
-    // Initialize upload and scan queues
-    uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
-    log.Infof("Upload queue initialized with size: %d", conf.Workers.UploadQueueSize)
-    scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
-    networkEvents = make(chan NetworkEvent, 100)
-    log.Info("Upload, scan, and network event channels initialized.")
+	// Initialize upload and scan queues
+	uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
+	log.Infof("Upload queue initialized with size: %d", conf.Workers.UploadQueueSize)
+	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
+	networkEvents = make(chan NetworkEvent, 100)
+	log.Info("Upload, scan, and network event channels initialized.")
 
-    // Context for goroutines
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
+	// Context for goroutines
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-    // Start network monitoring
-    go monitorNetwork(ctx)
-    go handleNetworkEvents(ctx)
+	// Start network monitoring
+	go monitorNetwork(ctx)
+	go handleNetworkEvents(ctx)
 
-    // Update system metrics
-    go updateSystemMetrics(ctx)
+	// Update system metrics
+	go updateSystemMetrics(ctx)
 
-    // Initialize ClamAV client if enabled
-    if conf.ClamAV.ClamAVEnabled {
-        clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
-        if err != nil {
-            log.WithFields(logrus.Fields{
-                "error": err.Error(),
-            }).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
-        } else {
-            log.Info("ClamAV client initialized successfully.")
-        }
-    }
+	// Initialize ClamAV client if enabled
+	if conf.ClamAV.ClamAVEnabled {
+		clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"error": err.Error(),
+			}).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+		} else {
+			log.Info("ClamAV client initialized successfully.")
+		}
+	}
 
-    // Initialize Redis client if enabled
-    if conf.Redis.RedisEnabled {
-        initRedis()
-    }
+	// Initialize Redis client if enabled
+	if conf.Redis.RedisEnabled {
+		initRedis()
+	}
 
-    // Initialize worker pools
-    initializeUploadWorkerPool(ctx)
-    if conf.ClamAV.ClamAVEnabled && clamClient != nil {
-        initializeScanWorkerPool(ctx)
-    }
+	// Initialize worker pools
+	initializeUploadWorkerPool(ctx)
+	if conf.ClamAV.ClamAVEnabled && clamClient != nil {
+		initializeScanWorkerPool(ctx)
+	}
 
-    // Start Redis health monitor if Redis is enabled
-    if conf.Redis.RedisEnabled && redisClient != nil {
-        go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
-    }
+	// Start Redis health monitor if Redis is enabled
+	if conf.Redis.RedisEnabled && redisClient != nil {
+		go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
+	}
 
-    // Setup router
-    router := setupRouter()
+	// Setup router
+	router := setupRouter()
 
-    // Start file cleaner
-    fileTTL, err := parseTTL(conf.Server.FileTTL)
-    if err != nil {
-        log.Fatalf("Invalid FileTTL: %v", err)
-    }
-    go runFileCleaner(ctx, conf.Server.StoragePath, fileTTL)
+	// Start file cleaner
+	fileTTL, err := parseTTL(conf.Server.FileTTL)
+	if err != nil {
+		log.Fatalf("Invalid FileTTL: %v", err)
+	}
+	go runFileCleaner(ctx, conf.Server.StoragePath, fileTTL)
 
-    // Parse timeout durations
-    readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
-    if err != nil {
-        log.Fatalf("Invalid ReadTimeout: %v", err)
-    }
+	// Parse timeout durations
+	readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
+	if err != nil {
+		log.Fatalf("Invalid ReadTimeout: %v", err)
+	}
 
-    writeTimeout, err := time.ParseDuration(conf.Timeouts.WriteTimeout)
-    if err != nil {
-        log.Fatalf("Invalid WriteTimeout: %v", err)
-    }
+	writeTimeout, err := time.ParseDuration(conf.Timeouts.WriteTimeout)
+	if err != nil {
+		log.Fatalf("Invalid WriteTimeout: %v", err)
+	}
 
-    idleTimeout, err := time.ParseDuration(conf.Timeouts.IdleTimeout)
-    if err != nil {
-        log.Fatalf("Invalid IdleTimeout: %v", err)
-    }
+	idleTimeout, err := time.ParseDuration(conf.Timeouts.IdleTimeout)
+	if err != nil {
+		log.Fatalf("Invalid IdleTimeout: %v", err)
+	}
 
-    // Configure HTTP server
-    server := &http.Server{
-        Addr:         ":" + conf.Server.ListenPort, // Prepend colon to ListenPort
-        Handler:      router,
-        ReadTimeout:  readTimeout,
-        WriteTimeout: writeTimeout,
-        IdleTimeout:  idleTimeout,
-    }
+	// Configure HTTP server
+	server := &http.Server{
+		Addr:         ":" + conf.Server.ListenPort, // Prepend colon to ListenPort
+		Handler:      router,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
+	}
 
-    // Start metrics server if enabled
-    if conf.Server.MetricsEnabled {
-        go func() {
-            http.Handle("/metrics", promhttp.Handler())
-            log.Infof("Metrics server started on port %s", conf.Server.MetricsPort)
-            if err := http.ListenAndServe(":"+conf.Server.MetricsPort, nil); err != nil {
-                log.Fatalf("Metrics server failed: %v", err)
-            }
-        }()
-    }
+	// Start metrics server if enabled
+	if conf.Server.MetricsEnabled {
+		go func() {
+			http.Handle("/metrics", promhttp.Handler())
+			log.Infof("Metrics server started on port %s", conf.Server.MetricsPort)
+			if err := http.ListenAndServe(":"+conf.Server.MetricsPort, nil); err != nil {
+				log.Fatalf("Metrics server failed: %v", err)
+			}
+		}()
+	}
 
-    // Setup graceful shutdown
-    setupGracefulShutdown(server, cancel)
+	// Setup graceful shutdown
+	setupGracefulShutdown(server, cancel)
 
-    // Start server
-    log.Infof("Starting HMAC file server %s...", versionString)
-    if conf.Server.UnixSocket {
-        // Listen on Unix socket
-        if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
-            log.Fatalf("Failed to remove existing Unix socket: %v", err)
-        }
-        listener, err := net.Listen("unix", conf.Server.ListenPort)
-        if err != nil {
-            log.Fatalf("Failed to listen on Unix socket %s: %v", conf.Server.ListenPort, err)
-        }
-        defer listener.Close()
-        if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("Server failed: %v", err)
-        }
-    } else {
-        // Listen on TCP port
-        if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("Server failed: %v", err)
-        }
-    }
+	// Start server
+	log.Infof("Starting HMAC file server %s...", versionString)
+	if conf.Server.UnixSocket {
+		// Listen on Unix socket
+		if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
+			log.Fatalf("Failed to remove existing Unix socket: %v", err)
+		}
+		listener, err := net.Listen("unix", conf.Server.ListenPort)
+		if err != nil {
+			log.Fatalf("Failed to listen on Unix socket %s: %v", conf.Server.ListenPort, err)
+		}
+		defer listener.Close()
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	} else {
+		// Listen on TCP port
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}
 }
 
 // Function to load configuration using Viper
@@ -756,126 +756,126 @@ func cleanupOldVersions(versionDir string) error {
 
 // Process the upload task
 func processUpload(task UploadTask) error {
-    absFilename := task.AbsFilename
-    tempFilename := absFilename + ".tmp"
-    r := task.Request
+	absFilename := task.AbsFilename
+	tempFilename := absFilename + ".tmp"
+	r := task.Request
 
-    log.Infof("Processing upload for file: %s", absFilename)
-    startTime := time.Now()
+	log.Infof("Processing upload for file: %s", absFilename)
+	startTime := time.Now()
 
-    // Handle uploads and write to a temporary file
-    if conf.Uploads.ChunkedUploadsEnabled {
-        log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
-        chunkSize, err := parseSize(conf.Uploads.ChunkSize)
-        if (err != nil) {
-            log.WithFields(logrus.Fields{
-                "file":  tempFilename,
-                "error": err,
-            }).Error("Error parsing chunk size")
-            uploadDuration.Observe(time.Since(startTime).Seconds())
-            return err
-        }
-        err = handleChunkedUpload(tempFilename, r, int(chunkSize))
-        if (err != nil) {
-            uploadDuration.Observe(time.Since(startTime).Seconds())
-            log.WithFields(logrus.Fields{
-                "file":  tempFilename,
-                "error": err,
-            }).Error("Failed to handle chunked upload")
-            return err
-        }
-    } else {
-        log.Debugf("Handling standard upload for %s", tempFilename)
-        err := createFile(tempFilename, r)
-        if (err != nil) {
-            log.WithFields(logrus.Fields{
-                "file":  tempFilename,
-                "error": err,
-            }).Error("Error creating file")
-            uploadDuration.Observe(time.Since(startTime).Seconds())
-            return err
-        }
-    }
+	// Handle uploads and write to a temporary file
+	if conf.Uploads.ChunkedUploadsEnabled {
+		log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
+		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Error parsing chunk size")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return err
+		}
+		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
+		if err != nil {
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Failed to handle chunked upload")
+			return err
+		}
+	} else {
+		log.Debugf("Handling standard upload for %s", tempFilename)
+		err := createFile(tempFilename, r)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Error creating file")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return err
+		}
+	}
 
-    // Perform ClamAV scan asynchronously
-    if clamClient != nil {
-        go func() {
-            log.Debugf("Scanning %s with ClamAV", tempFilename)
-            err := scanFileWithClamAV(tempFilename)
-            if (err != nil) {
-                log.WithFields(logrus.Fields{
-                    "file":  tempFilename,
-                    "error": err,
-                }).Warn("ClamAV detected a virus or scan failed")
-                os.Remove(tempFilename)
-                uploadErrorsTotal.Inc()
-                return
-            }
-            log.Infof("ClamAV scan passed for file: %s", tempFilename)
-        }()
-    }
+	// Perform ClamAV scan asynchronously
+	if clamClient != nil {
+		go func() {
+			log.Debugf("Scanning %s with ClamAV", tempFilename)
+			err := scanFileWithClamAV(tempFilename)
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"file":  tempFilename,
+					"error": err,
+				}).Warn("ClamAV detected a virus or scan failed")
+				os.Remove(tempFilename)
+				uploadErrorsTotal.Inc()
+				return
+			}
+			log.Infof("ClamAV scan passed for file: %s", tempFilename)
+		}()
+	}
 
-    // Handle file versioning if enabled
-    if conf.Versioning.EnableVersioning {
-        existing, _ := fileExists(absFilename)
-        if existing {
-            log.Infof("File %s exists. Initiating versioning.", absFilename)
-            err := versionFile(absFilename)
-            if (err != nil) {
-                log.WithFields(logrus.Fields{
-                    "file":  absFilename,
-                    "error": err,
-                }).Error("Error versioning file")
-                os.Remove(tempFilename)
-                return err
-            }
-            log.Infof("File versioned successfully: %s", absFilename)
-        }
-    }
+	// Handle file versioning if enabled
+	if conf.Versioning.EnableVersioning {
+		existing, _ := fileExists(absFilename)
+		if existing {
+			log.Infof("File %s exists. Initiating versioning.", absFilename)
+			err := versionFile(absFilename)
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"file":  absFilename,
+					"error": err,
+				}).Error("Error versioning file")
+				os.Remove(tempFilename)
+				return err
+			}
+			log.Infof("File versioned successfully: %s", absFilename)
+		}
+	}
 
-    // Rename temporary file to final destination
-    err := os.Rename(tempFilename, absFilename)
-    if (err != nil) {
-        log.WithFields(logrus.Fields{
-            "temp_file":  tempFilename,
-            "final_file": absFilename,
-            "error":      err,
-        }).Error("Failed to move file to final destination")
-        os.Remove(tempFilename)
-        return err
-    }
-    log.Infof("File moved to final destination: %s", absFilename)
+	// Rename temporary file to final destination
+	err := os.Rename(tempFilename, absFilename)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"temp_file":  tempFilename,
+			"final_file": absFilename,
+			"error":      err,
+		}).Error("Failed to move file to final destination")
+		os.Remove(tempFilename)
+		return err
+	}
+	log.Infof("File moved to final destination: %s", absFilename)
 
-    // Handle deduplication if enabled
-    if conf.Server.DeduplicationEnabled {
-        log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
-        err = handleDeduplication(context.Background(), absFilename)
-        if (err != nil) {
-            log.WithError(err).Error("Deduplication failed")
-            uploadErrorsTotal.Inc()
-            return err
-        }
-        log.Infof("Deduplication handled successfully for file: %s", absFilename)
-    }
+	// Handle deduplication if enabled
+	if conf.Server.DeduplicationEnabled {
+		log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
+		err = handleDeduplication(context.Background(), absFilename)
+		if err != nil {
+			log.WithError(err).Error("Deduplication failed")
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("Deduplication handled successfully for file: %s", absFilename)
+	}
 
-    // Handle ISO container if enabled
-    if conf.ISO.Enabled {
-        err = handleISOContainer(absFilename)
-        if (err != nil) {
-            log.WithError(err).Error("ISO container handling failed")
-            uploadErrorsTotal.Inc()
-            return err
-        }
-        log.Infof("ISO container handled successfully for file: %s", absFilename)
-    }
+	// Handle ISO container if enabled
+	if conf.ISO.Enabled {
+		err = handleISOContainer(absFilename)
+		if err != nil {
+			log.WithError(err).Error("ISO container handling failed")
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("ISO container handled successfully for file: %s", absFilename)
+	}
 
-    log.WithFields(logrus.Fields{
-        "file": absFilename,
-    }).Info("File uploaded and processed successfully")
+	log.WithFields(logrus.Fields{
+		"file": absFilename,
+	}).Info("File uploaded and processed successfully")
 
-    uploadDuration.Observe(time.Since(startTime).Seconds())
-    uploadsTotal.Inc()
-    return nil
+	uploadDuration.Observe(time.Since(startTime).Seconds())
+	uploadsTotal.Inc()
+	return nil
 }
 
 // Improved uploadWorker function with better concurrency handling
@@ -913,7 +913,7 @@ func scanWorker(ctx context.Context, workerID int) {
 			log.WithField("worker_id", workerID).Info("Scan worker stopping")
 			return
 		case task, ok := <-scanQueue:
-			if (!ok) {
+			if !ok {
 				log.WithField("worker_id", workerID).Info("Scan queue closed")
 				return
 			}
@@ -922,7 +922,7 @@ func scanWorker(ctx context.Context, workerID int) {
 				"file":      task.AbsFilename,
 			}).Info("Processing scan task")
 			err := scanFileWithClamAV(task.AbsFilename)
-			if (err != nil) {
+			if err != nil {
 				log.WithFields(logrus.Fields{
 					"worker_id": workerID,
 					"file":      task.AbsFilename,
@@ -952,7 +952,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if (conf.Server.MetricsEnabled) {
+	if conf.Server.MetricsEnabled {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -990,16 +990,16 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 
 // corsMiddleware handles CORS by setting appropriate headers
 func corsMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Access-Control-Allow-Origin", "*")
-        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        if r.Method == "OPTIONS" {
-            w.WriteHeader(http.StatusOK)
-            return
-        }
-        next.ServeHTTP(w, r)
-    })
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Handle file uploads and downloads
@@ -1090,117 +1090,117 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 // Handle file uploads with extension restrictions and HMAC validation
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
-    // Log the storage path being used
-    log.Infof("Using storage path: %s", conf.Server.StoragePath)
+	// Log the storage path being used
+	log.Infof("Using storage path: %s", conf.Server.StoragePath)
 
-    // Determine protocol version based on query parameters
-    var protocolVersion string
-    if a.Get("v2") != "" {
-        protocolVersion = "v2"
-    } else if a.Get("token") != "" {
-        protocolVersion = "token"
-    } else if a.Get("v") != "" {
-        protocolVersion = "v"
-    } else {
-        log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
-        http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
-        return
-    }
-    log.Debugf("Protocol version determined: %s", protocolVersion)
+	// Determine protocol version based on query parameters
+	var protocolVersion string
+	if a.Get("v2") != "" {
+		protocolVersion = "v2"
+	} else if a.Get("token") != "" {
+		protocolVersion = "token"
+	} else if a.Get("v") != "" {
+		protocolVersion = "v"
+	} else {
+		log.Warn("No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC")
+		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
+		return
+	}
+	log.Debugf("Protocol version determined: %s", protocolVersion)
 
-    // Initialize HMAC
-    mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
+	// Initialize HMAC
+	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
 
-    // Calculate MAC based on protocolVersion
-    if protocolVersion == "v" {
-        mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+	// Calculate MAC based on protocolVersion
+	if protocolVersion == "v" {
+		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
 	} else if protocolVersion == "v2" || protocolVersion == "token" {
-        contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-        if contentType == "" {
-            contentType = "application/octet-stream"
-        }
-        mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-    }
+		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+	}
 
-    calculatedMAC := mac.Sum(nil)
-    log.Debugf("Calculated MAC: %x", calculatedMAC)
+	calculatedMAC := mac.Sum(nil)
+	log.Debugf("Calculated MAC: %x", calculatedMAC)
 
-    // Decode provided MAC from hex
-    providedMACHex := a.Get(protocolVersion)
-    providedMAC, err := hex.DecodeString(providedMACHex)
-    if err != nil {
-        log.Warn("Invalid MAC encoding")
-        http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
-        return
-    }
-    log.Debugf("Provided MAC: %x", providedMAC)
+	// Decode provided MAC from hex
+	providedMACHex := a.Get(protocolVersion)
+	providedMAC, err := hex.DecodeString(providedMACHex)
+	if err != nil {
+		log.Warn("Invalid MAC encoding")
+		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
+		return
+	}
+	log.Debugf("Provided MAC: %x", providedMAC)
 
-    // Validate the HMAC
-    if !hmac.Equal(calculatedMAC, providedMAC) {
-        log.Warn("Invalid MAC")
-        http.Error(w, "Invalid MAC", http.StatusForbidden)
-        return
-    }
-    log.Debug("HMAC validation successful")
+	// Validate the HMAC
+	if !hmac.Equal(calculatedMAC, providedMAC) {
+		log.Warn("Invalid MAC")
+		http.Error(w, "Invalid MAC", http.StatusForbidden)
+		return
+	}
+	log.Debug("HMAC validation successful")
 
-    // Validate file extension
-    if !isExtensionAllowed(fileStorePath) {
-        log.WithFields(logrus.Fields{
-            "file":  fileStorePath,
-            "error": err,
-        }).Warn("Invalid file path")
-        http.Error(w, "Invalid file path", http.StatusBadRequest)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	// Validate file extension
+	if (!isExtensionAllowed(fileStorePath)) {
+		log.WithFields(logrus.Fields{
+			"file":  fileStorePath,
+			"error": err,
+		}).Warn("Invalid file path")
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    // Check if there is enough free space
-    minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
-    if err != nil {
-        log.Fatalf("Invalid MinFreeBytes: %v", err)
-    }
-    err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
-    if err != nil {
-        log.WithFields(logrus.Fields{
-            "storage_path": conf.Server.StoragePath,
-            "error":        err,
-        }).Warn("Not enough free space")
-        http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	// Check if there is enough free space
+	minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
+	if err != nil {
+		log.Fatalf("Invalid MinFreeBytes: %v", err)
+	}
+	err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"storage_path": conf.Server.StoragePath,
+			"error":        err,
+		}).Warn("Not enough free space")
+		http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    // Create an UploadTask with a result channel
-    result := make(chan error)
-    task := UploadTask{
-        AbsFilename: absFilename,
-        Request:     r,
-        Result:      result,
-    }
+	// Create an UploadTask with a result channel
+	result := make(chan error)
+	task := UploadTask{
+		AbsFilename: absFilename,
+		Request:     r,
+		Result:      result,
+	}
 
-    // Submit task to the upload queue
-    select {
-    case uploadQueue <- task:
-        // Successfully added to the queue
-        log.Debug("Upload task enqueued successfully")
-    default:
-        // Queue is full
-        log.Warn("Upload queue is full. Rejecting upload")
-        http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	// Submit task to the upload queue
+	select {
+	case uploadQueue <- task:
+		// Successfully added to the queue
+		log.Debug("Upload task enqueued successfully")
+	default:
+		// Queue is full
+		log.Warn("Upload queue is full. Rejecting upload")
+		http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    // Wait for the worker to process the upload
-    err = <-result
-    if err != nil {
-        // The worker has already logged the error; send an appropriate HTTP response
-        http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
-        return
-    }
+	// Wait for the worker to process the upload
+	err = <-result
+	if err != nil {
+		// The worker has already logged the error; send an appropriate HTTP response
+		http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-    // Upload was successful
-    w.WriteHeader(http.StatusCreated)
+	// Upload was successful
+	w.WriteHeader(http.StatusCreated)
 }
 
 // Handle file downloads
@@ -1338,7 +1338,7 @@ func scanFileWithClamAV(filePath string) error {
 
 // initClamAV initializes the ClamAV client and logs the status
 func initClamAV(socket string) (*clamd.Clamd, error) {
-	if (socket == "") {
+	if socket == "" {
 		log.Error("ClamAV socket path is not configured.")
 		return nil, fmt.Errorf("ClamAV socket path is not configured")
 	}
@@ -1533,11 +1533,11 @@ func monitorNetwork(ctx context.Context) {
 					log.WithField("new_ip", currentIP).Info("Queued IP_CHANGE event")
 				default:
 					log.Warn("Network event channel is full. Dropping IP_CHANGE event.")
-					}
 				}
 			}
 		}
 	}
+}
 
 // Handle network events
 func handleNetworkEvents(ctx context.Context) {
@@ -1547,7 +1547,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if (!ok) {
+			if !ok {
 				log.Info("Network events channel closed.")
 				return
 			}
@@ -1835,7 +1835,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	defer file.Close()
 
 	// Validate file extension
-	if !isExtensionAllowed(handler.Filename) {
+	if (!isExtensionAllowed(handler.Filename)) {
 		log.WithFields(logrus.Fields{
 			"filename":  handler.Filename,
 			"extension": filepath.Ext(handler.Filename),
@@ -1927,7 +1927,7 @@ func sanitizeFilePath(baseDir, filePath string) (string, error) {
 	}
 
 	// Check if the resolved file path is within the base directory
-	if !strings.HasPrefix(absFilePath, absBaseDir) {
+	if (!strings.HasPrefix(absFilePath, absBaseDir)) {
 		return "", fmt.Errorf("invalid file path: %s", filePath)
 	}
 
