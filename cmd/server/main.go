@@ -754,7 +754,7 @@ func cleanupOldVersions(versionDir string) error {
 	return nil
 }
 
-// Process the upload task with client acknowledgment
+// Process the upload task with optional client acknowledgment
 func processUpload(task UploadTask) error {
     absFilename := task.AbsFilename
     tempFilename := absFilename + ".tmp"
@@ -846,14 +846,19 @@ func processUpload(task UploadTask) error {
     }
     log.Infof("File moved to final destination: %s", absFilename)
 
-    // Notify client of successful upload and wait for ACK
-    err = notifyClientAndWaitForAck(task.Request, absFilename)
-    if err != nil {
-        log.WithFields(logrus.Fields{
-            "file":  absFilename,
-            "error": err,
-        }).Error("Failed to receive client acknowledgment")
-        return err
+    // Notify client of successful upload and wait for ACK if Callback-URL is provided
+    callbackURL := r.Header.Get("Callback-URL")
+    if callbackURL != "" {
+        err = notifyClientAndWaitForAck(callbackURL, absFilename)
+        if err != nil {
+            log.WithFields(logrus.Fields{
+                "file":  absFilename,
+                "error": err,
+            }).Error("Failed to receive client acknowledgment")
+            return err
+        }
+    } else {
+        log.Warn("Callback-URL header is missing. Proceeding without client acknowledgment.")
     }
 
     // Handle deduplication if enabled
@@ -916,38 +921,38 @@ func initializeUploadWorkerPool(ctx context.Context) {
 
 // Worker function to process scan tasks with fault tolerance
 func scanWorker(ctx context.Context, workerID int) {
-    log.WithField("worker_id", workerID).Info("Scan worker started")
-    for {
-        select {
-        case <-ctx.Done():
-            log.WithField("worker_id", workerID).Info("Scan worker stopping")
-            return
-        case task, ok := <-scanQueue:
-            if !ok {
-                log.WithField("worker_id", workerID).Info("Scan queue closed")
-                return
-            }
-            log.WithFields(logrus.Fields{
-                "worker_id": workerID,
-                "file":      task.AbsFilename,
-            }).Info("Processing scan task")
-            err := scanFileWithClamAV(task.AbsFilename)
-            if err != nil {
-                log.WithFields(logrus.Fields{
-                    "worker_id": workerID,
-                    "file":      task.AbsFilename,
-                    "error":     err,
-                }).Error("Failed to scan file")
-            } else {
-                log.WithFields(logrus.Fields{
-                    "worker_id": workerID,
-                    "file":      task.AbsFilename,
-                }).Info("Successfully scanned file")
-            }
-            task.Result <- err
-            close(task.Result)
-        }
-    }
+	log.WithField("worker_id", workerID).Info("Scan worker started")
+	for {
+		select {
+		case <-ctx.Done():
+			log.WithField("worker_id", workerID).Info("Scan worker stopping")
+			return
+		case task, ok := <-scanQueue:
+			if !ok {
+				log.WithField("worker_id", workerID).Info("Scan queue closed")
+				return
+			}
+			log.WithFields(logrus.Fields{
+				"worker_id": workerID,
+				"file":      task.AbsFilename,
+			}).Info("Processing scan task")
+			err := scanFileWithClamAV(task.AbsFilename)
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"worker_id": workerID,
+					"file":      task.AbsFilename,
+					"error":     err,
+				}).Error("Failed to scan file")
+			} else {
+				log.WithFields(logrus.Fields{
+					"worker_id": workerID,
+					"file":      task.AbsFilename,
+				}).Info("Successfully scanned file")
+			}
+			task.Result <- err
+			close(task.Result)
+		}
+	}
 }
 
 // Initialize scan worker pool with fault tolerance
@@ -962,7 +967,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if conf.Server.MetricsEnabled {
+	if (conf.Server.MetricsEnabled) {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -1229,7 +1234,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	}
 
 	contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-	if contentType == "" {
+	if (contentType == "") {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -1782,7 +1787,7 @@ func DeduplicateFiles(storeDir string) error {
 
 				mu.Lock()
 				original, exists := hashMap[hash]
-				if !exists {
+				if (!exists) {
 					hashMap[hash] = filePath
 					mu.Unlock()
 					continue
@@ -2221,10 +2226,15 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 }
 
 // Notify client of successful upload and wait for acknowledgment
-func notifyClientAndWaitForAck(r *http.Request, absFilename string) error {
+func notifyClientAndWaitForAck(callbackURL, absFilename string) error {
+    parsedURL, err := url.Parse(callbackURL)
+    if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+        return fmt.Errorf("invalid Callback-URL: %s", callbackURL)
+    }
+
     // Notify client of successful upload
     client := &http.Client{}
-    req, err := http.NewRequest("POST", r.Header.Get("Callback-URL"), nil)
+    req, err := http.NewRequest("POST", callbackURL, nil)
     if err != nil {
         return fmt.Errorf("failed to create callback request: %w", err)
     }
