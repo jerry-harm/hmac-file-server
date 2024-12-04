@@ -754,7 +754,7 @@ func cleanupOldVersions(versionDir string) error {
 	return nil
 }
 
-// Process the upload task
+// Process the upload task with graceful degradation for ClamAV
 func processUpload(task UploadTask) error {
     absFilename := task.AbsFilename
     tempFilename := absFilename + ".tmp"
@@ -797,7 +797,7 @@ func processUpload(task UploadTask) error {
         }
     }
 
-    // Perform ClamAV scan synchronously
+    // Perform ClamAV scan synchronously with graceful degradation
     if clamClient != nil {
         log.Debugf("Scanning %s with ClamAV", tempFilename)
         err := scanFileWithClamAV(tempFilename)
@@ -811,6 +811,8 @@ func processUpload(task UploadTask) error {
             return err
         }
         log.Infof("ClamAV scan passed for file: %s", tempFilename)
+    } else {
+        log.Warn("ClamAV is not available. Proceeding without virus scan.")
     }
 
     // Handle file versioning if enabled
@@ -1296,42 +1298,60 @@ func createFile(tempFilename string, r *http.Request) error {
     return nil
 }
 
-// Scan the uploaded file with ClamAV (Optional)
+// Retry function with exponential backoff
+func retry(attempts int, sleep time.Duration, fn func() error) error {
+    var err error
+    for i := 0; i < attempts; i++ {
+        err = fn()
+        if err == nil {
+            return nil
+        }
+        time.Sleep(sleep)
+        sleep *= 2
+    }
+    return fmt.Errorf("after %d attempts, last error: %s", attempts, err)
+}
+
+// Scan the uploaded file with ClamAV (with retry)
 func scanFileWithClamAV(filePath string) error {
-	log.WithField("file", filePath).Info("Scanning file with ClamAV")
+    log.WithField("file", filePath).Info("Scanning file with ClamAV")
 
-	scanResultChan, err := clamClient.ScanFile(filePath)
-	if err != nil {
-		log.WithError(err).Error("Failed to initiate ClamAV scan")
-		return fmt.Errorf("failed to initiate ClamAV scan: %w", err)
-	}
+    err := retry(3, 2*time.Second, func() error {
+        scanResultChan, err := clamClient.ScanFile(filePath)
+        if err != nil {
+            log.WithError(err).Error("Failed to initiate ClamAV scan")
+            return fmt.Errorf("failed to initiate ClamAV scan: %w", err)
+        }
 
-	// Receive scan result
-	scanResult := <-scanResultChan
-	if scanResult == nil {
-		log.Error("Failed to receive scan result from ClamAV")
-		return fmt.Errorf("failed to receive scan result from ClamAV")
-	}
+        // Receive scan result
+        scanResult := <-scanResultChan
+        if scanResult == nil {
+            log.Error("Failed to receive scan result from ClamAV")
+            return fmt.Errorf("failed to receive scan result from ClamAV")
+        }
 
-	// Handle scan result
-	switch scanResult.Status {
-	case clamd.RES_OK:
-		log.WithField("file", filePath).Info("ClamAV scan passed")
-		return nil
-	case clamd.RES_FOUND:
-		log.WithFields(logrus.Fields{
-			"file":        filePath,
-			"description": scanResult.Description,
-		}).Warn("ClamAV detected a virus")
-		return fmt.Errorf("virus detected: %s", scanResult.Description)
-	default:
-		log.WithFields(logrus.Fields{
-			"file":        filePath,
-			"status":      scanResult.Status,
-			"description": scanResult.Description,
-		}).Warn("ClamAV scan returned unexpected status")
-		return fmt.Errorf("ClamAV scan returned unexpected status: %s", scanResult.Description)
-	}
+        // Handle scan result
+        switch scanResult.Status {
+        case clamd.RES_OK:
+            log.WithField("file", filePath).Info("ClamAV scan passed")
+            return nil
+        case clamd.RES_FOUND:
+            log.WithFields(logrus.Fields{
+                "file":        filePath,
+                "description": scanResult.Description,
+            }).Warn("ClamAV detected a virus")
+            return fmt.Errorf("virus detected: %s", scanResult.Description)
+        default:
+            log.WithFields(logrus.Fields{
+                "file":        filePath,
+                "status":      scanResult.Status,
+                "description": scanResult.Description,
+            }).Warn("ClamAV scan returned unexpected status")
+            return fmt.Errorf("ClamAV scan returned unexpected status: %s", scanResult.Description)
+        }
+    })
+
+    return err
 }
 
 // initClamAV initializes the ClamAV client and logs the status
@@ -1623,7 +1643,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if !conf.Redis.RedisEnabled {
+	if (!conf.Redis.RedisEnabled) {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
