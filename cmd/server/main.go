@@ -133,9 +133,10 @@ type UploadsConfig struct {
 }
 
 type ClamAVConfig struct {
-	ClamAVEnabled  bool   `mapstructure:"ClamAVEnabled"`
-	ClamAVSocket   string `mapstructure:"ClamAVSocket"`
-	NumScanWorkers int    `mapstructure:"NumScanWorkers"`
+	ClamAVEnabled      bool     `mapstructure:"ClamAVEnabled"`
+	ClamAVSocket       string   `mapstructure:"ClamAVSocket"`
+	NumScanWorkers     int      `mapstructure:"NumScanWorkers"`
+	ScanFileExtensions []string `mapstructure:"ScanFileExtensions"` // Add this line
 }
 
 type RedisConfig struct {
@@ -754,7 +755,7 @@ func cleanupOldVersions(versionDir string) error {
 	return nil
 }
 
-// Process the upload task with optional client acknowledgment
+// Process the upload task
 func processUpload(task UploadTask) error {
     absFilename := task.AbsFilename
     tempFilename := absFilename + ".tmp"
@@ -797,7 +798,7 @@ func processUpload(task UploadTask) error {
         }
     }
 
-    // Perform ClamAV scan synchronously with graceful degradation
+    // Perform ClamAV scan synchronously
     if clamClient != nil {
         log.Debugf("Scanning %s with ClamAV", tempFilename)
         err := scanFileWithClamAV(tempFilename)
@@ -811,8 +812,6 @@ func processUpload(task UploadTask) error {
             return err
         }
         log.Infof("ClamAV scan passed for file: %s", tempFilename)
-    } else {
-        log.Warn("ClamAV is not available. Proceeding without virus scan.")
     }
 
     // Handle file versioning if enabled
@@ -845,21 +844,6 @@ func processUpload(task UploadTask) error {
         return err
     }
     log.Infof("File moved to final destination: %s", absFilename)
-
-    // Notify client of successful upload and wait for ACK if Callback-URL is provided
-    callbackURL := r.Header.Get("Callback-URL")
-    if callbackURL != "" {
-        err = notifyClientAndWaitForAck(callbackURL, absFilename)
-        if err != nil {
-            log.WithFields(logrus.Fields{
-                "file":  absFilename,
-                "error": err,
-            }).Error("Failed to receive client acknowledgment")
-            return err
-        }
-    } else {
-        log.Warn("Callback-URL header is missing. Proceeding without client acknowledgment.")
-    }
 
     // Handle deduplication if enabled
     if conf.Server.DeduplicationEnabled {
@@ -895,31 +879,31 @@ func processUpload(task UploadTask) error {
 
 // Improved uploadWorker function with better concurrency handling
 func uploadWorker(ctx context.Context, workerID int) {
-	log.Infof("Upload worker %d started.", workerID)
-	defer log.Infof("Upload worker %d stopped.", workerID)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case task, ok := <-uploadQueue:
-			if !ok {
-				return
-			}
-			err := processUpload(task)
-			task.Result <- err
-		}
-	}
+    log.Infof("Upload worker %d started.", workerID)
+    defer log.Infof("Upload worker %d stopped.", workerID)
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case task, ok := <-uploadQueue:
+            if (!ok) {
+                return
+            }
+            err := processUpload(task)
+            task.Result <- err
+        }
+    }
 }
 
 // Improved initializeUploadWorkerPool function
 func initializeUploadWorkerPool(ctx context.Context) {
-	for i := 0; i < conf.Workers.NumWorkers; i++ {
-		go uploadWorker(ctx, i)
-	}
-	log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
+    for i := 0; i < conf.Workers.NumWorkers; i++ {
+        go uploadWorker(ctx, i)
+    }
+    log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
-// Worker function to process scan tasks with fault tolerance
+// Worker function to process scan tasks
 func scanWorker(ctx context.Context, workerID int) {
 	log.WithField("worker_id", workerID).Info("Scan worker started")
 	for {
@@ -955,7 +939,7 @@ func scanWorker(ctx context.Context, workerID int) {
 	}
 }
 
-// Initialize scan worker pool with fault tolerance
+// Initialize scan worker pool
 func initializeScanWorkerPool(ctx context.Context) {
 	for i := 0; i < conf.ClamAV.NumScanWorkers; i++ {
 		go scanWorker(ctx, i)
@@ -967,7 +951,7 @@ func initializeScanWorkerPool(ctx context.Context) {
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleRequest)
-	if (conf.Server.MetricsEnabled) {
+	if conf.Server.MetricsEnabled {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 
@@ -1159,7 +1143,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	log.Debug("HMAC validation successful")
 
 	// Validate file extension
-	if !isExtensionAllowed(fileStorePath) {
+	if (!isExtensionAllowed(fileStorePath)) {
 		log.WithFields(logrus.Fields{
 			"file":  fileStorePath,
 			"error": err,
@@ -1234,7 +1218,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	}
 
 	contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-	if (contentType == "") {
+	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -1264,109 +1248,91 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 
 // Improved createFile function with proper resource management and larger buffer size
 func createFile(tempFilename string, r *http.Request) error {
-	absDirectory := filepath.Dir(tempFilename)
-	err := os.MkdirAll(absDirectory, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("failed to create directory: %v", err)
-	}
+    absDirectory := filepath.Dir(tempFilename)
+    err := os.MkdirAll(absDirectory, os.ModePerm)
+    if err != nil {
+        return fmt.Errorf("failed to create directory: %v", err)
+    }
 
-	// Open the file for writing
-	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %v", err)
-	}
-	defer targetFile.Close()
+    // Open the file for writing
+    targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+    if err != nil {
+        return fmt.Errorf("failed to open file: %v", err)
+    }
+    defer targetFile.Close()
 
-	// Use a larger buffer for efficient file writing
-	bufferSize := 8 * 1024 * 1024 // 8 MB buffer
-	writer := bufio.NewWriterSize(targetFile, bufferSize)
-	buffer := make([]byte, bufferSize)
+    // Use a larger buffer for efficient file writing
+    bufferSize := 8 * 1024 * 1024 // 8 MB buffer
+    writer := bufio.NewWriterSize(targetFile, bufferSize)
+    buffer := make([]byte, bufferSize)
 
-	totalBytes := int64(0)
-	for {
-		n, err := r.Body.Read(buffer)
-		if err != nil && err != io.EOF {
-			return fmt.Errorf("failed to read request body: %v", err)
-		}
-		if n == 0 {
-			break
-		}
+    totalBytes := int64(0)
+    for {
+        n, err := r.Body.Read(buffer)
+        if err != nil && err != io.EOF {
+            return fmt.Errorf("failed to read request body: %v", err)
+        }
+        if n == 0 {
+            break
+        }
 
-		_, err = writer.Write(buffer[:n])
-		if err != nil {
-			return fmt.Errorf("failed to write to file: %v", err)
-		}
-		totalBytes += int64(n)
-	}
+        _, err = writer.Write(buffer[:n])
+        if err != nil {
+            return fmt.Errorf("failed to write to file: %v", err)
+        }
+        totalBytes += int64(n)
+    }
 
-	err = writer.Flush()
-	if err != nil {
-		return fmt.Errorf("failed to flush writer: %v", err)
-	}
+    err = writer.Flush()
+    if err != nil {
+        return fmt.Errorf("failed to flush writer: %v", err)
+    }
 
-	log.WithFields(logrus.Fields{
-		"temp_file":   tempFilename,
-		"total_bytes": totalBytes,
-	}).Info("File uploaded successfully")
+    log.WithFields(logrus.Fields{
+        "temp_file":   tempFilename,
+        "total_bytes": totalBytes,
+    }).Info("File uploaded successfully")
 
-	uploadSizeBytes.Observe(float64(totalBytes))
-	return nil
+    uploadSizeBytes.Observe(float64(totalBytes))
+    return nil
 }
 
-// Retry function with exponential backoff
-func retry(attempts int, sleep time.Duration, fn func() error) error {
-	var err error
-	for i := 0; i < attempts; i++ {
-		err = fn()
-		if err == nil {
-			return nil
-		}
-		time.Sleep(sleep)
-		sleep *= 2
-	}
-	return fmt.Errorf("after %d attempts, last error: %s", attempts, err)
-}
-
-// Scan the uploaded file with ClamAV (with retry)
+// Scan the uploaded file with ClamAV (Optional)
 func scanFileWithClamAV(filePath string) error {
 	log.WithField("file", filePath).Info("Scanning file with ClamAV")
 
-	err := retry(3, 2*time.Second, func() error {
-		scanResultChan, err := clamClient.ScanFile(filePath)
-		if err != nil {
-			log.WithError(err).Error("Failed to initiate ClamAV scan")
-			return fmt.Errorf("failed to initiate ClamAV scan: %w", err)
-		}
+	scanResultChan, err := clamClient.ScanFile(filePath)
+	if err != nil {
+		log.WithError(err).Error("Failed to initiate ClamAV scan")
+		return fmt.Errorf("failed to initiate ClamAV scan: %w", err)
+	}
 
-		// Receive scan result
-		scanResult := <-scanResultChan
-		if scanResult == nil {
-			log.Error("Failed to receive scan result from ClamAV")
-			return fmt.Errorf("failed to receive scan result from ClamAV")
-		}
+	// Receive scan result
+	scanResult := <-scanResultChan
+	if scanResult == nil {
+		log.Error("Failed to receive scan result from ClamAV")
+		return fmt.Errorf("failed to receive scan result from ClamAV")
+	}
 
-		// Handle scan result
-		switch scanResult.Status {
-		case clamd.RES_OK:
-			log.WithField("file", filePath).Info("ClamAV scan passed")
-			return nil
-		case clamd.RES_FOUND:
-			log.WithFields(logrus.Fields{
-				"file":        filePath,
-				"description": scanResult.Description,
-			}).Warn("ClamAV detected a virus")
-			return fmt.Errorf("virus detected: %s", scanResult.Description)
-		default:
-			log.WithFields(logrus.Fields{
-				"file":        filePath,
-				"status":      scanResult.Status,
-				"description": scanResult.Description,
-			}).Warn("ClamAV scan returned unexpected status")
-			return fmt.Errorf("ClamAV scan returned unexpected status: %s", scanResult.Description)
-		}
-	})
-
-	return err
+	// Handle scan result
+	switch scanResult.Status {
+	case clamd.RES_OK:
+		log.WithField("file", filePath).Info("ClamAV scan passed")
+		return nil
+	case clamd.RES_FOUND:
+		log.WithFields(logrus.Fields{
+			"file":        filePath,
+			"description": scanResult.Description,
+		}).Warn("ClamAV detected a virus")
+		return fmt.Errorf("virus detected: %s", scanResult.Description)
+	default:
+		log.WithFields(logrus.Fields{
+			"file":        filePath,
+			"status":      scanResult.Status,
+			"description": scanResult.Description,
+		}).Warn("ClamAV scan returned unexpected status")
+		return fmt.Errorf("ClamAV scan returned unexpected status: %s", scanResult.Description)
+	}
 }
 
 // initClamAV initializes the ClamAV client and logs the status
@@ -1658,7 +1624,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if (!conf.Redis.RedisEnabled) {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1787,7 +1753,7 @@ func DeduplicateFiles(storeDir string) error {
 
 				mu.Lock()
 				original, exists := hashMap[hash]
-				if (!exists) {
+				if !exists {
 					hashMap[hash] = filePath
 					mu.Unlock()
 					continue
@@ -1868,7 +1834,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	defer file.Close()
 
 	// Validate file extension
-	if !isExtensionAllowed(handler.Filename) {
+	if (!isExtensionAllowed(handler.Filename)) {
 		log.WithFields(logrus.Fields{
 			"filename":  handler.Filename,
 			"extension": filepath.Ext(handler.Filename),
@@ -1960,7 +1926,7 @@ func sanitizeFilePath(baseDir, filePath string) (string, error) {
 	}
 
 	// Check if the resolved file path is within the base directory
-	if !strings.HasPrefix(absFilePath, absBaseDir) {
+	if (!strings.HasPrefix(absFilePath, absBaseDir)) {
 		return "", fmt.Errorf("invalid file path: %s", filePath)
 	}
 
@@ -2223,46 +2189,4 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 		return fmt.Errorf("failed to recreate ISO container: %w", err)
 	}
 	return nil
-}
-
-// Notify client of successful upload and wait for acknowledgment
-func notifyClientAndWaitForAck(callbackURL, absFilename string) error {
-    parsedURL, err := url.Parse(callbackURL)
-    if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-        return fmt.Errorf("invalid Callback-URL: %s", callbackURL)
-    }
-
-    // Notify client of successful upload
-    client := &http.Client{}
-    req, err := http.NewRequest("POST", callbackURL, nil)
-    if err != nil {
-        return fmt.Errorf("failed to create callback request: %w", err)
-    }
-    req.Header.Set("File-Path", absFilename)
-
-    resp, err := client.Do(req)
-    if err != nil {
-        return fmt.Errorf("failed to send callback request: %w", err)
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        return fmt.Errorf("callback request failed with status: %s", resp.Status)
-    }
-
-    // Wait for client acknowledgment
-    ackChan := make(chan struct{})
-    go func() {
-        // Simulate waiting for client acknowledgment
-        time.Sleep(5 * time.Second)
-        close(ackChan)
-    }()
-
-    select {
-    case <-ackChan:
-        log.Infof("Received client acknowledgment for file: %s", absFilename)
-        return nil
-    case <-time.After(30 * time.Second):
-        return fmt.Errorf("timeout waiting for client acknowledgment")
-    }
 }
