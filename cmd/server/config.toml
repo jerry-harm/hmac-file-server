@@ -1,67 +1,55 @@
-# Server Settings
 [server]
-ListenPort = "8080"
-UnixSocket = false
-StoreDir = "./testupload"
-LogLevel = "info"
-LogFile = "./hmac-file-server.log"
-MetricsEnabled = true
-MetricsPort = "9090"
-FileTTL = "8760h"
+listenport = "8080"
+unixsocket = false
+storagepath = "./upload"
+loglevel = "info"
+logfile = "./hmac-file-server.log"
+metricsenabled = true
+metricsport = "9090"
+DeduplicationEnabled = true
+filettl = "1y"
+minfreebytes = "100GB"
 
-# Workers and Connections
-[workers]
-NumWorkers = 2
-UploadQueueSize = 500
-
-# Timeout Settings
-[timeouts]
-ReadTimeout = "600s"
-WriteTimeout = "600s"
-IdleTimeout = "600s"
-
-# Security Settings
-[security]
-Secret = "a-orc-and-a-humans-is-drinking-ale"
-
-# Versioning Settings
-[versioning]
-EnableVersioning = false
-MaxVersions = 1
-
-# Upload/Download Settings
-[uploads]
-ResumableUploadsEnabled = true
-ChunkedUploadsEnabled = true
-ChunkSize = 16777216
-AllowedExtensions = [
-    # Document formats
-    ".txt", ".pdf",
-
-    # Image formats
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
-
-    # Video formats
-    ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2",
-
-    # Audio formats
-    ".mp3", ".ogg"
-]
-
-# ClamAV Settings
-[clamav]
-ClamAVEnabled = false
-ClamAVSocket = "/var/run/clamav/clamd.ctl"
-NumScanWorkers = 4
-
-# Redis Settings
-[redis]
-RedisEnabled = false
-RedisAddr = "localhost:6379"
-RedisPassword = ""
-RedisDBIndex = 0
-RedisHealthCheckInterval = "120s"
-
-# Deduplication
-[deduplication]
+[iso]
 enabled = false
+size = "1TB"
+mountpoint = "/mnt/nfs_vol01/hmac-file-server/iso/"
+charset = "utf-8"
+
+[timeouts]
+readtimeout = "3600s"
+writetimeout = "3600s"
+idletimeout = "3600s"
+
+[security]
+secret = "a-orc-and-a-humans-is-drinking-ale"
+
+[versioning]
+enableversioning = false
+maxversions = 1
+
+[uploads]
+resumableuploadsenabled = true
+chunkeduploadsenabled = true
+chunksize = "32MB"
+allowedextensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"]
+
+[clamav]
+clamavenabled = false
+clamavsocket = "/var/run/clamav/clamd.ctl"
+numscanworkers = 4
+ScanFileExtensions = [".exe", ".dll", ".bin", ".com", ".bat", ".sh", ".php", ".js"] 
+
+[redis]
+redisenabled = false
+redisdbindex = 0
+redisaddr = "localhost:6379"
+redispassword = ""
+redishealthcheckinterval = "120s"
+
+[workers]
+numworkers = 4
+uploadqueuesize = 1000
+
+[file]
+filerevision = 1
