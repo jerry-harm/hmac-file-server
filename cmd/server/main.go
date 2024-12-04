@@ -904,48 +904,48 @@ func initializeUploadWorkerPool(ctx context.Context) {
     log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
-// Worker function to process scan tasks
+// Worker function to process scan tasks with fault tolerance
 func scanWorker(ctx context.Context, workerID int) {
-	log.WithField("worker_id", workerID).Info("Scan worker started")
-	for {
-		select {
-		case <-ctx.Done():
-			log.WithField("worker_id", workerID).Info("Scan worker stopping")
-			return
-		case task, ok := <-scanQueue:
-			if !ok {
-				log.WithField("worker_id", workerID).Info("Scan queue closed")
-				return
-			}
-			log.WithFields(logrus.Fields{
-				"worker_id": workerID,
-				"file":      task.AbsFilename,
-			}).Info("Processing scan task")
-			err := scanFileWithClamAV(task.AbsFilename)
-			if err != nil {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-					"error":     err,
-				}).Error("Failed to scan file")
-			} else {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-				}).Info("Successfully scanned file")
-			}
-			task.Result <- err
-			close(task.Result)
-		}
-	}
+    log.WithField("worker_id", workerID).Info("Scan worker started")
+    for {
+        select {
+        case <-ctx.Done():
+            log.WithField("worker_id", workerID).Info("Scan worker stopping")
+            return
+        case task, ok := <-scanQueue:
+            if (!ok) {
+                log.WithField("worker_id", workerID).Info("Scan queue closed")
+                return
+            }
+            log.WithFields(logrus.Fields{
+                "worker_id": workerID,
+                "file":      task.AbsFilename,
+            }).Info("Processing scan task")
+            err := scanFileWithClamAV(task.AbsFilename)
+            if err != nil {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                    "error":     err,
+                }).Error("Failed to scan file")
+            } else {
+                log.WithFields(logrus.Fields{
+                    "worker_id": workerID,
+                    "file":      task.AbsFilename,
+                }).Info("Successfully scanned file")
+            }
+            task.Result <- err
+            close(task.Result)
+        }
+    }
 }
 
-// Initialize scan worker pool
+// Initialize scan worker pool with fault tolerance
 func initializeScanWorkerPool(ctx context.Context) {
-	for i := 0; i < conf.ClamAV.NumScanWorkers; i++ {
-		go scanWorker(ctx, i)
-	}
-	log.Infof("Initialized %d scan workers", conf.ClamAV.NumScanWorkers)
+    for i := 0; i < conf.ClamAV.NumScanWorkers; i++ {
+        go scanWorker(ctx, i)
+    }
+    log.Infof("Initialized %d scan workers", conf.ClamAV.NumScanWorkers)
 }
 
 // Setup router with middleware
@@ -1318,14 +1318,14 @@ func scanFileWithClamAV(filePath string) error {
 
     err := retry(3, 2*time.Second, func() error {
         scanResultChan, err := clamClient.ScanFile(filePath)
-        if err != nil {
+        if (err != nil) {
             log.WithError(err).Error("Failed to initiate ClamAV scan")
             return fmt.Errorf("failed to initiate ClamAV scan: %w", err)
         }
 
         // Receive scan result
         scanResult := <-scanResultChan
-        if scanResult == nil {
+        if (scanResult == nil) {
             log.Error("Failed to receive scan result from ClamAV")
             return fmt.Errorf("failed to receive scan result from ClamAV")
         }
@@ -1565,7 +1565,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if !ok {
+			if (!ok) {
 				log.Info("Network events channel closed.")
 				return
 			}
