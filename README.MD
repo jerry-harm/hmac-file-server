@@ -1,7 +1,3 @@
-Here’s the updated **README.md** with the new repository URL and the updated ISO size:
-
----
-
 # HMAC File Server
 
 **HMAC File Server** is a secure, scalable, and feature-rich file server with advanced capabilities like HMAC authentication, resumable uploads, chunked uploads, file versioning, and optional ClamAV scanning for file integrity and security. This server is built with extensibility and operational monitoring in mind, including Prometheus metrics support and Redis integration.
