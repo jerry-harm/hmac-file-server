@@ -41,7 +41,7 @@ Here’s the updated **README.md** with the new repository URL and the updated I
 
 ```bash
 # Clone from the primary repository
-git clone https://github.com/your-repo/hmac-file-server.git
+git clone https://github.com/PlusOne/hmac-file-server.git
 
 # OR clone from the alternative repository
 git clone https://git.uuxo.net/uuxo/hmac-file-server.git
