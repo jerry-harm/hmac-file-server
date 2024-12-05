@@ -159,106 +159,103 @@ func updateUI(app *tview.Application, sysTable, metricsTable, processTable *tvie
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			// Fetch system data
-			memUsage, cpuUsage, cores, err := fetchSystemData()
-			if err != nil {
-				log.Printf("Error fetching system data: %v\n", err)
-				continue
-			}
-
-			// Fetch metrics data
-			metrics, err := fetchMetrics()
-			if err != nil {
-				log.Printf("Error fetching metrics: %v\n", err)
-				continue
-			}
-
-			// Fetch process list
-			processes, err := fetchProcessList()
-			if err != nil {
-				log.Printf("Error fetching process list: %v\n", err)
-				continue
-			}
-
-			// Update the UI
-			app.QueueUpdateDraw(func() {
-				// Update system data table
-				sysTable.Clear()
-				sysTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
-				sysTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
-
-				// CPU Usage Row
-				cpuUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", cpuUsage))
-				if cpuUsage > HighUsage {
-					cpuUsageCell.SetTextColor(tcell.ColorRed)
-				} else if cpuUsage > MediumUsage {
-					cpuUsageCell.SetTextColor(tcell.ColorYellow)
-				} else {
-					cpuUsageCell.SetTextColor(tcell.ColorGreen)
-				}
-				sysTable.SetCell(1, 0, tview.NewTableCell("CPU Usage"))
-				sysTable.SetCell(1, 1, cpuUsageCell)
-
-				// Memory Usage Row
-				memUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", memUsage))
-				if memUsage > HighUsage {
-					memUsageCell.SetTextColor(tcell.ColorRed)
-				} else if memUsage > MediumUsage {
-					memUsageCell.SetTextColor(tcell.ColorYellow)
-				} else {
-					memUsageCell.SetTextColor(tcell.ColorGreen)
-				}
-				sysTable.SetCell(2, 0, tview.NewTableCell("Memory Usage"))
-				sysTable.SetCell(2, 1, memUsageCell)
-
-				// CPU Cores Row
-				sysTable.SetCell(3, 0, tview.NewTableCell("CPU Cores"))
-				sysTable.SetCell(3, 1, tview.NewTableCell(fmt.Sprintf("%d", cores)))
-
-				// Update metrics table
-				metricsTable.Clear()
-				metricsTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
-				metricsTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
-
-				row := 1
-				for key, value := range metrics {
-					metricsTable.SetCell(row, 0, tview.NewTableCell(key))
-					metricsTable.SetCell(row, 1, tview.NewTableCell(fmt.Sprintf("%.2f", value)))
-					row++
-				}
-
-				// Update process table
-				processTable.Clear()
-				processTable.SetCell(0, 0, tview.NewTableCell("PID").SetAttributes(tcell.AttrBold))
-				processTable.SetCell(0, 1, tview.NewTableCell("Name").SetAttributes(tcell.AttrBold))
-				processTable.SetCell(0, 2, tview.NewTableCell("CPU%").SetAttributes(tcell.AttrBold))
-				processTable.SetCell(0, 3, tview.NewTableCell("Mem%").SetAttributes(tcell.AttrBold))
-				processTable.SetCell(0, 4, tview.NewTableCell("Command").SetAttributes(tcell.AttrBold))
-
-				// Sort processes by CPU usage
-				sort.Slice(processes, func(i, j int) bool {
-					return processes[i].CPUPercent > processes[j].CPUPercent
-				})
-
-				// Limit to top 20 processes
-				maxRows := 20
-				if len(processes) < maxRows {
-					maxRows = len(processes)
-				}
-
-				for i := 0; i < maxRows; i++ {
-					p := processes[i]
-					processTable.SetCell(i+1, 0, tview.NewTableCell(fmt.Sprintf("%d", p.PID)))
-					processTable.SetCell(i+1, 1, tview.NewTableCell(p.Name))
-					processTable.SetCell(i+1, 2, tview.NewTableCell(fmt.Sprintf("%.2f", p.CPUPercent)))
-					processTable.SetCell(i+1, 3, tview.NewTableCell(fmt.Sprintf("%.2f", p.MemPercent)))
-					processTable.SetCell(i+1, 4, tview.NewTableCell(p.CommandLine))
-				}
-			})
+	for range ticker.C {
+		// Fetch system data
+		memUsage, cpuUsage, cores, err := fetchSystemData()
+		if err != nil {
+			log.Printf("Error fetching system data: %v\n", err)
+			continue
 		}
+
+		// Fetch metrics data
+		metrics, err := fetchMetrics()
+		if err != nil {
+			log.Printf("Error fetching metrics: %v\n", err)
+			continue
+		}
+
+		// Fetch process list
+		processes, err := fetchProcessList()
+		if err != nil {
+			log.Printf("Error fetching process list: %v\n", err)
+			continue
+		}
+
+		// Update the UI
+		app.QueueUpdateDraw(func() {
+			// Update system data table
+			sysTable.Clear()
+			sysTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
+			sysTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
+
+			// CPU Usage Row
+			cpuUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", cpuUsage))
+			if cpuUsage > HighUsage {
+				cpuUsageCell.SetTextColor(tcell.ColorRed)
+			} else if cpuUsage > MediumUsage {
+				cpuUsageCell.SetTextColor(tcell.ColorYellow)
+			} else {
+				cpuUsageCell.SetTextColor(tcell.ColorGreen)
+			}
+			sysTable.SetCell(1, 0, tview.NewTableCell("CPU Usage"))
+			sysTable.SetCell(1, 1, cpuUsageCell)
+
+			// Memory Usage Row
+			memUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", memUsage))
+			if memUsage > HighUsage {
+				memUsageCell.SetTextColor(tcell.ColorRed)
+			} else if memUsage > MediumUsage {
+				memUsageCell.SetTextColor(tcell.ColorYellow)
+			} else {
+				memUsageCell.SetTextColor(tcell.ColorGreen)
+			}
+			sysTable.SetCell(2, 0, tview.NewTableCell("Memory Usage"))
+			sysTable.SetCell(2, 1, memUsageCell)
+
+			// CPU Cores Row
+			sysTable.SetCell(3, 0, tview.NewTableCell("CPU Cores"))
+			sysTable.SetCell(3, 1, tview.NewTableCell(fmt.Sprintf("%d", cores)))
+
+			// Update metrics table
+			metricsTable.Clear()
+			metricsTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
+			metricsTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
+
+			row := 1
+			for key, value := range metrics {
+				metricsTable.SetCell(row, 0, tview.NewTableCell(key))
+				metricsTable.SetCell(row, 1, tview.NewTableCell(fmt.Sprintf("%.2f", value)))
+				row++
+			}
+
+			// Update process table
+			processTable.Clear()
+			processTable.SetCell(0, 0, tview.NewTableCell("PID").SetAttributes(tcell.AttrBold))
+			processTable.SetCell(0, 1, tview.NewTableCell("Name").SetAttributes(tcell.AttrBold))
+			processTable.SetCell(0, 2, tview.NewTableCell("CPU%").SetAttributes(tcell.AttrBold))
+			processTable.SetCell(0, 3, tview.NewTableCell("Mem%").SetAttributes(tcell.AttrBold))
+			processTable.SetCell(0, 4, tview.NewTableCell("Command").SetAttributes(tcell.AttrBold))
+
+			// Sort processes by CPU usage
+			sort.Slice(processes, func(i, j int) bool {
+				return processes[i].CPUPercent > processes[j].CPUPercent
+			})
+
+			// Limit to top 20 processes
+			maxRows := 20
+			if len(processes) < maxRows {
+				maxRows = len(processes)
+			}
+
+			for i := 0; i < maxRows; i++ {
+				p := processes[i]
+				processTable.SetCell(i+1, 0, tview.NewTableCell(fmt.Sprintf("%d", p.PID)))
+				processTable.SetCell(i+1, 1, tview.NewTableCell(p.Name))
+				processTable.SetCell(i+1, 2, tview.NewTableCell(fmt.Sprintf("%.2f", p.CPUPercent)))
+				processTable.SetCell(i+1, 3, tview.NewTableCell(fmt.Sprintf("%.2f", p.MemPercent)))
+				processTable.SetCell(i+1, 4, tview.NewTableCell(p.CommandLine))
+			}
+		})
 	}
 }
 
