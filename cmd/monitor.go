@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -40,24 +42,26 @@ func fetchMetrics() (map[string]string, error) {
 }
 
 // Function to update the UI with the latest metrics
-func updateUI(app *tview.Application, textView *tview.TextView) {
+func updateUI(app *tview.Application, table *tview.Table) {
 	for {
 		metrics, err := fetchMetrics()
 		if err != nil {
-			textView.SetText(fmt.Sprintf("Error fetching metrics: %v", err))
+			app.QueueUpdateDraw(func() {
+				table.Clear()
+				table.SetCell(0, 0, tview.NewTableCell(fmt.Sprintf("Error fetching metrics: %v", err)).SetTextColor(tcell.ColorRed))
+			})
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
-		var output strings.Builder
-		output.WriteString("HMAC Server Metrics\n")
-		output.WriteString("====================\n")
-		for key, value := range metrics {
-			output.WriteString(fmt.Sprintf("%s: %s\n", key, value))
-		}
-
 		app.QueueUpdateDraw(func() {
-			textView.SetText(output.String())
+			table.Clear()
+			row := 0
+			for key, value := range metrics {
+				table.SetCell(row, 0, tview.NewTableCell(key).SetTextColor(tcell.ColorYellow))
+				table.SetCell(row, 1, tview.NewTableCell(value).SetTextColor(tcell.ColorWhite))
+				row++
+			}
 		})
 
 		time.Sleep(5 * time.Second)
@@ -66,17 +70,13 @@ func updateUI(app *tview.Application, textView *tview.TextView) {
 
 func main() {
 	app := tview.NewApplication()
-	textView := tview.NewTextView().
-		SetDynamicColors(true).
-		SetRegions(true).
-		SetWrap(true).
-		SetChangedFunc(func() {
-			app.Draw()
-		})
+	table := tview.NewTable().
+		SetBorders(false).
+		SetFixed(1, 1)
 
-	go updateUI(app, textView)
+	go updateUI(app, table)
 
-	if err := app.SetRoot(textView, true).Run(); err != nil {
+	if err := app.SetRoot(table, true).Run(); err != nil {
 		panic(err)
 	}
 }
