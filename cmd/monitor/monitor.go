@@ -1,155 +1,171 @@
 package main
 
 import (
-    "fmt"
-    "io/ioutil"
-    "net/http"
-    "strings"
-    "time"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
-    "github.com/gdamore/tcell/v2"
-    "github.com/rivo/tview"
-    "github.com/shirou/gopsutil/v3/cpu"
-    "github.com/shirou/gopsutil/v3/mem"
+	"github.com/gdamore/tcell/v2"
+	"github.com/prometheus/common/expfmt"
+	"github.com/rivo/tview"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 const prometheusURL = "http://localhost:9090/metrics"
 
 // Function to fetch and parse Prometheus metrics
-func fetchMetrics() (map[string]string, error) {
-    resp, err := http.Get(prometheusURL)
-    if (err != nil) {
-        return nil, fmt.Errorf("failed to fetch metrics: %w", err)
-    }
-    defer resp.Body.Close()
+func fetchMetrics() (map[string]float64, error) {
+	resp, err := http.Get(prometheusURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch metrics: %w", err)
+	}
+	defer resp.Body.Close()
 
-    body, err := ioutil.ReadAll(resp.Body)
-    if (err != nil) {
-        return nil, fmt.Errorf("failed to read response body: %w", err)
-    }
+	parser := &expfmt.TextParser{} // Corrected initialization
+	metricFamilies, err := parser.TextToMetricFamilies(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse metrics: %w", err)
+	}
 
-    metrics := make(map[string]string)
-    lines := strings.Split(string(body), "\n")
-    for _, line := range lines {
-        if strings.HasPrefix(line, "hmac_file_server_") ||
-            strings.HasPrefix(line, "memory_usage_bytes") ||
-            strings.HasPrefix(line, "cpu_usage_percent") ||
-            strings.HasPrefix(line, "active_connections_total") ||
-            strings.HasPrefix(line, "goroutines_count") {
-            parts := strings.Fields(line)
-            if len(parts) == 2 {
-                metrics[parts[0]] = parts[1]
-            }
-        }
-    }
+	metrics := make(map[string]float64)
+	for name, mf := range metricFamilies {
+		// Filter the metrics you're interested in
+		if strings.HasPrefix(name, "hmac_file_server_") ||
+			name == "memory_usage_bytes" ||
+			name == "cpu_usage_percent" ||
+			name == "active_connections_total" ||
+			name == "goroutines_count" {
 
-    return metrics, nil
+			for _, m := range mf.GetMetric() {
+				var value float64
+				if m.GetGauge() != nil {
+					value = m.GetGauge().GetValue()
+				} else if m.GetCounter() != nil {
+					value = m.GetCounter().GetValue()
+				} else if m.GetUntyped() != nil {
+					value = m.GetUntyped().GetValue()
+				}
+
+				// Handle metrics with labels
+				if len(m.GetLabel()) > 0 {
+					labels := make([]string, 0)
+					for _, label := range m.GetLabel() {
+						labels = append(labels, fmt.Sprintf("%s=\"%s\"", label.GetName(), label.GetValue()))
+					}
+					metricKey := fmt.Sprintf("%s{%s}", name, strings.Join(labels, ","))
+					metrics[metricKey] = value
+				} else {
+					metrics[name] = value
+				}
+			}
+		}
+	}
+
+	return metrics, nil
 }
 
 // Function to fetch system data
 func fetchSystemData() (string, error) {
-    v, err := mem.VirtualMemory()
-    if err != nil {
-        return "", fmt.Errorf("failed to fetch memory data: %w", err)
-    }
+	v, err := mem.VirtualMemory()
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch memory data: %w", err)
+	}
 
-    c, err := cpu.Percent(0, false)
-    if err != nil {
-        return "", fmt.Errorf("failed to fetch CPU data: %w", err)
-    }
+	c, err := cpu.Percent(0, false)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch CPU data: %w", err)
+	}
 
-    cores, err := cpu.Counts(true)
-    if err != nil {
-        return "", fmt.Errorf("failed to fetch CPU cores: %w", err)
-    }
+	cores, err := cpu.Counts(true)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch CPU cores: %w", err)
+	}
 
-    return fmt.Sprintf("Memory Usage: %.2f%%\nCPU Usage: %.2f%%\nCPU Cores: %d", v.UsedPercent, c[0], cores), nil
+	cpuUsage := 0.0
+	if len(c) > 0 {
+		cpuUsage = c[0]
+	}
+
+	return fmt.Sprintf("Memory Usage: %.2f%%\nCPU Usage: %.2f%%\nCPU Cores: %d", v.UsedPercent, cpuUsage, cores), nil
 }
 
 // Function to update the UI with the latest metrics and system data
 func updateUI(app *tview.Application, sysTextView, metricsTextView *tview.TextView) {
-    for {
-        metrics, err := fetchMetrics()
-        if err != nil {
-            app.QueueUpdateDraw(func() {
-                metricsTextView.SetText(fmt.Sprintf("Error fetching metrics: %v", err))
-            })
-            time.Sleep(5 * time.Second)
-            continue
-        }
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-        systemData, err := fetchSystemData()
-        if err != nil {
-            app.QueueUpdateDraw(func() {
-                sysTextView.SetText(fmt.Sprintf("Error fetching system data: %v", err))
-            })
-            time.Sleep(5 * time.Second)
-            continue
-        }
+	for range ticker.C {
+		metrics, err := fetchMetrics()
+		if err != nil {
+			app.QueueUpdateDraw(func() {
+				metricsTextView.SetText(fmt.Sprintf("Error fetching metrics: %v", err))
+			})
+			continue
+		}
 
-        app.QueueUpdateDraw(func() {
-            sysTextView.SetText(systemData)
+		systemData, err := fetchSystemData()
+		if err != nil {
+			app.QueueUpdateDraw(func() {
+				sysTextView.SetText(fmt.Sprintf("Error fetching system data: %v", err))
+			})
+			continue
+		}
 
-            var output strings.Builder
-            for key, value := range metrics {
-                output.WriteString(fmt.Sprintf("%s: %s\n", key, value))
-            }
-            metricsTextView.SetText(output.String())
-        })
+		app.QueueUpdateDraw(func() {
+			sysTextView.SetText(systemData)
 
-        time.Sleep(5 * time.Second)
-    }
+			var output strings.Builder
+			for key, value := range metrics {
+				output.WriteString(fmt.Sprintf("%s: %.2f\n", key, value))
+			}
+			metricsTextView.SetText(output.String())
+		})
+	}
 }
 
 func main() {
-    app := tview.NewApplication()
+	app := tview.NewApplication()
 
-    // Create system data text view with border and title
-    sysTextView := tview.NewTextView().
-        SetDynamicColors(true).
-        SetRegions(true).
-        SetWrap(true).
-        SetTextAlign(tview.AlignLeft).
-        SetBorder(true).
-            SetTitle("System Data")
-    
-        sysTextView.SetChangedFunc(func() {
-            app.Draw()
-        })
+	// Create system data text view with border and title
+	sysTextView := tview.NewTextView()
+	sysTextView.SetDynamicColors(true)
+	sysTextView.SetRegions(true)
+	sysTextView.SetWrap(true)
+	sysTextView.SetTextAlign(tview.AlignLeft)
+	sysTextView.SetBorder(true)         // Separated method calls
+	sysTextView.SetTitle("System Data") // Separated method calls
 
-    // Create Prometheus metrics text view with border and title
-    metricsTextView := tview.NewTextView().
-        SetDynamicColors(true).
-        SetRegions(true).
-        SetWrap(true).
-        SetTextAlign(tview.AlignLeft).
-            SetTitle("Prometheus Metrics")
-    
-        metricsTextView.SetChangedFunc(func() {
-            app.Draw()
-        })
-        })
+	// Create Prometheus metrics text view with border and title
+	metricsTextView := tview.NewTextView()
+	metricsTextView.SetDynamicColors(true)
+	metricsTextView.SetRegions(true)
+	metricsTextView.SetWrap(true)
+	metricsTextView.SetTextAlign(tview.AlignLeft)
+	metricsTextView.SetBorder(true)                // Separated method calls
+	metricsTextView.SetTitle("Prometheus Metrics") // Separated method calls
 
-    // Create a flex layout to hold the text views
-    flex := tview.NewFlex().
-        SetDirection(tview.FlexRow).
-        AddItem(sysTextView, 0, 1, false).
-        AddItem(metricsTextView, 0, 3, false)
+	// Create a flex layout to hold the text views
+	flex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(sysTextView, 0, 1, false).
+		AddItem(metricsTextView, 0, 3, false)
 
-    // Add key binding to exit the application
-    app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-        if event.Key() == tcell.KeyRune && (event.Rune() == 'q' || event.Rune() == 'Q') {
-            app.Stop()
-            return nil
-        }
-        return event
-    })
+	// Add key binding to exit the application
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyRune && (event.Rune() == 'q' || event.Rune() == 'Q') {
+			app.Stop()
+			return nil
+		}
+		return event
+	})
 
-    // Start the UI update loop
-    go updateUI(app, sysTextView, metricsTextView)
+	// Start the UI update loop
+	go updateUI(app, sysTextView, metricsTextView)
 
-    // Set the root and run the application
-    if err := app.SetRoot(flex, true).Run(); err != nil {
-        panic(err)
-    }
+	// Set the root and run the application
+	if err := app.SetRoot(flex, true).EnableMouse(true).Run(); err != nil {
+		panic(err)
+	}
 }
