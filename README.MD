@@ -65,14 +65,14 @@ LogLevel = "info"
 LogFile = ""
 MetricsEnabled = true
 MetricsPort = "9090"
-FileTTL = "8760h" # 365 days
+FileTTL = "1y" # d,m,y
 DeduplicationEnabled = true
-MinFreeBytes = "100MB"
+MinFreeBytes = "100MB" # (MB,GB)
 
 [timeouts]
-ReadTimeout = "4800s"
-WriteTimeout = "4800s"
-IdleTimeout = "4800s"
+ReadTimeout = "480s"
+WriteTimeout = "480s"
+IdleTimeout = "480s"
 
 [security]
 Secret = "changeme"
@@ -84,28 +84,28 @@ MaxVersions = 1
 [uploads]
 ResumableUploadsEnabled = true
 ChunkedUploadsEnabled = true
-ChunkSize = "8192"
+ChunkSize = "32MB" # MB (1MB up-to 32MB)
 AllowedExtensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"]
 
 [clamav]
-ClamAVEnabled = true
+ClamAVEnabled = false
 ClamAVSocket = "/var/run/clamav/clamd.ctl"
 NumScanWorkers = 2
 ScanFileExtensions = [".exe", ".dll", ".bin", ".com", ".bat", ".sh", ".php", ".js"]
 
 [redis]
-RedisEnabled = true
+RedisEnabled = false
 RedisAddr = "localhost:6379"
 RedisPassword = ""
 RedisDBIndex = 0
 RedisHealthCheckInterval = "120s"
 
 [workers]
-NumWorkers = 2
-UploadQueueSize = 50
+NumWorkers = 4
+UploadQueueSize = 5000
 
 [iso]
-Enabled = true
+Enabled = false
 Size = "2TB" # Example ISO size changed to 2TB
 MountPoint = "/mnt/iso"
 Charset = "utf-8"
