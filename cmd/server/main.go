@@ -556,7 +556,7 @@ func validateConfig(conf *Config) error {
 // Setup logging
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -757,141 +757,141 @@ func cleanupOldVersions(versionDir string) error {
 
 // Process the upload task with optional client acknowledgment
 func processUpload(task UploadTask) error {
-    absFilename := task.AbsFilename
-    tempFilename := absFilename + ".tmp"
-    r := task.Request
+	absFilename := task.AbsFilename
+	tempFilename := absFilename + ".tmp"
+	r := task.Request
 
-    log.Infof("Processing upload for file: %s", absFilename)
-    startTime := time.Now()
+	log.Infof("Processing upload for file: %s", absFilename)
+	startTime := time.Now()
 
-    // Handle uploads and write to a temporary file
-    if conf.Uploads.ChunkedUploadsEnabled {
-        log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
-        chunkSize, err := parseSize(conf.Uploads.ChunkSize)
-        if err != nil {
-            log.WithFields(logrus.Fields{
-                "file":  tempFilename,
-                "error": err,
-            }).Error("Error parsing chunk size")
-            uploadDuration.Observe(time.Since(startTime).Seconds())
-            return err
-        }
-        err = handleChunkedUpload(tempFilename, r, int(chunkSize))
-        if err != nil {
-            uploadDuration.Observe(time.Since(startTime).Seconds())
-            log.WithFields(logrus.Fields{
-                "file":  tempFilename,
-                "error": err,
-            }).Error("Failed to handle chunked upload")
-            return err
-        }
-    } else {
-        log.Debugf("Handling standard upload for %s", tempFilename)
+	// Handle uploads and write to a temporary file
+	if conf.Uploads.ChunkedUploadsEnabled {
+		log.Debugf("Chunked uploads enabled. Handling chunked upload for %s", tempFilename)
+		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Error parsing chunk size")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return err
+		}
+		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
+		if err != nil {
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Failed to handle chunked upload")
+			return err
+		}
+	} else {
+		log.Debugf("Handling standard upload for %s", tempFilename)
 		err := createFile(tempFilename, r)
-        if err != nil {
-            log.WithFields(logrus.Fields{
-                "file":  tempFilename,
-                "error": err,
-            }).Error("Error creating file")
-            uploadDuration.Observe(time.Since(startTime).Seconds())
-            return err
-        }
-    }
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Error("Error creating file")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return err
+		}
+	}
 
-    // Perform ClamAV scan synchronously with graceful degradation
-    if clamClient != nil && shouldScanFile(absFilename) {
-        log.Debugf("Scanning %s with ClamAV", tempFilename)
-        err := scanFileWithClamAV(tempFilename)
-        if err != nil {
-            log.WithFields(logrus.Fields{
-                "file":  tempFilename,
-                "error": err,
-            }).Warn("ClamAV detected a virus or scan failed")
-            os.Remove(tempFilename)
-            uploadErrorsTotal.Inc()
-            return err
-        }
-        log.Infof("ClamAV scan passed for file: %s", tempFilename)
-    } else {
-        log.Warn("ClamAV is not available or file extension is not in the scan list. Proceeding without virus scan.")
-    }
+	// Perform ClamAV scan synchronously with graceful degradation
+	if clamClient != nil && shouldScanFile(absFilename) {
+		log.Debugf("Scanning %s with ClamAV", tempFilename)
+		err := scanFileWithClamAV(tempFilename)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  tempFilename,
+				"error": err,
+			}).Warn("ClamAV detected a virus or scan failed")
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("ClamAV scan passed for file: %s", tempFilename)
+	} else {
+		log.Warn("ClamAV is not available or file extension is not in the scan list. Proceeding without virus scan.")
+	}
 
-    // Handle file versioning if enabled
-    if conf.Versioning.EnableVersioning {
-        existing, _ := fileExists(absFilename)
-        if existing {
-            log.Infof("File %s exists. Initiating versioning.", absFilename)
-            err := versionFile(absFilename)
-            if err != nil {
-                log.WithFields(logrus.Fields{
-                    "file":  absFilename,
-                    "error": err,
-                }).Error("Error versioning file")
-                os.Remove(tempFilename)
-                return err
-            }
-            log.Infof("File versioned successfully: %s", absFilename)
-        }
-    }
+	// Handle file versioning if enabled
+	if conf.Versioning.EnableVersioning {
+		existing, _ := fileExists(absFilename)
+		if existing {
+			log.Infof("File %s exists. Initiating versioning.", absFilename)
+			err := versionFile(absFilename)
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"file":  absFilename,
+					"error": err,
+				}).Error("Error versioning file")
+				os.Remove(tempFilename)
+				return err
+			}
+			log.Infof("File versioned successfully: %s", absFilename)
+		}
+	}
 
-    // Rename temporary file to final destination
-    err := os.Rename(tempFilename, absFilename)
-    if err != nil {
-        log.WithFields(logrus.Fields{
-            "temp_file":  tempFilename,
-            "final_file": absFilename,
-            "error":      err,
-        }).Error("Failed to move file to final destination")
-        os.Remove(tempFilename)
-        return err
-    }
-    log.Infof("File moved to final destination: %s", absFilename)
+	// Rename temporary file to final destination
+	err := os.Rename(tempFilename, absFilename)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"temp_file":  tempFilename,
+			"final_file": absFilename,
+			"error":      err,
+		}).Error("Failed to move file to final destination")
+		os.Remove(tempFilename)
+		return err
+	}
+	log.Infof("File moved to final destination: %s", absFilename)
 
-    // Notify client of successful upload and wait for ACK if Callback-URL is provided
-    callbackURL := r.Header.Get("Callback-URL")
-    if callbackURL != "" {
-        err = notifyClientAndWaitForAck(callbackURL, absFilename)
-        if err != nil {
-            log.WithFields(logrus.Fields{
-                "file":  absFilename,
-                "error": err,
-            }).Error("Failed to receive client acknowledgment")
-            return err
-        }
-    } else {
-        log.Warn("Callback-URL header is missing. Proceeding without client acknowledgment.")
-    }
+	// Notify client of successful upload and wait for ACK if Callback-URL is provided
+	callbackURL := r.Header.Get("Callback-URL")
+	if callbackURL != "" {
+		err = notifyClientAndWaitForAck(callbackURL, absFilename)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":  absFilename,
+				"error": err,
+			}).Error("Failed to receive client acknowledgment")
+			return err
+		}
+	} else {
+		log.Warn("Callback-URL header is missing. Proceeding without client acknowledgment.")
+	}
 
-    // Handle deduplication if enabled
-    if conf.Server.DeduplicationEnabled {
-        log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
-        err = handleDeduplication(context.Background(), absFilename)
-        if err != nil {
-            log.WithError(err).Error("Deduplication failed")
-            uploadErrorsTotal.Inc()
-            return err
-        }
-        log.Infof("Deduplication handled successfully for file: %s", absFilename)
-    }
+	// Handle deduplication if enabled
+	if conf.Server.DeduplicationEnabled {
+		log.Debugf("Deduplication enabled. Checking duplicates for %s", absFilename)
+		err = handleDeduplication(context.Background(), absFilename)
+		if err != nil {
+			log.WithError(err).Error("Deduplication failed")
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("Deduplication handled successfully for file: %s", absFilename)
+	}
 
-    // Handle ISO container if enabled
-    if conf.ISO.Enabled {
-        err = handleISOContainer(absFilename)
-        if err != nil {
-            log.WithError(err).Error("ISO container handling failed")
-            uploadErrorsTotal.Inc()
-            return err
-        }
-        log.Infof("ISO container handled successfully for file: %s", absFilename)
-    }
+	// Handle ISO container if enabled
+	if conf.ISO.Enabled {
+		err = handleISOContainer(absFilename)
+		if err != nil {
+			log.WithError(err).Error("ISO container handling failed")
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("ISO container handled successfully for file: %s", absFilename)
+	}
 
-    log.WithFields(logrus.Fields{
-        "file": absFilename,
-    }).Info("File uploaded and processed successfully")
+	log.WithFields(logrus.Fields{
+		"file": absFilename,
+	}).Info("File uploaded and processed successfully")
 
-    uploadDuration.Observe(time.Since(startTime).Seconds())
-    uploadsTotal.Inc()
-    return nil
+	uploadDuration.Observe(time.Since(startTime).Seconds())
+	uploadsTotal.Inc()
+	return nil
 }
 
 func createFile(tempFilename string, r *http.Request) error {
@@ -918,39 +918,39 @@ func createFile(tempFilename string, r *http.Request) error {
 
 // Check if the file should be scanned based on its extension
 func shouldScanFile(filename string) bool {
-    ext := strings.ToLower(filepath.Ext(filename))
-    for _, scanExt := range conf.ClamAV.ScanFileExtensions {
-        if strings.ToLower(scanExt) == ext {
-            return true
-        }
-    }
-    return false
+	ext := strings.ToLower(filepath.Ext(filename))
+	for _, scanExt := range conf.ClamAV.ScanFileExtensions {
+		if strings.ToLower(scanExt) == ext {
+			return true
+		}
+	}
+	return false
 }
 
 // Improved uploadWorker function with better concurrency handling
 func uploadWorker(ctx context.Context, workerID int) {
-    log.Infof("Upload worker %d started.", workerID)
-    defer log.Infof("Upload worker %d stopped.", workerID)
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case task, ok := <-uploadQueue:
-            if (!ok) {
-                return
-            }
-            err := processUpload(task)
-            task.Result <- err
-        }
-    }
+	log.Infof("Upload worker %d started.", workerID)
+	defer log.Infof("Upload worker %d stopped.", workerID)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task, ok := <-uploadQueue:
+			if !ok {
+				return
+			}
+			err := processUpload(task)
+			task.Result <- err
+		}
+	}
 }
 
 // Improved initializeUploadWorkerPool function
 func initializeUploadWorkerPool(ctx context.Context) {
-    for i := 0; i < conf.Workers.NumWorkers; i++ {
-        go uploadWorker(ctx, i)
-    }
-    log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
+	for i := 0; i < conf.Workers.NumWorkers; i++ {
+		go uploadWorker(ctx, i)
+	}
+	log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
 // Worker function to process scan tasks
@@ -1193,7 +1193,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	log.Debug("HMAC validation successful")
 
 	// Validate file extension
-	if (!isExtensionAllowed(fileStorePath)) {
+	if !isExtensionAllowed(fileStorePath) {
 		log.WithFields(logrus.Fields{
 			"file":  fileStorePath,
 			"error": err,
@@ -1697,7 +1697,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -1858,7 +1858,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	defer file.Close()
 
 	// Validate file extension
-	if (!isExtensionAllowed(handler.Filename)) {
+	if !isExtensionAllowed(handler.Filename) {
 		log.WithFields(logrus.Fields{
 			"filename":  handler.Filename,
 			"extension": filepath.Ext(handler.Filename),
@@ -1950,7 +1950,7 @@ func sanitizeFilePath(baseDir, filePath string) (string, error) {
 	}
 
 	// Check if the resolved file path is within the base directory
-	if (!strings.HasPrefix(absFilePath, absBaseDir)) {
+	if !strings.HasPrefix(absFilePath, absBaseDir) {
 		return "", fmt.Errorf("invalid file path: %s", filePath)
 	}
 
