@@ -58,7 +58,7 @@ The server configuration is managed through a `config.toml` file. Below are the 
 
 ```toml
 [server]
-ListenPort = "8080"
+ListenPort = "8080" # IP:Port (should work, if not need to fix)
 UnixSocket = false
 StoragePath = "./uploads"
 LogLevel = "info"
