@@ -154,114 +154,265 @@ func fetchProcessList() ([]ProcessInfo, error) {
 	return processList, nil
 }
 
+// Function to fetch detailed information about hmac-file-server
+func fetchHmacFileServerInfo() (*ProcessInfo, error) {
+	processes, err := process.Processes()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch processes: %w", err)
+	}
+
+	for _, p := range processes {
+		name, err := p.Name()
+		if err != nil {
+			continue
+		}
+
+		if name == "hmac-file-server" {
+			cpuPercent, err := p.CPUPercent()
+			if err != nil {
+				cpuPercent = 0.0
+			}
+
+			memPercent, err := p.MemoryPercent()
+			if err != nil {
+				memPercent = 0.0
+			}
+
+			cmdline, err := p.Cmdline()
+			if err != nil {
+				cmdline = ""
+			}
+
+			return &ProcessInfo{
+				PID:         p.Pid,
+				Name:        name,
+				CPUPercent:  cpuPercent,
+				MemPercent:  memPercent,
+				CommandLine: cmdline,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("hmac-file-server process not found")
+}
+
 // Function to update the UI with the latest data
-func updateUI(app *tview.Application, sysTable, metricsTable, processTable *tview.Table) {
+func updateUI(app *tview.Application, pages *tview.Pages, sysPage, hmacPage tview.Primitive) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// Fetch system data
+		// Fetch data for both views
 		memUsage, cpuUsage, cores, err := fetchSystemData()
 		if err != nil {
 			log.Printf("Error fetching system data: %v\n", err)
 			continue
 		}
 
-		// Fetch metrics data
 		metrics, err := fetchMetrics()
 		if err != nil {
 			log.Printf("Error fetching metrics: %v\n", err)
 			continue
 		}
 
-		// Fetch process list
 		processes, err := fetchProcessList()
 		if err != nil {
 			log.Printf("Error fetching process list: %v\n", err)
 			continue
 		}
 
+		hmacInfo, err := fetchHmacFileServerInfo()
+		if err != nil {
+			log.Printf("Error fetching hmac-file-server info: %v\n", err)
+		}
+
 		// Update the UI
 		app.QueueUpdateDraw(func() {
-			// Update system data table
-			sysTable.Clear()
-			sysTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
-			sysTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
+			// Update system page
+			if currentPage, _ := pages.GetFrontPage(); currentPage == "system" {
+				sysFlex := sysPage.(*tview.Flex)
 
-			// CPU Usage Row
-			cpuUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", cpuUsage))
-			if cpuUsage > HighUsage {
-				cpuUsageCell.SetTextColor(tcell.ColorRed)
-			} else if cpuUsage > MediumUsage {
-				cpuUsageCell.SetTextColor(tcell.ColorYellow)
-			} else {
-				cpuUsageCell.SetTextColor(tcell.ColorGreen)
-			}
-			sysTable.SetCell(1, 0, tview.NewTableCell("CPU Usage"))
-			sysTable.SetCell(1, 1, cpuUsageCell)
+				// Update system data table
+				sysTable := sysFlex.GetItem(0).(*tview.Table)
+				updateSystemTable(sysTable, memUsage, cpuUsage, cores)
 
-			// Memory Usage Row
-			memUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", memUsage))
-			if memUsage > HighUsage {
-				memUsageCell.SetTextColor(tcell.ColorRed)
-			} else if memUsage > MediumUsage {
-				memUsageCell.SetTextColor(tcell.ColorYellow)
-			} else {
-				memUsageCell.SetTextColor(tcell.ColorGreen)
-			}
-			sysTable.SetCell(2, 0, tview.NewTableCell("Memory Usage"))
-			sysTable.SetCell(2, 1, memUsageCell)
+				// Update metrics table
+				metricsTable := sysFlex.GetItem(1).(*tview.Table)
+				updateMetricsTable(metricsTable, metrics)
 
-			// CPU Cores Row
-			sysTable.SetCell(3, 0, tview.NewTableCell("CPU Cores"))
-			sysTable.SetCell(3, 1, tview.NewTableCell(fmt.Sprintf("%d", cores)))
-
-			// Update metrics table
-			metricsTable.Clear()
-			metricsTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
-			metricsTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
-
-			row := 1
-			for key, value := range metrics {
-				metricsTable.SetCell(row, 0, tview.NewTableCell(key))
-				metricsTable.SetCell(row, 1, tview.NewTableCell(fmt.Sprintf("%.2f", value)))
-				row++
+				// Update process table
+				processTable := sysFlex.GetItem(2).(*tview.Table)
+				updateProcessTable(processTable, processes)
 			}
 
-			// Update process table
-			processTable.Clear()
-			processTable.SetCell(0, 0, tview.NewTableCell("PID").SetAttributes(tcell.AttrBold))
-			processTable.SetCell(0, 1, tview.NewTableCell("Name").SetAttributes(tcell.AttrBold))
-			processTable.SetCell(0, 2, tview.NewTableCell("CPU%").SetAttributes(tcell.AttrBold))
-			processTable.SetCell(0, 3, tview.NewTableCell("Mem%").SetAttributes(tcell.AttrBold))
-			processTable.SetCell(0, 4, tview.NewTableCell("Command").SetAttributes(tcell.AttrBold))
-
-			// Sort processes by CPU usage
-			sort.Slice(processes, func(i, j int) bool {
-				return processes[i].CPUPercent > processes[j].CPUPercent
-			})
-
-			// Limit to top 20 processes
-			maxRows := 20
-			if len(processes) < maxRows {
-				maxRows = len(processes)
-			}
-
-			for i := 0; i < maxRows; i++ {
-				p := processes[i]
-				processTable.SetCell(i+1, 0, tview.NewTableCell(fmt.Sprintf("%d", p.PID)))
-				processTable.SetCell(i+1, 1, tview.NewTableCell(p.Name))
-				processTable.SetCell(i+1, 2, tview.NewTableCell(fmt.Sprintf("%.2f", p.CPUPercent)))
-				processTable.SetCell(i+1, 3, tview.NewTableCell(fmt.Sprintf("%.2f", p.MemPercent)))
-				processTable.SetCell(i+1, 4, tview.NewTableCell(p.CommandLine))
+			// Update hmac-file-server page
+			if currentPage, _ := pages.GetFrontPage(); currentPage == "hmac" && hmacInfo != nil {
+				hmacFlex := hmacPage.(*tview.Flex)
+				hmacTable := hmacFlex.GetItem(0).(*tview.Table)
+				updateHmacTable(hmacTable, hmacInfo, metrics)
 			}
 		})
+	}
+}
+
+// Helper function to update system data table
+func updateSystemTable(sysTable *tview.Table, memUsage, cpuUsage float64, cores int) {
+	sysTable.Clear()
+	sysTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
+	sysTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
+
+	// CPU Usage Row
+	cpuUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", cpuUsage))
+	if cpuUsage > HighUsage {
+		cpuUsageCell.SetTextColor(tcell.ColorRed)
+	} else if cpuUsage > MediumUsage {
+		cpuUsageCell.SetTextColor(tcell.ColorYellow)
+	} else {
+		cpuUsageCell.SetTextColor(tcell.ColorGreen)
+	}
+	sysTable.SetCell(1, 0, tview.NewTableCell("CPU Usage"))
+	sysTable.SetCell(1, 1, cpuUsageCell)
+
+	// Memory Usage Row
+	memUsageCell := tview.NewTableCell(fmt.Sprintf("%.2f%%", memUsage))
+	if memUsage > HighUsage {
+		memUsageCell.SetTextColor(tcell.ColorRed)
+	} else if memUsage > MediumUsage {
+		memUsageCell.SetTextColor(tcell.ColorYellow)
+	} else {
+		memUsageCell.SetTextColor(tcell.ColorGreen)
+	}
+	sysTable.SetCell(2, 0, tview.NewTableCell("Memory Usage"))
+	sysTable.SetCell(2, 1, memUsageCell)
+
+	// CPU Cores Row
+	sysTable.SetCell(3, 0, tview.NewTableCell("CPU Cores"))
+	sysTable.SetCell(3, 1, tview.NewTableCell(fmt.Sprintf("%d", cores)))
+}
+
+// Helper function to update metrics table
+func updateMetricsTable(metricsTable *tview.Table, metrics map[string]float64) {
+	metricsTable.Clear()
+	metricsTable.SetCell(0, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
+	metricsTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
+
+	row := 1
+	for key, value := range metrics {
+		metricsTable.SetCell(row, 0, tview.NewTableCell(key))
+		metricsTable.SetCell(row, 1, tview.NewTableCell(fmt.Sprintf("%.2f", value)))
+		row++
+	}
+}
+
+// Helper function to update process table
+func updateProcessTable(processTable *tview.Table, processes []ProcessInfo) {
+	processTable.Clear()
+	processTable.SetCell(0, 0, tview.NewTableCell("PID").SetAttributes(tcell.AttrBold))
+	processTable.SetCell(0, 1, tview.NewTableCell("Name").SetAttributes(tcell.AttrBold))
+	processTable.SetCell(0, 2, tview.NewTableCell("CPU%").SetAttributes(tcell.AttrBold))
+	processTable.SetCell(0, 3, tview.NewTableCell("Mem%").SetAttributes(tcell.AttrBold))
+	processTable.SetCell(0, 4, tview.NewTableCell("Command").SetAttributes(tcell.AttrBold))
+
+	// Sort processes by CPU usage
+	sort.Slice(processes, func(i, j int) bool {
+		return processes[i].CPUPercent > processes[j].CPUPercent
+	})
+
+	// Limit to top 20 processes
+	maxRows := 20
+	if len(processes) < maxRows {
+		maxRows = len(processes)
+	}
+
+	for i := 0; i < maxRows; i++ {
+		p := processes[i]
+		processTable.SetCell(i+1, 0, tview.NewTableCell(fmt.Sprintf("%d", p.PID)))
+		processTable.SetCell(i+1, 1, tview.NewTableCell(p.Name))
+		processTable.SetCell(i+1, 2, tview.NewTableCell(fmt.Sprintf("%.2f", p.CPUPercent)))
+		processTable.SetCell(i+1, 3, tview.NewTableCell(fmt.Sprintf("%.2f", p.MemPercent)))
+		processTable.SetCell(i+1, 4, tview.NewTableCell(p.CommandLine))
+	}
+}
+
+// Helper function to update hmac-file-server table
+func updateHmacTable(hmacTable *tview.Table, hmacInfo *ProcessInfo, metrics map[string]float64) {
+	hmacTable.Clear()
+	hmacTable.SetCell(0, 0, tview.NewTableCell("Property").SetAttributes(tcell.AttrBold))
+	hmacTable.SetCell(0, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
+
+	// Process information
+	hmacTable.SetCell(1, 0, tview.NewTableCell("PID"))
+	hmacTable.SetCell(1, 1, tview.NewTableCell(fmt.Sprintf("%d", hmacInfo.PID)))
+
+	hmacTable.SetCell(2, 0, tview.NewTableCell("CPU%"))
+	hmacTable.SetCell(2, 1, tview.NewTableCell(fmt.Sprintf("%.2f", hmacInfo.CPUPercent)))
+
+	hmacTable.SetCell(3, 0, tview.NewTableCell("Mem%"))
+	hmacTable.SetCell(3, 1, tview.NewTableCell(fmt.Sprintf("%.2f", hmacInfo.MemPercent)))
+
+	hmacTable.SetCell(4, 0, tview.NewTableCell("Command"))
+	hmacTable.SetCell(4, 1, tview.NewTableCell(hmacInfo.CommandLine))
+
+	// Metrics related to hmac-file-server
+	row := 6
+	hmacTable.SetCell(row, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
+	hmacTable.SetCell(row, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
+	row++
+
+	for key, value := range metrics {
+		if strings.Contains(key, "hmac_file_server_") {
+			hmacTable.SetCell(row, 0, tview.NewTableCell(key))
+			hmacTable.SetCell(row, 1, tview.NewTableCell(fmt.Sprintf("%.2f", value)))
+			row++
+		}
 	}
 }
 
 func main() {
 	app := tview.NewApplication()
 
+	// Create pages
+	pages := tview.NewPages()
+
+	// System page
+	sysPage := createSystemPage()
+	pages.AddPage("system", sysPage, true, true)
+
+	// hmac-file-server page
+	hmacPage := createHmacPage()
+	pages.AddPage("hmac", hmacPage, true, false)
+
+	// Add key binding to switch views
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyRune {
+			switch event.Rune() {
+			case 'q', 'Q':
+				app.Stop()
+				return nil
+			case 's', 'S':
+				// Switch to system page
+				pages.SwitchToPage("system")
+				return nil
+			case 'h', 'H':
+				// Switch to hmac-file-server page
+				pages.SwitchToPage("hmac")
+				return nil
+			}
+		}
+		return event
+	})
+
+	// Start the UI update loop in a separate goroutine
+	go updateUI(app, pages, sysPage, hmacPage)
+
+	// Set the root and run the application
+	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
+		log.Fatalf("Error running application: %v", err)
+	}
+}
+
+// Function to create the system page
+func createSystemPage() tview.Primitive {
 	// Create system data table
 	sysTable := tview.NewTable().SetBorders(false)
 	sysTable.SetTitle(" [::b]System Data ").SetBorder(true)
@@ -275,26 +426,23 @@ func main() {
 	processTable.SetTitle(" [::b]Process List ").SetBorder(true)
 
 	// Create a flex layout to hold the tables
-	flex := tview.NewFlex().
+	sysFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(sysTable, 7, 0, false).     // Fixed height for system data
 		AddItem(metricsTable, 0, 1, false). // Proportional height for metrics
 		AddItem(processTable, 0, 2, false)  // Proportional height for process list
 
-	// Add key binding to exit the application
-	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyRune && (event.Rune() == 'q' || event.Rune() == 'Q') {
-			app.Stop()
-			return nil
-		}
-		return event
-	})
+	return sysFlex
+}
 
-	// Start the UI update loop in a separate goroutine
-	go updateUI(app, sysTable, metricsTable, processTable)
+// Function to create the hmac-file-server page
+func createHmacPage() tview.Primitive {
+	hmacTable := tview.NewTable().SetBorders(false)
+	hmacTable.SetTitle(" [::b]hmac-file-server Details ").SetBorder(true)
 
-	// Set the root and run the application
-	if err := app.SetRoot(flex, true).EnableMouse(true).Run(); err != nil {
-		log.Fatalf("Error running application: %v", err)
-	}
+	hmacFlex := tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(hmacTable, 0, 1, false)
+
+	return hmacFlex
 }

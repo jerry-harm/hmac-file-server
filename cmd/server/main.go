@@ -10,6 +10,9 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"mime"
 	"net"
@@ -28,6 +31,7 @@ import (
 
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
+	"github.com/nfnt/resize"
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -108,6 +112,7 @@ type ServerConfig struct {
 	MinFreeBytes         string `mapstructure:"MinFreeBytes"` // Changed to string
 	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
 	MinFreeByte          string `mapstructure:"MinFreeByte"`
+	ThumbnailsEnabled    bool   `mapstructure:"ThumbnailsEnabled"` // Add this line
 }
 
 type TimeoutConfig struct {
@@ -756,7 +761,7 @@ func cleanupOldVersions(versionDir string) error {
 }
 
 // Process the upload task with optional client acknowledgment
-func processUpload(task UploadTask) error {
+func processUpload(ctx context.Context, task UploadTask) error {
 	absFilename := task.AbsFilename
 	tempFilename := absFilename + ".tmp"
 	r := task.Request
@@ -776,7 +781,7 @@ func processUpload(task UploadTask) error {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			return err
 		}
-		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
+		err = handleChunkedUpload(ctx, tempFilename, r, int(chunkSize))
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			log.WithFields(logrus.Fields{
@@ -847,6 +852,23 @@ func processUpload(task UploadTask) error {
 	}
 	log.Infof("File moved to final destination: %s", absFilename)
 
+	// Generate thumbnail if the file is an image and thumbnails are enabled
+	if conf.Server.ThumbnailsEnabled && isImageFile(absFilename) {
+		thumbnailPath := absFilename + "_thumbnail"
+		err := generateThumbnail(absFilename, thumbnailPath, 200) // Generate a thumbnail with width 200 pixels
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"file":      absFilename,
+				"thumbnail": thumbnailPath,
+				"error":     err,
+			}).Error("Failed to generate thumbnail")
+		} else {
+			log.Infof("Thumbnail generated successfully: %s", thumbnailPath)
+			thumbnailURL := fmt.Sprintf("https://%s/thumbnails/%s", r.Host, url.PathEscape(thumbnailPath))
+			log.Infof("Thumbnail URL: %s", thumbnailURL)
+		}
+	}
+
 	// Notify client of successful upload and wait for ACK if Callback-URL is provided
 	callbackURL := r.Header.Get("Callback-URL")
 	if callbackURL != "" {
@@ -894,26 +916,37 @@ func processUpload(task UploadTask) error {
 	return nil
 }
 
+// Helper function to check if a file is an image
+func isImageFile(filename string) bool {
+    ext := strings.ToLower(filepath.Ext(filename))
+    switch ext {
+    case ".jpg", ".jpeg", ".png":
+        return true
+    default:
+        return false
+    }
+}
+
 func createFile(tempFilename string, r *http.Request) error {
-	// Ensure the directory exists
-	absDirectory := filepath.Dir(tempFilename)
-	err := os.MkdirAll(absDirectory, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("failed to create directory: %v", err)
-	}
+    // Ensure the directory exists
+    absDirectory := filepath.Dir(tempFilename)
+    err := os.MkdirAll(absDirectory, os.ModePerm)
+    if err != nil {
+        return fmt.Errorf("failed to create directory: %v", err)
+    }
 
-	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %v", err)
-	}
-	defer targetFile.Close()
+    targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+    if err != nil {
+        return fmt.Errorf("failed to open file: %v", err)
+    }
+    defer targetFile.Close()
 
-	_, err = io.Copy(targetFile, r.Body)
-	if err != nil {
-		return fmt.Errorf("failed to write to file: %v", err)
-	}
+    _, err = io.Copy(targetFile, r.Body)
+    if err != nil {
+        return fmt.Errorf("failed to write to file: %v", err)
+    }
 
-	return nil
+    return nil
 }
 
 // Check if the file should be scanned based on its extension
@@ -939,7 +972,7 @@ func uploadWorker(ctx context.Context, workerID int) {
 			if !ok {
 				return
 			}
-			err := processUpload(task)
+			err := processUpload(ctx, task)
 			task.Result <- err
 		}
 	}
@@ -999,17 +1032,31 @@ func initializeScanWorkerPool(ctx context.Context) {
 
 // Setup router with middleware
 func setupRouter() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", handleRequest)
-	if conf.Server.MetricsEnabled {
-		mux.Handle("/metrics", promhttp.Handler())
-	}
+    mux := http.NewServeMux()
+    mux.HandleFunc("/", handleRequest)
+    mux.HandleFunc("/thumbnails/", handleThumbnailRequest) // Add this line to serve thumbnails
+    if conf.Server.MetricsEnabled {
+        mux.Handle("/metrics", promhttp.Handler())
+    }
 
-	// Apply middleware
-	handler := loggingMiddleware(mux)
-	handler = recoveryMiddleware(handler)
-	handler = corsMiddleware(handler)
-	return handler
+    // Apply middleware
+    handler := loggingMiddleware(mux)
+    handler = recoveryMiddleware(handler)
+    handler = corsMiddleware(handler)
+    return handler
+}
+
+// Handle thumbnail requests
+func handleThumbnailRequest(w http.ResponseWriter, r *http.Request) {
+    thumbnailPath := strings.TrimPrefix(r.URL.Path, "/thumbnails/")
+    absThumbnailPath, err := sanitizeFilePath(conf.Server.StoragePath, thumbnailPath)
+    if err != nil {
+        log.WithError(err).Error("Invalid thumbnail path")
+        http.Error(w, "Invalid thumbnail path", http.StatusBadRequest)
+        return
+    }
+
+    http.ServeFile(w, r, absThumbnailPath)
 }
 
 // Middleware for logging
@@ -1471,7 +1518,7 @@ func handleResumableDownload(absFilename string, w http.ResponseWriter, r *http.
 }
 
 // Handle chunked uploads with bufio.Writer
-func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) error {
+func handleChunkedUpload(ctx context.Context, tempFilename string, r *http.Request, chunkSize int) error {
 	log.WithField("file", tempFilename).Info("Handling chunked upload to temporary file")
 
 	// Ensure the directory exists
@@ -1492,33 +1539,34 @@ func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) er
 
 	totalBytes := int64(0)
 	for {
-		n, err := r.Body.Read(buffer)
-		if err != nil && err != io.EOF {
-			return fmt.Errorf("failed to read request body: %v", err)
-		}
-		if n == 0 {
-			break
-		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("operation cancelled")
+		default:
+			n, err := r.Body.Read(buffer)
+			if err != nil && err != io.EOF {
+				return fmt.Errorf("failed to read request body: %v", err)
+			}
+			if n == 0 {
+				err = writer.Flush()
+				if err != nil {
+					return fmt.Errorf("failed to flush writer: %v", err)
+				}
+				log.WithFields(logrus.Fields{
+					"temp_file":   tempFilename,
+					"total_bytes": totalBytes,
+				}).Info("Chunked upload completed successfully")
+				uploadSizeBytes.Observe(float64(totalBytes))
+				return nil
+			}
 
-		_, err = writer.Write(buffer[:n])
-		if err != nil {
-			return fmt.Errorf("failed to write to file: %v", err)
+			_, err = writer.Write(buffer[:n])
+			if err != nil {
+				return fmt.Errorf("failed to write to file: %v", err)
+			}
+			totalBytes += int64(n)
 		}
-		totalBytes += int64(n)
 	}
-
-	err = writer.Flush()
-	if err != nil {
-		return fmt.Errorf("failed to flush writer: %v", err)
-	}
-
-	log.WithFields(logrus.Fields{
-		"temp_file":   tempFilename,
-		"total_bytes": totalBytes,
-	}).Info("Chunked upload completed successfully")
-
-	uploadSizeBytes.Observe(float64(totalBytes))
-	return nil
 }
 
 // Get file information with caching
@@ -1648,7 +1696,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if !conf.Redis.RedisEnabled {
+	if (!conf.Redis.RedisEnabled) {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1697,7 +1745,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if !redisConnected {
+				if (!redisConnected) {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -2213,4 +2261,42 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 		return fmt.Errorf("failed to recreate ISO container: %w", err)
 	}
 	return nil
+}
+
+// generateThumbnail generates a thumbnail for the given image file
+func generateThumbnail(inputPath, outputPath string, width uint) error {
+	// Open the input file
+	file, err := os.Open(inputPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Decode the image
+	img, format, err := image.Decode(file)
+	if err != nil {
+		return err
+	}
+
+	// Resize the image to the specified width, preserving the aspect ratio
+	thumbnail := resize.Resize(width, 0, img, resize.Lanczos3)
+
+	// Create the output file
+	outFile, err := os.Create(outputPath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	// Encode the thumbnail in the same format as the original image
+	switch strings.ToLower(format) {
+	case "jpeg", "jpg":
+		err = jpeg.Encode(outFile, thumbnail, nil)
+	case "png":
+		err = png.Encode(outFile, thumbnail)
+	default:
+		return fmt.Errorf("unsupported image format: %s", format)
+	}
+
+	return err
 }
