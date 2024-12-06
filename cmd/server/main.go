@@ -39,7 +39,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// parseSize converts a human-readable size string (e.g., "1KB", "1MB", "1GB", "1TB") to bytes
+// parseSize converts a human-readable size string to bytes
 func parseSize(sizeStr string) (int64, error) {
 	sizeStr = strings.TrimSpace(sizeStr)
 	if len(sizeStr) < 2 {
@@ -67,7 +67,7 @@ func parseSize(sizeStr string) (int64, error) {
 	}
 }
 
-// parseTTL converts a human-readable TTL string (e.g., "1D", "1M", "1Y") to a time.Duration
+// parseTTL converts a human-readable TTL string to a time.Duration
 func parseTTL(ttlStr string) (time.Duration, error) {
 	ttlStr = strings.TrimSpace(ttlStr)
 	if len(ttlStr) < 2 {
@@ -93,7 +93,7 @@ func parseTTL(ttlStr string) (time.Duration, error) {
 	}
 }
 
-// Configuration structure
+// Configuration structures
 type ServerConfig struct {
 	ListenPort           string `mapstructure:"ListenPort"`
 	UnixSocket           bool   `mapstructure:"UnixSocket"`
@@ -106,6 +106,7 @@ type ServerConfig struct {
 	MinFreeBytes         string `mapstructure:"MinFreeBytes"`
 	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
 	MinFreeByte          string `mapstructure:"MinFreeByte"`
+	AutoAdjustWorkers    bool   `mapstructure:"AutoAdjustWorkers"` // Moved here
 }
 
 type TimeoutConfig struct {
@@ -146,9 +147,8 @@ type RedisConfig struct {
 }
 
 type WorkersConfig struct {
-	AutoAdjust      bool `mapstructure:"AutoAdjust"`
-	NumWorkers      int  `mapstructure:"NumWorkers"`
-	UploadQueueSize int  `mapstructure:"UploadQueueSize"`
+	NumWorkers      int `mapstructure:"NumWorkers"`
+	UploadQueueSize int `mapstructure:"UploadQueueSize"`
 }
 
 type FileConfig struct {
@@ -162,7 +162,6 @@ type ISOConfig struct {
 	Charset    string `mapstructure:"charset"`
 }
 
-// Configuration structure for the entire server
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server"`
 	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
@@ -176,20 +175,17 @@ type Config struct {
 	ISO        ISOConfig        `mapstructure:"iso"`
 }
 
-// UploadTask represents a file upload task
 type UploadTask struct {
 	AbsFilename string
 	Request     *http.Request
 	Result      chan error
 }
 
-// ScanTask represents a file scan task
 type ScanTask struct {
 	AbsFilename string
 	Result      chan error
 }
 
-// NetworkEvent represents a network-related event
 type NetworkEvent struct {
 	Type    string
 	Details string
@@ -202,9 +198,9 @@ var (
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
 	fileInfoCache  *cache.Cache
-	clamClient     *clamd.Clamd  // ClamAV integration
-	redisClient    *redis.Client // Redis client
-	redisConnected bool          // Redis connection status
+	clamClient     *clamd.Clamd
+	redisClient    *redis.Client
+	redisConnected bool
 	mu             sync.RWMutex
 
 	// Prometheus metrics
@@ -223,32 +219,30 @@ var (
 	downloadSizeBytes   prometheus.Histogram
 
 	scanQueue   chan ScanTask
-	ScanWorkers = 5 // Number of ClamAV scan workers (will be adjusted if AutoAdjust is true)
+	ScanWorkers = 5
 )
 
 const (
-	MinFreeBytes = 1 << 30 // 1 GB
+	MinFreeBytes = 1 << 30
 )
 
 var bufferPool = sync.Pool{
 	New: func() interface{} {
-		return make([]byte, 32*1024) // 32KB buffer
+		return make([]byte, 32*1024)
 	},
 }
 
-const maxConcurrentOperations = 10 // Define an appropriate value
+const maxConcurrentOperations = 10
+
 var semaphore = make(chan struct{}, maxConcurrentOperations)
 
 func main() {
-	// Set default configuration values
 	setDefaults()
 
-	// Flags for configuration file
 	var configFile string
 	flag.StringVar(&configFile, "config", "./config.toml", "Path to configuration file \"config.toml\".")
 	flag.Parse()
 
-	// Load configuration
 	err := readConfig(configFile, &conf)
 	if err != nil {
 		log.Fatalf("Error reading config: %v", err)
@@ -256,9 +250,8 @@ func main() {
 	log.Info("Configuration loaded successfully.")
 
 	// Initialize worker settings (auto or manual)
-	initializeWorkerSettings(&conf.Workers, &conf.ClamAV)
+	initializeWorkerSettings(&conf.Server, &conf.Workers, &conf.ClamAV)
 
-	// Verify and create ISO container if it doesn't exist
 	if conf.ISO.Enabled {
 		err = verifyAndCreateISOContainer()
 		if err != nil {
@@ -266,89 +259,67 @@ func main() {
 		}
 	}
 
-	// Initialize file info cache
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 
-	// Create store directory
 	err = os.MkdirAll(conf.Server.StoragePath, os.ModePerm)
 	if err != nil {
 		log.Fatalf("Error creating store directory: %v", err)
 	}
 	log.WithField("directory", conf.Server.StoragePath).Info("Store directory is ready")
 
-	// Check free space with retry
 	err = checkFreeSpaceWithRetry(conf.Server.StoragePath, 3, 5*time.Second)
 	if err != nil {
 		log.Fatalf("Insufficient free space: %v", err)
 	}
 
-	// Setup logging
 	setupLogging()
-
-	// Log system information
 	logSystemInfo()
-
-	// Initialize Prometheus metrics
 	initMetrics()
 	log.Info("Prometheus metrics initialized.")
 
-	// Initialize upload and scan queues with current worker settings
 	uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
 	log.Infof("Upload queue initialized with size: %d", conf.Workers.UploadQueueSize)
 	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
 	networkEvents = make(chan NetworkEvent, 100)
 	log.Info("Upload, scan, and network event channels initialized.")
 
-	// Context for goroutines
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start network monitoring
 	go monitorNetwork(ctx)
 	go handleNetworkEvents(ctx)
-
-	// Update system metrics
 	go updateSystemMetrics(ctx)
 
-	// Initialize ClamAV client if enabled
 	if conf.ClamAV.ClamAVEnabled {
 		clamClient, err = initClamAV(conf.ClamAV.ClamAVSocket)
 		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error": err.Error(),
-			}).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
+			log.WithError(err).Warn("ClamAV client initialization failed. Continuing without ClamAV.")
 		} else {
 			log.Info("ClamAV client initialized successfully.")
 		}
 	}
 
-	// Initialize Redis client if enabled
 	if conf.Redis.RedisEnabled {
 		initRedis()
 	}
 
-	// Initialize worker pools
 	initializeUploadWorkerPool(ctx, &conf.Workers)
 	if conf.ClamAV.ClamAVEnabled && clamClient != nil {
 		initializeScanWorkerPool(ctx)
 	}
 
-	// Start Redis health monitor if Redis is enabled
 	if conf.Redis.RedisEnabled && redisClient != nil {
 		go MonitorRedisHealth(ctx, redisClient, parseDuration(conf.Redis.RedisHealthCheckInterval))
 	}
 
-	// Setup router
 	router := setupRouter()
 
-	// Start file cleaner
 	fileTTL, err := parseTTL(conf.Server.FileTTL)
 	if err != nil {
 		log.Fatalf("Invalid FileTTL: %v", err)
 	}
 	go runFileCleaner(ctx, conf.Server.StoragePath, fileTTL)
 
-	// Parse timeout durations
 	readTimeout, err := time.ParseDuration(conf.Timeouts.ReadTimeout)
 	if err != nil {
 		log.Fatalf("Invalid ReadTimeout: %v", err)
@@ -364,7 +335,6 @@ func main() {
 		log.Fatalf("Invalid IdleTimeout: %v", err)
 	}
 
-	// Configure HTTP server
 	server := &http.Server{
 		Addr:         ":" + conf.Server.ListenPort,
 		Handler:      router,
@@ -373,7 +343,6 @@ func main() {
 		IdleTimeout:  idleTimeout,
 	}
 
-	// Start metrics server if enabled
 	if conf.Server.MetricsEnabled {
 		go func() {
 			http.Handle("/metrics", promhttp.Handler())
@@ -384,15 +353,13 @@ func main() {
 		}()
 	}
 
-	// Setup graceful shutdown
 	setupGracefulShutdown(server, cancel)
 
-	// Start periodic re-adjustment if AutoAdjust is enabled
-	if conf.Workers.AutoAdjust {
-		go monitorWorkerPerformance(ctx, &conf.Workers, &conf.ClamAV)
+	// If autoAdjustWorkers is enabled, periodically re-adjust
+	if conf.Server.AutoAdjustWorkers {
+		go monitorWorkerPerformance(ctx, &conf.Server, &conf.Workers, &conf.ClamAV)
 	}
 
-	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
 		if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
@@ -417,7 +384,6 @@ func main() {
 // Added/Modified Functions for Auto-adjusting Workers
 // =======================
 
-// max helper function
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -425,14 +391,12 @@ func max(a, b int) int {
 	return b
 }
 
-// autoAdjustWorkers calculates optimal worker settings based on CPU and memory
 func autoAdjustWorkers() (int, int) {
 	v, _ := mem.VirtualMemory()
 	cpuCores, _ := cpu.Counts(true)
 
-	// Calculate workers based on cores and RAM
 	numWorkers := cpuCores * 2
-	if v.Available < 2*1024*1024*1024 { // Less than 2GB available
+	if v.Available < 2*1024*1024*1024 {
 		numWorkers = max(numWorkers/2, 1)
 	}
 	queueSize := numWorkers * 10
@@ -441,31 +405,23 @@ func autoAdjustWorkers() (int, int) {
 	return numWorkers, queueSize
 }
 
-// initializeWorkerSettings applies auto or manual worker settings
-// If AutoAdjust is true, the config values for NumWorkers, UploadQueueSize, and NumScanWorkers are ignored.
-func initializeWorkerSettings(w *WorkersConfig, clamavConfig *ClamAVConfig) {
-	if w.AutoAdjust {
+func initializeWorkerSettings(server *ServerConfig, workers *WorkersConfig, clamav *ClamAVConfig) {
+	if server.AutoAdjustWorkers {
 		numWorkers, queueSize := autoAdjustWorkers()
-		w.NumWorkers = numWorkers
-		w.UploadQueueSize = queueSize
+		workers.NumWorkers = numWorkers
+		workers.UploadQueueSize = queueSize
+		// Dynamically adjust ClamAV workers
+		clamav.NumScanWorkers = max(numWorkers/2, 1)
 
-		// Dynamically calculate the number of scan workers
-		// For example, half of NumWorkers as scan workers, at least 1
-		clamavConfig.NumScanWorkers = numWorkers / 2
-		if clamavConfig.NumScanWorkers < 1 {
-			clamavConfig.NumScanWorkers = 1
-		}
-
-		log.Infof("AutoAdjust enabled: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
-			w.NumWorkers, w.UploadQueueSize, clamavConfig.NumScanWorkers)
+		log.Infof("AutoAdjustWorkers enabled: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
+			workers.NumWorkers, workers.UploadQueueSize, clamav.NumScanWorkers)
 	} else {
-		log.Infof("Using manual settings: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
-			w.NumWorkers, w.UploadQueueSize, clamavConfig.NumScanWorkers)
+		log.Infof("Manual configuration in effect: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
+			workers.NumWorkers, workers.UploadQueueSize, clamav.NumScanWorkers)
 	}
 }
 
-// monitorWorkerPerformance periodically re-adjusts worker settings if AutoAdjust is enabled
-func monitorWorkerPerformance(ctx context.Context, w *WorkersConfig, clamavConfig *ClamAVConfig) {
+func monitorWorkerPerformance(ctx context.Context, server *ServerConfig, w *WorkersConfig, clamav *ClamAVConfig) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -475,26 +431,21 @@ func monitorWorkerPerformance(ctx context.Context, w *WorkersConfig, clamavConfi
 			log.Info("Stopping worker performance monitor.")
 			return
 		case <-ticker.C:
-			if w.AutoAdjust {
+			if server.AutoAdjustWorkers {
 				numWorkers, queueSize := autoAdjustWorkers()
 				w.NumWorkers = numWorkers
 				w.UploadQueueSize = queueSize
-
-				// Re-adjust scan workers as well
-				clamavConfig.NumScanWorkers = numWorkers / 2
-				if clamavConfig.NumScanWorkers < 1 {
-					clamavConfig.NumScanWorkers = 1
-				}
+				clamav.NumScanWorkers = max(numWorkers/2, 1)
 
 				log.Infof("Re-adjusted workers: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
-					w.NumWorkers, w.UploadQueueSize, clamavConfig.NumScanWorkers)
+					w.NumWorkers, w.UploadQueueSize, clamav.NumScanWorkers)
 			}
 		}
 	}
 }
 
 // =======================
-// Original Functions below (Unmodified)
+// Original Functions (Unmodified except where noted)
 // =======================
 
 func readConfig(configFilename string, conf *Config) error {
@@ -531,6 +482,7 @@ func setDefaults() {
 	viper.SetDefault("server.MetricsPort", "9090")
 	viper.SetDefault("server.FileTTL", "8760h")
 	viper.SetDefault("server.MinFreeBytes", 100<<20)
+	viper.SetDefault("server.AutoAdjustWorkers", true)
 
 	_, err := parseTTL("1D")
 	if err != nil {
@@ -565,7 +517,6 @@ func setDefaults() {
 	viper.SetDefault("redis.RedisDBIndex", 0)
 	viper.SetDefault("redis.RedisHealthCheckInterval", "120s")
 
-	viper.SetDefault("workers.AutoAdjust", true)
 	viper.SetDefault("workers.NumWorkers", 4)
 	viper.SetDefault("workers.UploadQueueSize", 50)
 
@@ -686,35 +637,24 @@ func logSystemInfo() {
 }
 
 func initMetrics() {
-	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration in seconds.", Buckets: prometheus.DefBuckets})
+	uploadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_duration_seconds", Help: "Histogram of file upload duration."})
 	uploadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_upload_errors_total", Help: "Total number of file upload errors."})
 	uploadsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_uploads_total", Help: "Total number of successful file uploads."})
-	downloadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration in seconds.", Buckets: prometheus.DefBuckets})
+	downloadDuration = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_duration_seconds", Help: "Histogram of file download duration."})
 	downloadsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_downloads_total", Help: "Total number of successful file downloads."})
 	downloadErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "hmac", Name: "file_server_download_errors_total", Help: "Total number of file download errors."})
 	memoryUsage = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "memory_usage_bytes", Help: "Current memory usage in bytes."})
-	cpuUsage = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "Current CPU usage as a percentage."})
+	cpuUsage = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "cpu_usage_percent", Help: "CPU usage as a percentage."})
 	activeConnections = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "active_connections_total", Help: "Total number of active connections."})
-	requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total number of HTTP requests received, labeled by method and path."}, []string{"method", "path"})
-	goroutines = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Current number of goroutines."})
-	uploadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "hmac",
-		Name:      "file_server_upload_size_bytes",
-		Help:      "Histogram of uploaded file sizes in bytes.",
-		Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
-	})
-	downloadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: "hmac",
-		Name:      "file_server_download_size_bytes",
-		Help:      "Histogram of downloaded file sizes in bytes.",
-		Buckets:   prometheus.ExponentialBuckets(100, 10, 8),
-	})
+	requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: "hmac", Name: "http_requests_total", Help: "Total HTTP requests."}, []string{"method", "path"})
+	goroutines = prometheus.NewGauge(prometheus.GaugeOpts{Namespace: "hmac", Name: "goroutines_count", Help: "Number of goroutines."})
+	uploadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_upload_size_bytes", Help: "Histogram of uploaded file sizes."})
+	downloadSizeBytes = prometheus.NewHistogram(prometheus.HistogramOpts{Namespace: "hmac", Name: "file_server_download_size_bytes", Help: "Histogram of downloaded file sizes."})
 
 	if conf.Server.MetricsEnabled {
 		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
 		prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
-		prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines)
-		prometheus.MustRegister(uploadSizeBytes, downloadSizeBytes)
+		prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines, uploadSizeBytes, downloadSizeBytes)
 	}
 }
 
@@ -868,7 +808,7 @@ func processUpload(task UploadTask) error {
 		}
 		log.Infof("ClamAV scan passed for file: %s", tempFilename)
 	} else {
-		log.Warn("ClamAV is not available or file extension is not in the scan list. Proceeding without virus scan.")
+		log.Warn("ClamAV is not available or file extension not in scan list. Proceeding without virus scan.")
 	}
 
 	if conf.Versioning.EnableVersioning {
@@ -953,10 +893,7 @@ func createFile(tempFilename string, r *http.Request) error {
 
 	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		log.WithFields(logrus.Fields{
-			"file":  tempFilename,
-			"error": err,
-		}).Error("Error creating file")
+		log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error creating file")
 		uploadDuration.Observe(time.Since(startTime).Seconds())
 		return err
 	}
@@ -1022,22 +959,12 @@ func scanWorker(ctx context.Context, workerID int) {
 				log.WithField("worker_id", workerID).Info("Scan queue closed")
 				return
 			}
-			log.WithFields(logrus.Fields{
-				"worker_id": workerID,
-				"file":      task.AbsFilename,
-			}).Info("Processing scan task")
+			log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename}).Info("Processing scan task")
 			err := scanFileWithClamAV(task.AbsFilename)
 			if err != nil {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-					"error":     err,
-				}).Error("Failed to scan file")
+				log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename, "error": err}).Error("Failed to scan file")
 			} else {
-				log.WithFields(logrus.Fields{
-					"worker_id": workerID,
-					"file":      task.AbsFilename,
-				}).Info("Successfully scanned file")
+				log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename}).Info("Successfully scanned file")
 			}
 			task.Result <- err
 			close(task.Result)
@@ -1075,11 +1002,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.WithFields(logrus.Fields{
-					"method": r.Method,
-					"url":    r.URL.String(),
-					"error":  rec,
-				}).Error("Panic recovered in HTTP handler")
+				log.WithFields(logrus.Fields{"method": r.Method, "url": r.URL.String(), "error": rec}).Error("Panic recovered in handler")
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()
@@ -1132,11 +1055,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.WithFields(logrus.Fields{
-		"method": r.Method,
-		"url":    r.URL.String(),
-		"remote": clientIP,
-	}).Info("Incoming request")
+	log.WithFields(logrus.Fields{"method": r.Method, "url": r.URL.String(), "remote": clientIP}).Info("Incoming request")
 
 	p := r.URL.Path
 	a, err := url.ParseQuery(r.URL.RawQuery)
@@ -1157,10 +1076,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
 	if err != nil {
-		log.WithFields(logrus.Fields{
-			"file":  fileStorePath,
-			"error": err,
-		}).Warn("Invalid file path")
+		log.WithFields(logrus.Fields{"file": fileStorePath, "error": err}).Warn("Invalid file path")
 		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
@@ -1342,7 +1258,7 @@ func scanFileWithClamAV(filePath string) error {
 	scanResult := <-scanResultChan
 	if scanResult == nil {
 		log.Error("Failed to receive scan result from ClamAV")
-		return fmt.Errorf("failed to receive scan result from ClamAV")
+		return fmt.Errorf("failed to receive scan result")
 	}
 
 	switch scanResult.Status {
@@ -1350,25 +1266,18 @@ func scanFileWithClamAV(filePath string) error {
 		log.WithField("file", filePath).Info("ClamAV scan passed")
 		return nil
 	case clamd.RES_FOUND:
-		log.WithFields(logrus.Fields{
-			"file":        filePath,
-			"description": scanResult.Description,
-		}).Warn("ClamAV detected a virus")
+		log.WithFields(logrus.Fields{"file": filePath, "description": scanResult.Description}).Warn("ClamAV detected a virus")
 		return fmt.Errorf("virus detected: %s", scanResult.Description)
 	default:
-		log.WithFields(logrus.Fields{
-			"file":        filePath,
-			"status":      scanResult.Status,
-			"description": scanResult.Description,
-		}).Warn("ClamAV scan returned unexpected status")
-		return fmt.Errorf("ClamAV scan returned unexpected status: %s", scanResult.Description)
+		log.WithFields(logrus.Fields{"file": filePath, "status": scanResult.Status, "description": scanResult.Description}).Warn("ClamAV scan returned unexpected status")
+		return fmt.Errorf("unexpected ClamAV status: %s", scanResult.Description)
 	}
 }
 
 func initClamAV(socket string) (*clamd.Clamd, error) {
 	if socket == "" {
-		log.Error("ClamAV socket path is not configured.")
-		return nil, fmt.Errorf("ClamAV socket path is not configured")
+		log.Error("ClamAV socket path not configured.")
+		return nil, fmt.Errorf("ClamAV socket path not configured")
 	}
 
 	clamClient := clamd.NewClamd("unix:" + socket)
@@ -1507,10 +1416,7 @@ func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) er
 		return fmt.Errorf("failed to flush writer: %v", err)
 	}
 
-	log.WithFields(logrus.Fields{
-		"temp_file":   tempFilename,
-		"total_bytes": totalBytes,
-	}).Info("Chunked upload completed successfully")
+	log.WithFields(logrus.Fields{"temp_file": tempFilename, "total_bytes": totalBytes}).Info("Chunked upload completed successfully")
 
 	uploadSizeBytes.Observe(float64(totalBytes))
 	return nil
@@ -1548,7 +1454,7 @@ func monitorNetwork(ctx context.Context) {
 				case networkEvents <- NetworkEvent{Type: "IP_CHANGE", Details: currentIP}:
 					log.WithField("new_ip", currentIP).Info("Queued IP_CHANGE event")
 				default:
-					log.Warn("Network event channel is full. Dropping IP_CHANGE event.")
+					log.Warn("Network event channel full. Dropping IP_CHANGE event.")
 				}
 			}
 		}
@@ -1722,7 +1628,7 @@ func runFileCleaner(ctx context.Context, storeDir string, ttl time.Duration) {
 				return nil
 			})
 			if err != nil {
-				log.WithError(err).Error("Error walking store directory for file cleaning")
+				log.WithError(err).Error("Error cleaning files")
 			}
 		}
 	}
@@ -1784,7 +1690,7 @@ func DeduplicateFiles(storeDir string) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("error walking the path %s: %w", storeDir, err)
+		return fmt.Errorf("error walking path %s: %w", storeDir, err)
 	}
 
 	close(fileChan)
@@ -1828,7 +1734,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 			"filename":  handler.Filename,
 			"extension": filepath.Ext(handler.Filename),
 		}).Warn("Attempted upload with disallowed file extension")
-		http.Error(w, "Disallowed file extension. Allowed extensions are: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
+		http.Error(w, "Disallowed file extension. Allowed: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
 		uploadErrorsTotal.Inc()
 		return fmt.Errorf("disallowed file extension")
 	}
@@ -1852,10 +1758,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	if clamClient != nil {
 		err := scanFileWithClamAV(tempFilename)
 		if err != nil {
-			log.WithFields(logrus.Fields{
-				"file":  tempFilename,
-				"error": err,
-			}).Warn("ClamAV detected a virus or scan failed")
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Warn("ClamAV detected a virus")
 			os.Remove(tempFilename)
 			uploadErrorsTotal.Inc()
 			return err
@@ -1867,10 +1770,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 		if existing {
 			err := versionFile(absFilename)
 			if err != nil {
-				log.WithFields(logrus.Fields{
-					"file":  absFilename,
-					"error": err,
-				}).Error("Error versioning file")
+				log.WithFields(logrus.Fields{"file": absFilename, "error": err}).Error("Error versioning file")
 				os.Remove(tempFilename)
 				return err
 			}
@@ -1883,10 +1783,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 		return fmt.Errorf("failed to move file to final destination: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{
-		"file": absFilename,
-	}).Info("File uploaded and scanned successfully")
-
+	log.WithField("file", absFilename).Info("File uploaded and scanned successfully")
 	uploadsTotal.Inc()
 	return nil
 }
@@ -1918,7 +1815,7 @@ func checkStorageSpace(storagePath string, minFreeBytes int64) error {
 
 	availableBytes := stat.Bavail * uint64(stat.Bsize)
 	if int64(availableBytes) < minFreeBytes {
-		return fmt.Errorf("not enough free space: %d bytes available, %d bytes required", availableBytes, minFreeBytes)
+		return fmt.Errorf("not enough free space: %d available, %d required", availableBytes, minFreeBytes)
 	}
 
 	return nil
@@ -1937,30 +1834,30 @@ func handleDeduplication(ctx context.Context, absFilename string) error {
 		if err == redis.Nil {
 			err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
 			if err != nil {
-				log.Errorf("Redis error while setting checksum %s: %v", checksum, err)
+				log.Errorf("Redis error setting checksum %s: %v", checksum, err)
 				return fmt.Errorf("redis error: %w", err)
 			}
 			log.Infof("Stored new checksum %s for file %s", checksum, absFilename)
 			return nil
 		}
-		log.Errorf("Redis error while fetching checksum %s: %v", checksum, err)
+		log.Errorf("Redis error fetching checksum %s: %v", checksum, err)
 		return fmt.Errorf("redis error: %w", err)
 	}
 
 	if existingPath != absFilename {
 		if _, err := os.Stat(existingPath); os.IsNotExist(err) {
-			log.Errorf("Existing file for checksum %s does not exist at path %s", checksum, existingPath)
-			return fmt.Errorf("existing file does not exist: %w", err)
+			log.Errorf("Existing file for checksum %s not found at %s", checksum, existingPath)
+			return fmt.Errorf("existing file not found: %w", err)
 		}
 
 		err = os.Link(existingPath, absFilename)
 		if err != nil {
-			log.Errorf("Failed to create hard link from %s to %s: %v", existingPath, absFilename, err)
-			return fmt.Errorf("failed to create hard link: %w", err)
+			log.Errorf("Failed linking %s to %s: %v", existingPath, absFilename, err)
+			return fmt.Errorf("failed link: %w", err)
 		}
-		log.Infof("Created hard link for duplicate file %s pointing to %s", absFilename, existingPath)
+		log.Infof("Created hard link for duplicate file %s -> %s", absFilename, existingPath)
 	} else {
-		log.Infof("File %s already exists with the same checksum", absFilename)
+		log.Infof("File %s already exists with same checksum", absFilename)
 	}
 
 	return nil
@@ -1974,7 +1871,7 @@ func computeSHA256(ctx context.Context, filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		log.Errorf("Failed to open file for checksum: %v", err)
-		return "", fmt.Errorf("computeSHA256: failed to open file %s: %w", filePath, err)
+		return "", fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -1985,21 +1882,21 @@ func computeSHA256(ctx context.Context, filePath string) (string, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return "", fmt.Errorf("computeSHA256: operation cancelled")
+			return "", fmt.Errorf("operation cancelled")
 		default:
 			n, err := reader.Read(buffer)
 			if n > 0 {
 				if _, wErr := hasher.Write(buffer[:n]); wErr != nil {
-					return "", fmt.Errorf("computeSHA256: failed to write to hasher: %w", wErr)
+					return "", fmt.Errorf("hasher write error: %w", wErr)
 				}
 			}
 			if err != nil {
 				if err == io.EOF {
-					checksum := hex.EncodeToString(hasher.Sum(nil))
-					log.Debugf("Computed SHA256 checksum for file %s: %s", filePath, checksum)
-					return checksum, nil
+					sum := hex.EncodeToString(hasher.Sum(nil))
+					log.Debugf("Checksum computed: %s", sum)
+					return sum, nil
 				}
-				return "", fmt.Errorf("computeSHA256: read error: %w", err)
+				return "", fmt.Errorf("read error: %w", err)
 			}
 		}
 	}
@@ -2014,7 +1911,7 @@ func checkFreeSpaceWithRetry(path string, retries int, delay time.Duration) erro
 		}
 		return nil
 	}
-	return fmt.Errorf("checkFreeSpace: insufficient free space after %d attempts", retries)
+	return fmt.Errorf("insufficient free space after %d attempts", retries)
 }
 
 func CreateISOContainer(files []string, isoPath string, size string, charset string) error {
@@ -2028,7 +1925,7 @@ func CreateISOContainer(files []string, isoPath string, size string, charset str
 
 func MountISOContainer(isoPath string, mountPoint string) error {
 	if err := os.MkdirAll(mountPoint, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create mount point directory: %w", err)
+		return fmt.Errorf("failed to create mount point: %w", err)
 	}
 
 	var output []byte
@@ -2037,13 +1934,13 @@ func MountISOContainer(isoPath string, mountPoint string) error {
 		cmd := exec.Command("mount", "-o", "loop,ro", isoPath, mountPoint)
 		output, err = cmd.CombinedOutput()
 		if err == nil {
-			log.Infof("ISO container mounted successfully at %s", mountPoint)
+			log.Infof("ISO container mounted at %s", mountPoint)
 			return nil
 		}
-		log.Warnf("Failed to mount ISO container (attempt %d/3): %v, output: %s", i+1, err, string(output))
+		log.Warnf("Mount attempt %d failed: %v, output: %s", i+1, err, string(output))
 		time.Sleep(2 * time.Second)
 	}
-	return fmt.Errorf("failed to mount ISO container: %w, output: %s", err, string(output))
+	return fmt.Errorf("failed to mount ISO: %w, output: %s", err, string(output))
 }
 
 func UnmountISOContainer(mountPoint string) error {
@@ -2062,7 +1959,7 @@ func handleISOContainer(absFilename string) error {
 	}
 
 	if err := os.MkdirAll(conf.ISO.MountPoint, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create mount point directory: %w", err)
+		return fmt.Errorf("failed to create mount point: %w", err)
 	}
 
 	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
@@ -2072,7 +1969,7 @@ func handleISOContainer(absFilename string) error {
 
 	err = UnmountISOContainer(conf.ISO.MountPoint)
 	if err != nil {
-		return fmt.Errorf("failed to unmount ISO container: %w", err)
+		return fmt.Errorf("failed to unmount ISO: %w", err)
 	}
 
 	return nil
@@ -2082,14 +1979,14 @@ func verifyAndCreateISOContainer() error {
 	isoPath := filepath.Join(conf.ISO.MountPoint, "container.iso")
 
 	if exists, _ := fileExists(isoPath); !exists {
-		log.Infof("ISO container does not exist. Creating new ISO container at %s", isoPath)
+		log.Infof("ISO container does not exist, creating at %s", isoPath)
 		files := []string{conf.Server.StoragePath}
 
 		err := CreateISOContainer(files, isoPath, conf.ISO.Size, conf.ISO.Charset)
 		if err != nil {
-			return fmt.Errorf("failed to create ISO container: %w", err)
+			return fmt.Errorf("failed to create ISO: %w", err)
 		}
-		log.Infof("ISO container created successfully at %s", isoPath)
+		log.Infof("ISO container created at %s", isoPath)
 	}
 
 	err := verifyISOFile(isoPath)
@@ -2097,19 +1994,19 @@ func verifyAndCreateISOContainer() error {
 		files := []string{conf.Server.StoragePath}
 		err = handleCorruptedISOFile(isoPath, files, conf.ISO.Size, conf.ISO.Charset)
 		if err != nil {
-			return fmt.Errorf("failed to handle corrupted ISO file: %w", err)
+			return fmt.Errorf("failed to handle corrupted ISO: %w", err)
 		}
 	}
 
 	if err := os.MkdirAll(conf.ISO.MountPoint, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create mount point directory: %w", err)
+		return fmt.Errorf("failed to create mount point: %w", err)
 	}
 
 	err = MountISOContainer(isoPath, conf.ISO.MountPoint)
 	if err != nil {
-		return fmt.Errorf("failed to mount ISO container: %w", err)
+		return fmt.Errorf("failed to mount ISO: %w", err)
 	}
-	log.Infof("ISO container mounted successfully at %s", conf.ISO.MountPoint)
+	log.Infof("ISO container mounted at %s", conf.ISO.MountPoint)
 
 	return nil
 }
@@ -2118,16 +2015,16 @@ func verifyISOFile(isoPath string) error {
 	cmd := exec.Command("isoinfo", "-i", isoPath, "-d")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to verify ISO file: %w, output: %s", err, string(output))
+		return fmt.Errorf("failed to verify ISO: %w, output: %s", err, string(output))
 	}
 	return nil
 }
 
 func handleCorruptedISOFile(isoPath string, files []string, size string, charset string) error {
-	log.Warnf("ISO file %s is corrupted. Recreating it.", isoPath)
+	log.Warnf("ISO file %s corrupted. Recreating...", isoPath)
 	err := CreateISOContainer(files, isoPath, size, charset)
 	if err != nil {
-		return fmt.Errorf("failed to recreate ISO container: %w", err)
+		return fmt.Errorf("failed to recreate ISO: %w", err)
 	}
 	return nil
 }
