@@ -162,7 +162,7 @@ type ISOConfig struct {
 	Charset    string `mapstructure:"charset"`
 }
 
-// Add ISO configuration to the main configuration structure
+// Configuration structure for the entire server
 type Config struct {
 	Server     ServerConfig     `mapstructure:"server"`
 	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
@@ -202,7 +202,7 @@ var (
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
 	fileInfoCache  *cache.Cache
-	clamClient     *clamd.Clamd  // Added for ClamAV integration
+	clamClient     *clamd.Clamd  // ClamAV integration
 	redisClient    *redis.Client // Redis client
 	redisConnected bool          // Redis connection status
 	mu             sync.RWMutex
@@ -223,7 +223,7 @@ var (
 	downloadSizeBytes   prometheus.Histogram
 
 	scanQueue   chan ScanTask
-	ScanWorkers = 5 // Number of ClamAV scan workers
+	ScanWorkers = 5 // Number of ClamAV scan workers (will be adjusted if AutoAdjust is true)
 )
 
 const (
@@ -255,8 +255,8 @@ func main() {
 	}
 	log.Info("Configuration loaded successfully.")
 
-	// Initialize and possibly auto-adjust workers before queue creation
-	initializeWorkerSettings(&conf.Workers)
+	// Initialize worker settings (auto or manual)
+	initializeWorkerSettings(&conf.Workers, &conf.ClamAV)
 
 	// Verify and create ISO container if it doesn't exist
 	if conf.ISO.Enabled {
@@ -389,13 +389,12 @@ func main() {
 
 	// Start periodic re-adjustment if AutoAdjust is enabled
 	if conf.Workers.AutoAdjust {
-		go monitorWorkerPerformance(ctx, &conf.Workers)
+		go monitorWorkerPerformance(ctx, &conf.Workers, &conf.ClamAV)
 	}
 
 	// Start server
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
-		// Listen on Unix socket
 		if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
 			log.Fatalf("Failed to remove existing Unix socket: %v", err)
 		}
@@ -408,7 +407,6 @@ func main() {
 			log.Fatalf("Server failed: %v", err)
 		}
 	} else {
-		// Listen on TCP port
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}
@@ -444,19 +442,30 @@ func autoAdjustWorkers() (int, int) {
 }
 
 // initializeWorkerSettings applies auto or manual worker settings
-func initializeWorkerSettings(w *WorkersConfig) {
+// If AutoAdjust is true, the config values for NumWorkers, UploadQueueSize, and NumScanWorkers are ignored.
+func initializeWorkerSettings(w *WorkersConfig, clamavConfig *ClamAVConfig) {
 	if w.AutoAdjust {
 		numWorkers, queueSize := autoAdjustWorkers()
 		w.NumWorkers = numWorkers
 		w.UploadQueueSize = queueSize
+
+		// Dynamically calculate the number of scan workers
+		// For example, half of NumWorkers as scan workers, at least 1
+		clamavConfig.NumScanWorkers = numWorkers / 2
+		if clamavConfig.NumScanWorkers < 1 {
+			clamavConfig.NumScanWorkers = 1
+		}
+
+		log.Infof("AutoAdjust enabled: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
+			w.NumWorkers, w.UploadQueueSize, clamavConfig.NumScanWorkers)
 	} else {
-		log.Infof("Using manual settings: NumWorkers=%d, UploadQueueSize=%d",
-			w.NumWorkers, w.UploadQueueSize)
+		log.Infof("Using manual settings: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
+			w.NumWorkers, w.UploadQueueSize, clamavConfig.NumScanWorkers)
 	}
 }
 
 // monitorWorkerPerformance periodically re-adjusts worker settings if AutoAdjust is enabled
-func monitorWorkerPerformance(ctx context.Context, w *WorkersConfig) {
+func monitorWorkerPerformance(ctx context.Context, w *WorkersConfig, clamavConfig *ClamAVConfig) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -470,17 +479,23 @@ func monitorWorkerPerformance(ctx context.Context, w *WorkersConfig) {
 				numWorkers, queueSize := autoAdjustWorkers()
 				w.NumWorkers = numWorkers
 				w.UploadQueueSize = queueSize
-				log.Infof("Re-adjusted workers: NumWorkers=%d, UploadQueueSize=%d", numWorkers, queueSize)
+
+				// Re-adjust scan workers as well
+				clamavConfig.NumScanWorkers = numWorkers / 2
+				if clamavConfig.NumScanWorkers < 1 {
+					clamavConfig.NumScanWorkers = 1
+				}
+
+				log.Infof("Re-adjusted workers: NumWorkers=%d, UploadQueueSize=%d, NumScanWorkers=%d",
+					w.NumWorkers, w.UploadQueueSize, clamavConfig.NumScanWorkers)
 			}
 		}
 	}
 }
 
 // =======================
-// Original Functions below
+// Original Functions below (Unmodified)
 // =======================
-
-// readConfig, setDefaults, validateConfig, etc...
 
 func readConfig(configFilename string, conf *Config) error {
 	viper.SetConfigFile(configFilename)
