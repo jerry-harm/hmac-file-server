@@ -67,7 +67,7 @@ MetricsEnabled = true
 MetricsPort = "9090"
 FileTTL = "1y" # d,m,y
 DeduplicationEnabled = true
-MinFreeBytes = "100MB" # (MB,GB)
+MinFreeBytes = "100MB" # (e.g., "1KB", "1MB", "1GB", "1TB")
 
 [timeouts]
 ReadTimeout = "480s"
@@ -106,7 +106,7 @@ UploadQueueSize = 5000
 
 [iso]
 Enabled = false
-Size = "2TB" # Example ISO size changed to 2TB
+Size = "2TB" # (e.g., "1KB", "1MB", "1GB", "1TB")
 MountPoint = "/mnt/iso"
 Charset = "utf-8"
 ```
