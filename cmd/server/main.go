@@ -232,6 +232,7 @@ var bufferPool = sync.Pool{
 }
 
 const maxConcurrentOperations = 10
+
 var semaphore = make(chan struct{}, maxConcurrentOperations)
 
 func main() {
@@ -753,20 +754,20 @@ func processUpload(task UploadTask) error {
 	if conf.Uploads.ChunkedUploadsEnabled {
 		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
 		if err != nil {
-			log.WithFields(logrus.Fields{"file": tempFilename,"error": err}).Error("Error parsing chunk size")
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error parsing chunk size")
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			return err
 		}
 		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
 		if err != nil {
 			uploadDuration.Observe(time.Since(startTime).Seconds())
-			log.WithFields(logrus.Fields{"file": tempFilename,"error": err}).Error("Failed to handle chunked upload")
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Failed to handle chunked upload")
 			return err
 		}
 	} else {
 		err := createFile(tempFilename, r)
 		if err != nil {
-			log.WithFields(logrus.Fields{"file": tempFilename,"error": err}).Error("Error creating file")
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error creating file")
 			uploadDuration.Observe(time.Since(startTime).Seconds())
 			return err
 		}
@@ -775,7 +776,7 @@ func processUpload(task UploadTask) error {
 	if clamClient != nil && shouldScanFile(absFilename) {
 		err := scanFileWithClamAV(tempFilename)
 		if err != nil {
-			log.WithFields(logrus.Fields{"file": tempFilename,"error": err}).Warn("ClamAV detected a virus or scan failed")
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Warn("ClamAV detected a virus or scan failed")
 			os.Remove(tempFilename)
 			uploadErrorsTotal.Inc()
 			return err
@@ -791,7 +792,7 @@ func processUpload(task UploadTask) error {
 			log.Infof("File %s exists. Initiating versioning.", absFilename)
 			err := versionFile(absFilename)
 			if err != nil {
-				log.WithFields(logrus.Fields{"file": absFilename,"error": err}).Error("Error versioning file")
+				log.WithFields(logrus.Fields{"file": absFilename, "error": err}).Error("Error versioning file")
 				os.Remove(tempFilename)
 				return err
 			}
@@ -855,7 +856,7 @@ func createFile(tempFilename string, r *http.Request) error {
 
 	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		log.WithFields(logrus.Fields{"file": tempFilename,"error": err}).Error("Error creating file")
+		log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error creating file")
 		uploadDuration.Observe(time.Since(startTime).Seconds())
 		return err
 	}
@@ -924,7 +925,7 @@ func scanWorker(ctx context.Context, workerID int) {
 			log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename}).Info("Processing scan task")
 			err := scanFileWithClamAV(task.AbsFilename)
 			if err != nil {
-				log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename,"error": err}).Error("Failed to scan file")
+				log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename, "error": err}).Error("Failed to scan file")
 			} else {
 				log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename}).Info("Successfully scanned file")
 			}
@@ -964,7 +965,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.WithFields(logrus.Fields{"method": r.Method,"url": r.URL.String(),"error": rec}).Error("Panic recovered in handler")
+				log.WithFields(logrus.Fields{"method": r.Method, "url": r.URL.String(), "error": rec}).Error("Panic recovered in handler")
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
 		}()
@@ -1017,7 +1018,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.WithFields(logrus.Fields{"method": r.Method,"url": r.URL.String(),"remote": clientIP}).Info("Incoming request")
+	log.WithFields(logrus.Fields{"method": r.Method, "url": r.URL.String(), "remote": clientIP}).Info("Incoming request")
 
 	p := r.URL.Path
 	a, err := url.ParseQuery(r.URL.RawQuery)
@@ -1038,7 +1039,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
 	if err != nil {
-		log.WithFields(logrus.Fields{"file": fileStorePath,"error": err}).Warn("Invalid file path")
+		log.WithFields(logrus.Fields{"file": fileStorePath, "error": err}).Warn("Invalid file path")
 		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
@@ -1060,102 +1061,102 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 // handleUpload handles PUT requests for file uploads
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
-    log.Infof("Using storage path: %s", conf.Server.StoragePath)
+	log.Infof("Using storage path: %s", conf.Server.StoragePath)
 
-    // HMAC validation (unchanged)
-    var protocolVersion string
-    if a.Get("v2") != "" {
-        protocolVersion = "v2"
-    } else if a.Get("token") != "" {
-        protocolVersion = "token"
-    } else if a.Get("v") != "" {
-        protocolVersion = "v"
-    } else {
-        log.Warn("No HMAC attached to URL.")
-        http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
-        return
-    }
+	// HMAC validation (unchanged)
+	var protocolVersion string
+	if a.Get("v2") != "" {
+		protocolVersion = "v2"
+	} else if a.Get("token") != "" {
+		protocolVersion = "token"
+	} else if a.Get("v") != "" {
+		protocolVersion = "v"
+	} else {
+		log.Warn("No HMAC attached to URL.")
+		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
+		return
+	}
 
-    mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
+	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
 
-    if protocolVersion == "v" {
-        mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
-    } else {
-        contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-        if contentType == "" {
-            contentType = "application/octet-stream"
-        }
-        mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-    }
+	if protocolVersion == "v" {
+		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
+	} else {
+		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
+	}
 
-    calculatedMAC := mac.Sum(nil)
+	calculatedMAC := mac.Sum(nil)
 
-    providedMACHex := a.Get(protocolVersion)
-    providedMAC, err := hex.DecodeString(providedMACHex)
-    if err != nil {
-        log.Warn("Invalid MAC encoding")
-        http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
-        return
-    }
+	providedMACHex := a.Get(protocolVersion)
+	providedMAC, err := hex.DecodeString(providedMACHex)
+	if err != nil {
+		log.Warn("Invalid MAC encoding")
+		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
+		return
+	}
 
-    if !hmac.Equal(calculatedMAC, providedMAC) {
-        log.Warn("Invalid MAC")
-        http.Error(w, "Invalid MAC", http.StatusForbidden)
-        return
-    }
+	if !hmac.Equal(calculatedMAC, providedMAC) {
+		log.Warn("Invalid MAC")
+		http.Error(w, "Invalid MAC", http.StatusForbidden)
+		return
+	}
 
-    if !isExtensionAllowed(fileStorePath) {
-        log.Warn("Invalid file extension")
-        http.Error(w, "Invalid file extension", http.StatusBadRequest)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	if !isExtensionAllowed(fileStorePath) {
+		log.Warn("Invalid file extension")
+		http.Error(w, "Invalid file extension", http.StatusBadRequest)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
-    if err != nil {
-        log.Fatalf("Invalid MinFreeBytes: %v", err)
-    }
-    err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
-    if err != nil {
-        log.Warn("Not enough free space")
-        http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
+	if err != nil {
+		log.Fatalf("Invalid MinFreeBytes: %v", err)
+	}
+	err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
+	if err != nil {
+		log.Warn("Not enough free space")
+		http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    // Check for Callback-URL header
-    callbackURL := r.Header.Get("Callback-URL")
-    if callbackURL != "" {
-        log.Warnf("Callback-URL provided (%s) but not needed. Ignoring.", callbackURL)
-        // Do not perform any callback actions
-    }
+	// Check for Callback-URL header
+	callbackURL := r.Header.Get("Callback-URL")
+	if callbackURL != "" {
+		log.Warnf("Callback-URL provided (%s) but not needed. Ignoring.", callbackURL)
+		// Do not perform any callback actions
+	}
 
-    // Enqueue the upload task
-    result := make(chan error)
-    task := UploadTask{
-        AbsFilename: absFilename,
-        Request:     r,
-        Result:      result,
-    }
+	// Enqueue the upload task
+	result := make(chan error)
+	task := UploadTask{
+		AbsFilename: absFilename,
+		Request:     r,
+		Result:      result,
+	}
 
-    select {
-    case uploadQueue <- task:
-        log.Debug("Upload task enqueued successfully")
-    default:
-        log.Warn("Upload queue is full.")
-        http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
-        uploadErrorsTotal.Inc()
-        return
-    }
+	select {
+	case uploadQueue <- task:
+		log.Debug("Upload task enqueued successfully")
+	default:
+		log.Warn("Upload queue is full.")
+		http.Error(w, "Server busy. Try again later.", http.StatusServiceUnavailable)
+		uploadErrorsTotal.Inc()
+		return
+	}
 
-    err = <-result
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
-        return
-    }
+	err = <-result
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Upload failed: %v", err), http.StatusInternalServerError)
+		return
+	}
 
-    // Respond with 201 Created on successful upload
-    w.WriteHeader(http.StatusCreated)
+	// Respond with 201 Created on successful upload
+	w.WriteHeader(http.StatusCreated)
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
@@ -1199,7 +1200,6 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 	}
 }
 
-
 func scanFileWithClamAV(filePath string) error {
 	log.WithField("file", filePath).Info("Scanning file with ClamAV")
 
@@ -1220,10 +1220,10 @@ func scanFileWithClamAV(filePath string) error {
 		log.WithField("file", filePath).Info("ClamAV scan passed")
 		return nil
 	case clamd.RES_FOUND:
-		log.WithFields(logrus.Fields{"file": filePath,"description": scanResult.Description}).Warn("ClamAV detected a virus")
+		log.WithFields(logrus.Fields{"file": filePath, "description": scanResult.Description}).Warn("ClamAV detected a virus")
 		return fmt.Errorf("virus detected: %s", scanResult.Description)
 	default:
-		log.WithFields(logrus.Fields{"file": filePath,"status": scanResult.Status,"description": scanResult.Description}).Warn("ClamAV scan returned unexpected status")
+		log.WithFields(logrus.Fields{"file": filePath, "status": scanResult.Status, "description": scanResult.Description}).Warn("ClamAV scan returned unexpected status")
 		return fmt.Errorf("unexpected ClamAV status: %s", scanResult.Description)
 	}
 }
@@ -1370,7 +1370,7 @@ func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) er
 		return fmt.Errorf("failed to flush writer: %v", err)
 	}
 
-	log.WithFields(logrus.Fields{"temp_file": tempFilename,"total_bytes": totalBytes}).Info("Chunked upload completed successfully")
+	log.WithFields(logrus.Fields{"temp_file": tempFilename, "total_bytes": totalBytes}).Info("Chunked upload completed successfully")
 	uploadSizeBytes.Observe(float64(totalBytes))
 	return nil
 }
@@ -1683,7 +1683,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	defer file.Close()
 
 	if !isExtensionAllowed(handler.Filename) {
-		log.WithFields(logrus.Fields{"filename": handler.Filename,"extension": filepath.Ext(handler.Filename)}).Warn("Attempted upload with disallowed file extension")
+		log.WithFields(logrus.Fields{"filename": handler.Filename, "extension": filepath.Ext(handler.Filename)}).Warn("Attempted upload with disallowed file extension")
 		http.Error(w, "Disallowed file extension. Allowed: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
 		uploadErrorsTotal.Inc()
 		return fmt.Errorf("disallowed file extension")
@@ -1708,7 +1708,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	if clamClient != nil {
 		err := scanFileWithClamAV(tempFilename)
 		if err != nil {
-			log.WithFields(logrus.Fields{"file": tempFilename,"error": err}).Warn("ClamAV detected a virus")
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Warn("ClamAV detected a virus")
 			os.Remove(tempFilename)
 			uploadErrorsTotal.Inc()
 			return err
@@ -1720,7 +1720,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 		if existing {
 			err := versionFile(absFilename)
 			if err != nil {
-				log.WithFields(logrus.Fields{"file": absFilename,"error": err}).Error("Error versioning file")
+				log.WithFields(logrus.Fields{"file": absFilename, "error": err}).Error("Error versioning file")
 				os.Remove(tempFilename)
 				return err
 			}
