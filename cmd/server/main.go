@@ -812,7 +812,7 @@ func processUpload(task UploadTask) error {
                 "file":  tempFilename,
                 "error": err,
             }).Warn("ClamAV detected a virus or scan failed")
-            os.Remove(tempFilename)
+			os.Remove(tempFilename)
             uploadErrorsTotal.Inc()
             return err
         }
@@ -833,7 +833,7 @@ func processUpload(task UploadTask) error {
                     "error": err,
                 }).Error("Error versioning file")
                 os.Remove(tempFilename)
-				return err
+                return err
             }
             log.Infof("File versioned successfully: %s", absFilename)
         }
@@ -864,6 +864,8 @@ func processUpload(task UploadTask) error {
             }).Error("Failed to generate thumbnail")
         } else {
             log.Infof("Thumbnail generated successfully: %s", thumbnailPath)
+            thumbnailURL := fmt.Sprintf("https://%s/thumbnails/%s", r.Host, url.PathEscape(thumbnailPath))
+            log.Infof("Thumbnail URL: %s", thumbnailURL)
         }
     }
 
@@ -1030,17 +1032,31 @@ func initializeScanWorkerPool(ctx context.Context) {
 
 // Setup router with middleware
 func setupRouter() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", handleRequest)
-	if (conf.Server.MetricsEnabled) {
-		mux.Handle("/metrics", promhttp.Handler())
-	}
+    mux := http.NewServeMux()
+    mux.HandleFunc("/", handleRequest)
+    mux.HandleFunc("/thumbnails/", handleThumbnailRequest) // Add this line to serve thumbnails
+    if conf.Server.MetricsEnabled {
+        mux.Handle("/metrics", promhttp.Handler())
+    }
 
-	// Apply middleware
-	handler := loggingMiddleware(mux)
-	handler = recoveryMiddleware(handler)
-	handler = corsMiddleware(handler)
-	return handler
+    // Apply middleware
+    handler := loggingMiddleware(mux)
+    handler = recoveryMiddleware(handler)
+    handler = corsMiddleware(handler)
+    return handler
+}
+
+// Handle thumbnail requests
+func handleThumbnailRequest(w http.ResponseWriter, r *http.Request) {
+    thumbnailPath := strings.TrimPrefix(r.URL.Path, "/thumbnails/")
+    absThumbnailPath, err := sanitizeFilePath(conf.Server.StoragePath, thumbnailPath)
+    if (err != nil) {
+        log.WithError(err).Error("Invalid thumbnail path")
+        http.Error(w, "Invalid thumbnail path", http.StatusBadRequest)
+        return
+    }
+
+    http.ServeFile(w, r, absThumbnailPath)
 }
 
 // Middleware for logging
