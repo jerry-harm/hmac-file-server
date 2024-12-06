@@ -234,9 +234,9 @@ const (
 )
 
 var bufferPool = sync.Pool{
-    New: func() interface{} {
-        return make([]byte, 32*1024) // 32KB buffer
-    },
+	New: func() interface{} {
+		return make([]byte, 32*1024) // 32KB buffer
+	},
 }
 
 const maxConcurrentOperations = 10 // Define an appropriate value
@@ -766,7 +766,7 @@ func cleanupOldVersions(versionDir string) error {
 
 // Process the upload task with optional client acknowledgment
 func processUpload(task UploadTask) error {
-	semaphore <- struct{}{} // Acquire a slot
+	semaphore <- struct{}{}        // Acquire a slot
 	defer func() { <-semaphore }() // Release the slot
 
 	absFilename := task.AbsFilename
@@ -861,7 +861,7 @@ func processUpload(task UploadTask) error {
 
 	// Notify client of successful upload and wait for ACK if Callback-URL is provided
 	callbackURL := r.Header.Get("Callback-URL")
-	if (callbackURL != "") {
+	if callbackURL != "" {
 		err = notifyClientAndWaitForAck(callbackURL, absFilename)
 		if err != nil {
 			log.WithFields(logrus.Fields{
@@ -927,31 +927,31 @@ func createFile(tempFilename string, r *http.Request) error {
 	}
 	defer file.Close()
 
-    // Use a buffered writer with a buffer from the pool
-    bufWriter := bufio.NewWriter(file)
-    defer bufWriter.Flush()
+	// Use a buffered writer with a buffer from the pool
+	bufWriter := bufio.NewWriter(file)
+	defer bufWriter.Flush()
 
 	bufPtr := bufferPool.Get().(*[]byte)
 	defer bufferPool.Put(bufPtr)
 
 	// Copy the request body to the file using the buffer
 	_, err = io.CopyBuffer(bufWriter, r.Body, *bufPtr)
-    if err != nil {
-        return err
-    }
+	if err != nil {
+		return err
+	}
 
-    return nil
+	return nil
 }
 
 // Check if the file should be scanned based on its extension
 func shouldScanFile(filename string) bool {
-    ext := strings.ToLower(filepath.Ext(filename))
-    for _, scanExt := range conf.ClamAV.ScanFileExtensions {
-        if strings.ToLower(scanExt) == ext {
-            return true
-        }
-    }
-    return false
+	ext := strings.ToLower(filepath.Ext(filename))
+	for _, scanExt := range conf.ClamAV.ScanFileExtensions {
+		if strings.ToLower(scanExt) == ext {
+			return true
+		}
+	}
+	return false
 }
 
 // Improved uploadWorker function with better concurrency handling
@@ -974,10 +974,10 @@ func uploadWorker(ctx context.Context, workerID int) {
 
 // Improved initializeUploadWorkerPool function
 func initializeUploadWorkerPool(ctx context.Context) {
-    for i := 0; i < conf.Workers.NumWorkers; i++ {
-        go uploadWorker(ctx, i)
-    }
-    log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
+	for i := 0; i < conf.Workers.NumWorkers; i++ {
+		go uploadWorker(ctx, i)
+	}
+	log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
 // Worker function to process scan tasks
@@ -989,7 +989,7 @@ func scanWorker(ctx context.Context, workerID int) {
 			log.WithField("worker_id", workerID).Info("Scan worker stopping")
 			return
 		case task, ok := <-scanQueue:
-			if (!ok) {
+			if !ok {
 				log.WithField("worker_id", workerID).Info("Scan queue closed")
 				return
 			}
@@ -1597,7 +1597,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if (!ok) {
+			if !ok {
 				log.Info("Network events channel closed.")
 				return
 			}
@@ -1675,7 +1675,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if (!conf.Redis.RedisEnabled) {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1724,7 +1724,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -2236,4 +2236,3 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 	}
 	return nil
 }
-
