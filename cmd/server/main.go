@@ -239,6 +239,9 @@ var bufferPool = sync.Pool{
     },
 }
 
+const maxConcurrentOperations = 10 // Define an appropriate value
+var semaphore = make(chan struct{}, maxConcurrentOperations)
+
 func main() {
 	// Set default configuration values
 	setDefaults()
@@ -763,6 +766,9 @@ func cleanupOldVersions(versionDir string) error {
 
 // Process the upload task with optional client acknowledgment
 func processUpload(task UploadTask) error {
+	semaphore <- struct{}{} // Acquire a slot
+	defer func() { <-semaphore }() // Release the slot
+
 	absFilename := task.AbsFilename
 	tempFilename := absFilename + ".tmp"
 	r := task.Request
@@ -842,14 +848,14 @@ func processUpload(task UploadTask) error {
 
 	// Rename temporary file to final destination
 	err := os.Rename(tempFilename, absFilename)
+	defer func() {
+		if err != nil {
+			os.Remove(tempFilename)
+		}
+	}()
 	if err != nil {
-		log.WithFields(logrus.Fields{
-			"temp_file":  tempFilename,
-			"final_file": absFilename,
-			"error":      err,
-		}).Error("Failed to move file to final destination")
 		os.Remove(tempFilename)
-		return err
+		return fmt.Errorf("failed to move file to final destination: %w", err)
 	}
 	log.Infof("File moved to final destination: %s", absFilename)
 
@@ -901,18 +907,25 @@ func processUpload(task UploadTask) error {
 }
 
 func createFile(tempFilename string, r *http.Request) error {
-    // Ensure the directory exists
-    err := os.MkdirAll(filepath.Dir(tempFilename), 0755)
-    if err != nil {
-        return err
-    }
+	startTime := time.Now() // Define startTime at the beginning of the function
 
-    // Open the temp file
-    file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-    if err != nil {
-        return err
-    }
-    defer file.Close()
+	// Ensure the directory exists
+	err := os.MkdirAll(filepath.Dir(tempFilename), 0755)
+	if err != nil {
+		return err
+	}
+
+	// Open the temp file
+	file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"file":  tempFilename,
+			"error": err,
+		}).Error("Error creating file")
+		uploadDuration.Observe(time.Since(startTime).Seconds())
+		return err
+	}
+	defer file.Close()
 
     // Use a buffered writer with a buffer from the pool
     bufWriter := bufio.NewWriter(file)
@@ -976,7 +989,7 @@ func scanWorker(ctx context.Context, workerID int) {
 			log.WithField("worker_id", workerID).Info("Scan worker stopping")
 			return
 		case task, ok := <-scanQueue:
-			if !ok {
+			if (!ok) {
 				log.WithField("worker_id", workerID).Info("Scan queue closed")
 				return
 			}
@@ -1584,7 +1597,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if !ok {
+			if (!ok) {
 				log.Info("Network events channel closed.")
 				return
 			}
@@ -1933,13 +1946,8 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	// Move the temporary file to the final destination
 	err = os.Rename(tempFilename, absFilename)
 	if err != nil {
-		log.WithFields(logrus.Fields{
-			"temp_file":  tempFilename,
-			"final_file": absFilename,
-			"error":      err,
-		}).Error("Failed to move file to final destination")
 		os.Remove(tempFilename)
-		return err
+		return fmt.Errorf("failed to move file to final destination: %w", err)
 	}
 
 	log.WithFields(logrus.Fields{
@@ -2228,3 +2236,4 @@ func handleCorruptedISOFile(isoPath string, files []string, size string, charset
 	}
 	return nil
 }
+
