@@ -15,6 +15,7 @@
 - **File Expiration:** Automatically delete files after a specified TTL.
 - **Graceful Shutdown:** Handles signals and ensures proper cleanup.
 - **Deduplication:** Remove duplicate files based on hashing for storage efficiency.
+- **Auto-Adjust Worker Scaling:** Dynamically optimize HMAC and ClamAV workers based on system resources when enabled.
 
 ---
 
@@ -52,22 +53,28 @@ go build -o hmac-file-server main.go
 
 The server configuration is managed through a `config.toml` file. Below are the supported configuration options:
 
+### Auto-Adjust Feature
+
+When `AutoAdjustWorkers` is enabled, the number of workers for HMAC operations and ClamAV scans is dynamically determined based on system resources. This ensures efficient resource utilization.
+
+If `AutoAdjustWorkers = true`, the values for `NumWorkers` and `NumScanWorkers` in the configuration file will be ignored, and the server will automatically adjust these values.
+
 ---
 
 ## Example `config.toml`
 
 ```toml
 [server]
-ListenPort = "8080" # IP:Port (should work, if not need to fix)
+ListenPort = "8080"
 UnixSocket = false
 StoragePath = "./uploads"
 LogLevel = "info"
 LogFile = ""
 MetricsEnabled = true
 MetricsPort = "9090"
-FileTTL = "1y" # d,m,y
+FileTTL = "1y"
 DeduplicationEnabled = true
-MinFreeBytes = "100MB" # (e.g., "1KB", "1MB", "1GB", "1TB")
+MinFreeBytes = "100MB"
 
 [timeouts]
 ReadTimeout = "480s"
@@ -84,7 +91,7 @@ MaxVersions = 1
 [uploads]
 ResumableUploadsEnabled = true
 ChunkedUploadsEnabled = true
-ChunkSize = "32MB" # MB (1MB up-to 32MB)
+ChunkSize = "32MB"
 AllowedExtensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"]
 
 [clamav]
@@ -103,10 +110,11 @@ RedisHealthCheckInterval = "120s"
 [workers]
 NumWorkers = 4
 UploadQueueSize = 5000
+AutoAdjustWorkers = true # Enable auto-adjustment for worker scaling
 
 [iso]
 Enabled = false
-Size = "2TB" # (e.g., "1KB", "1MB", "1GB", "1TB")
+Size = "2TB"
 MountPoint = "/mnt/iso"
 Charset = "utf-8"
 ```
@@ -168,5 +176,4 @@ Prometheus metrics include:
 - **Versioning**: Store multiple versions of files and keep a maximum of `MaxVersions` versions.
 - **ClamAV Integration**: Scan uploaded files for viruses using ClamAV.
 - **Redis Caching**: Utilize Redis for caching file metadata for faster access.
-
-This release ensures an efficient and secure file management system, tailored to environments requiring robust data handling capabilities.
+- **Auto-Adjust Worker Scaling**: Optimize the number of workers dynamically based on system resources.
