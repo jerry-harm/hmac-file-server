@@ -57,7 +57,7 @@ func parseSize(sizeStr string) (int64, error) {
 
 	switch strings.ToUpper(unit) {
 	case "KB":
-		return int64(value) * 1024, nil
+		return int64(value) * 4, nil
 	case "MB":
 		return int64(value) * 1024 * 1024, nil
 	case "GB":
@@ -232,6 +232,12 @@ var (
 const (
 	MinFreeBytes = 1 << 30 // 1 GB
 )
+
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return make([]byte, 32*1024) // 32KB buffer
+    },
+}
 
 func main() {
 	// Set default configuration values
@@ -849,7 +855,7 @@ func processUpload(task UploadTask) error {
 
 	// Notify client of successful upload and wait for ACK if Callback-URL is provided
 	callbackURL := r.Header.Get("Callback-URL")
-	if callbackURL != "" {
+	if (callbackURL != "") {
 		err = notifyClientAndWaitForAck(callbackURL, absFilename)
 		if err != nil {
 			log.WithFields(logrus.Fields{
@@ -895,36 +901,44 @@ func processUpload(task UploadTask) error {
 }
 
 func createFile(tempFilename string, r *http.Request) error {
-	// Ensure the directory exists
-	absDirectory := filepath.Dir(tempFilename)
-	err := os.MkdirAll(absDirectory, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("failed to create directory: %v", err)
-	}
+    // Ensure the directory exists
+    err := os.MkdirAll(filepath.Dir(tempFilename), 0755)
+    if err != nil {
+        return err
+    }
 
-	targetFile, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %v", err)
-	}
-	defer targetFile.Close()
+    // Open the temp file
+    file, err := os.OpenFile(tempFilename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
 
-	_, err = io.Copy(targetFile, r.Body)
-	if err != nil {
-		return fmt.Errorf("failed to write to file: %v", err)
-	}
+    // Use a buffered writer with a buffer from the pool
+    bufWriter := bufio.NewWriter(file)
+    defer bufWriter.Flush()
 
-	return nil
+	bufPtr := bufferPool.Get().(*[]byte)
+	defer bufferPool.Put(bufPtr)
+
+	// Copy the request body to the file using the buffer
+	_, err = io.CopyBuffer(bufWriter, r.Body, *bufPtr)
+    if err != nil {
+        return err
+    }
+
+    return nil
 }
 
 // Check if the file should be scanned based on its extension
 func shouldScanFile(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	for _, scanExt := range conf.ClamAV.ScanFileExtensions {
-		if strings.ToLower(scanExt) == ext {
-			return true
-		}
-	}
-	return false
+    ext := strings.ToLower(filepath.Ext(filename))
+    for _, scanExt := range conf.ClamAV.ScanFileExtensions {
+        if strings.ToLower(scanExt) == ext {
+            return true
+        }
+    }
+    return false
 }
 
 // Improved uploadWorker function with better concurrency handling
@@ -947,10 +961,10 @@ func uploadWorker(ctx context.Context, workerID int) {
 
 // Improved initializeUploadWorkerPool function
 func initializeUploadWorkerPool(ctx context.Context) {
-	for i := 0; i < conf.Workers.NumWorkers; i++ {
-		go uploadWorker(ctx, i)
-	}
-	log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
+    for i := 0; i < conf.Workers.NumWorkers; i++ {
+        go uploadWorker(ctx, i)
+    }
+    log.Infof("Initialized %d upload workers", conf.Workers.NumWorkers)
 }
 
 // Worker function to process scan tasks
@@ -1648,7 +1662,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 
 // Initialize Redis client
 func initRedis() {
-	if !conf.Redis.RedisEnabled {
+	if (!conf.Redis.RedisEnabled) {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1697,7 +1711,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if !redisConnected {
+				if (!redisConnected) {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
