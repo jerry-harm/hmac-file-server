@@ -20,7 +20,7 @@
 
 ## Repository
 
-- **Primary Repository**: [GitHub Repository](https://github.com/your-repo/hmac-file-server)
+- **Primary Repository**: [GitHub Repository](https://github.com/PlusOne/hmac-file-serve)
 - **Alternative Repository**: [uuxo.net Git Repository](https://git.uuxo.net/uuxo/hmac-file-server)
 
 ---
