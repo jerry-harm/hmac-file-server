@@ -75,6 +75,7 @@ MetricsPort = "9090"
 FileTTL = "1y"
 DeduplicationEnabled = true
 MinFreeBytes = "100MB"
+AutoAdjustWorkers = true # Enable auto-adjustment for worker scaling
 
 [timeouts]
 ReadTimeout = "480s"
@@ -110,7 +111,6 @@ RedisHealthCheckInterval = "120s"
 [workers]
 NumWorkers = 4
 UploadQueueSize = 5000
-AutoAdjustWorkers = true # Enable auto-adjustment for worker scaling
 
 [iso]
 Enabled = false
