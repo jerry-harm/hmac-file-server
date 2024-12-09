@@ -107,6 +107,7 @@ type ServerConfig struct {
 	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
 	MinFreeByte          string `mapstructure:"MinFreeByte"`
 	AutoAdjustWorkers    bool   `mapstructure:"AutoAdjustWorkers"`
+	NetworkEvents        bool   `mapstructure:"NetworkEvents"` // Added field
 }
 
 type TimeoutConfig struct {
@@ -193,7 +194,7 @@ type NetworkEvent struct {
 
 var (
 	conf           Config
-	versionString  string = "v2.0-stable"
+	versionString  string = "v2.0-dev"
 	log                   = logrus.New()
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
@@ -468,9 +469,9 @@ func setDefaults() {
 	viper.SetDefault("server.MetricsEnabled", true)
 	viper.SetDefault("server.MetricsPort", "9090")
 	viper.SetDefault("server.FileTTL", "8760h")
-	viper.SetDefault("server.MinFreeBytes", 100<<20)
+	viper.SetDefault("server.MinFreeBytes", "100MB")
 	viper.SetDefault("server.AutoAdjustWorkers", true)
-
+	viper.SetDefault("server.NetworkEvents", true) // Set default
 	_, err := parseTTL("1D")
 	if err != nil {
 		log.Warnf("Failed to parse TTL: %v", err)
