@@ -41,7 +41,8 @@ func init() {
 
 	portValue := config.Get("server.metrics_port")
 	if portValue == nil {
-		log.Fatalf("Error: 'server.metrics_port' is missing in the configuration")
+		log.Println("Warning: 'server.metrics_port' is missing in the configuration, using default port 9090")
+		portValue = int64(9090)
 	}
 
 	port, ok := portValue.(int64)
