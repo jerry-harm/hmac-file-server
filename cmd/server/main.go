@@ -237,6 +237,24 @@ const maxConcurrentOperations = 10
 
 var semaphore = make(chan struct{}, maxConcurrentOperations)
 
+var logMessages []string
+var logMu sync.Mutex
+
+func cumulateLogMessage(level logrus.Level, msg string) {
+	logMu.Lock()
+	defer logMu.Unlock()
+	logMessages = append(logMessages, fmt.Sprintf("time=%q level=%s msg=%q", time.Now().Format(time.RFC3339), level, msg))
+}
+
+func flushLogMessages() {
+	logMu.Lock()
+	defer logMu.Unlock()
+	for _, msg := range logMessages {
+		log.Info(msg)
+	}
+	logMessages = []string{}
+}
+
 func main() {
 	setDefaults()
 
@@ -335,11 +353,12 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         ":" + conf.Server.ListenPort,
-		Handler:      router,
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout,
-		IdleTimeout:  idleTimeout,
+		Addr:           ":" + conf.Server.ListenPort,
+		Handler:        router,
+		ReadTimeout:    readTimeout,
+		WriteTimeout:   writeTimeout,
+		IdleTimeout:    idleTimeout,
+		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
 
 	if conf.Server.MetricsEnabled {
@@ -864,8 +883,8 @@ func createFile(tempFilename string, r *http.Request) error {
 
 	bufWriter := bufio.NewWriter(file)
 	defer bufWriter.Flush()
+
 	bufPtr := bufferPool.Get().(*[]byte) // Correct type assertion
-	defer bufferPool.Put(bufPtr)
 	defer bufferPool.Put(bufPtr)
 
 	_, err = io.CopyBuffer(bufWriter, r.Body, *bufPtr)
@@ -887,7 +906,6 @@ func shouldScanFile(filename string) bool {
 }
 
 func uploadWorker(ctx context.Context, workerID int) {
-	log.Infof("Upload worker %d started.", workerID)
 	defer log.Infof("Upload worker %d stopped.", workerID)
 	for {
 		select {
@@ -897,7 +915,6 @@ func uploadWorker(ctx context.Context, workerID int) {
 			if !ok {
 				return
 			}
-			log.Infof("Worker %d processing file: %s", workerID, task.AbsFilename)
 			err := processUpload(task)
 			if err != nil {
 				log.Errorf("Worker %d failed to process file %s: %v", workerID, task.AbsFilename, err)
@@ -910,26 +927,24 @@ func uploadWorker(ctx context.Context, workerID int) {
 }
 
 func initializeUploadWorkerPool(ctx context.Context, w *WorkersConfig) {
+	var workerIDs []int
 	for i := 0; i < w.NumWorkers; i++ {
 		go uploadWorker(ctx, i)
-		log.Infof("Upload worker %d started.", i)
+		workerIDs = append(workerIDs, i)
 	}
-	log.Infof("Initialized %d upload workers", w.NumWorkers)
+	log.Infof("Initialized %d upload workers: %v", w.NumWorkers, workerIDs)
 }
 
 func scanWorker(ctx context.Context, workerID int) {
-	log.WithField("worker_id", workerID).Info("Scan worker started")
+	defer log.WithField("worker_id", workerID).Info("Scan worker stopping")
 	for {
 		select {
 		case <-ctx.Done():
-			log.WithField("worker_id", workerID).Info("Scan worker stopping")
 			return
 		case task, ok := <-scanQueue:
 			if !ok {
-				log.WithField("worker_id", workerID).Info("Scan queue closed")
 				return
 			}
-			log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename}).Info("Processing scan task")
 			err := scanFileWithClamAV(task.AbsFilename)
 			if err != nil {
 				log.WithFields(logrus.Fields{"worker_id": workerID, "file": task.AbsFilename, "error": err}).Error("Failed to scan file")
@@ -943,10 +958,12 @@ func scanWorker(ctx context.Context, workerID int) {
 }
 
 func initializeScanWorkerPool(ctx context.Context) {
+	var workerIDs []int
 	for i := 0; i < conf.ClamAV.NumScanWorkers; i++ {
 		go scanWorker(ctx, i)
+		workerIDs = append(workerIDs, i)
 	}
-	log.Infof("Initialized %d scan workers", conf.ClamAV.NumScanWorkers)
+	log.Infof("Initialized %d scan workers: %v", conf.ClamAV.NumScanWorkers, workerIDs)
 }
 
 func setupRouter() http.Handler {
@@ -1037,8 +1054,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	fileStorePath := strings.TrimPrefix(p, "/")
 	if fileStorePath == "" || fileStorePath == "/" {
-		log.Warn("Access to root directory is forbidden")
+		cumulateLogMessage(logrus.WarnLevel, "Access to root directory is forbidden")
 		http.Error(w, "Forbidden", http.StatusForbidden)
+		flushLogMessages()
 		return
 	} else if fileStorePath[0] == '/' {
 		fileStorePath = fileStorePath[1:]
@@ -1158,14 +1176,19 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 
 	// Asynchronous processing in the background
 	go func() {
+		var logMessages []string
+
 		// ClamAV scanning
 		if conf.ClamAV.ClamAVEnabled && shouldScanFile(absFilename) {
 			err := scanFileWithClamAV(absFilename)
 			if err != nil {
-				log.Errorf("ClamAV failed for %s: %v", absFilename, err)
-				os.Remove(absFilename)
-				uploadErrorsTotal.Inc()
+				logMessages = append(logMessages, fmt.Sprintf("ClamAV failed for %s: %v", absFilename, err))
+				for _, msg := range logMessages {
+					log.Info(msg)
+				}
 				return
+			} else {
+				logMessages = append(logMessages, fmt.Sprintf("ClamAV scan passed for file: %s", absFilename))
 			}
 		}
 
@@ -1177,6 +1200,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 				os.Remove(absFilename)
 				uploadErrorsTotal.Inc()
 				return
+			} else {
+				logMessages = append(logMessages, fmt.Sprintf("Deduplication handled successfully for file: %s", absFilename))
 			}
 		}
 
@@ -1189,12 +1214,19 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 					os.Remove(absFilename)
 					uploadErrorsTotal.Inc()
 					return
+				} else {
+					logMessages = append(logMessages, fmt.Sprintf("File versioned successfully: %s", absFilename))
 				}
 			}
 		}
 
-		log.Infof("Processing completed successfully for %s", absFilename)
+		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", absFilename))
 		uploadsTotal.Inc()
+
+		// Log all messages at once
+		for _, msg := range logMessages {
+			log.Info(msg)
+		}
 	}()
 }
 
