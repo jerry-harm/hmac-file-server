@@ -39,7 +39,16 @@ func init() {
 		log.Fatalf("Error loading config file: %v", err)
 	}
 
-	port := config.Get("server.metrics_port").(int64)
+	portValue := config.Get("server.metrics_port")
+	if portValue == nil {
+		log.Fatalf("Error: 'server.metrics_port' is missing in the configuration")
+	}
+
+	port, ok := portValue.(int64)
+	if !ok {
+		log.Fatalf("Error: 'server.metrics_port' is not of type int64, got %T", portValue)
+	}
+
 	prometheusURL = fmt.Sprintf("http://localhost:%d/metrics", port)
 }
 
