@@ -320,7 +320,7 @@ func main() {
 	}
 
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
-	
+
 	if conf.Server.PrecachingEnabled { // Conditionally perform pre-caching
 		// Starting pre-caching of storage path
 		log.Info("Starting pre-caching of storage path...")
@@ -546,8 +546,8 @@ func setDefaults() {
 	viper.SetDefault("server.FileTTL", "8760h")
 	viper.SetDefault("server.MinFreeBytes", "100MB")
 	viper.SetDefault("server.AutoAdjustWorkers", true)
-	viper.SetDefault("server.NetworkEvents", true) // Set default
-	viper.SetDefault("server.precaching", true)    // Set default for precaching
+	viper.SetDefault("server.NetworkEvents", true)                        // Set default
+	viper.SetDefault("server.precaching", true)                           // Set default for precaching
 	viper.SetDefault("server.pidfilepath", "/var/run/hmacfileserver.pid") // Set default for PID file path
 	_, err := parseTTL("1D")
 	if err != nil {
@@ -705,7 +705,7 @@ func validateConfig(conf *Config) error {
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -715,7 +715,7 @@ func setupLogging() {
 			Filename:   conf.Server.LogFile,
 			MaxSize:    100, // megabytes
 			MaxBackups: 3,
-			MaxAge:     28, // days
+			MaxAge:     28,   // days
 			Compress:   true, // compress old log files
 		})
 	} else {
@@ -1620,7 +1620,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if (!ok) {
+			if !ok {
 				log.Info("Network events channel closed.")
 				return
 			}
@@ -1676,7 +1676,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 }
 
 func initRedis() {
-	if (!conf.Redis.RedisEnabled) {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1691,7 +1691,7 @@ func initRedis() {
 	defer cancel()
 
 	_, err := redisClient.Ping(ctx).Result()
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	log.Info("Connected to Redis successfully")
@@ -1714,12 +1714,12 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 			err := client.Ping(ctx).Err()
 			mu.Lock()
 			if err != nil {
-				if (redisConnected) {
+				if redisConnected {
 					log.Errorf("Redis health check failed: %v", err)
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true

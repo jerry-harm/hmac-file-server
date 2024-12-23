@@ -87,8 +87,8 @@ DeduplicationEnabled = true
 MinFreeBytes = "100MB"
 AutoAdjustWorkers = true  # Enable auto-adjustment for worker scaling
 NetworkEvents = false     # Disable logging and tracking of network-related events
-PIDFilePath = "./hmac_file_server.pid"  # Path to PID file
-Precaching = true  # Enable pre-caching of storage paths
+pidfilepath = "./hmac_file_server.pid"  # Path to PID file
+precaching = true  # Enable pre-caching of storage paths
 
 [timeouts]
 ReadTimeout = "480s"
