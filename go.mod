@@ -60,4 +60,5 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	google.golang.org/protobuf v1.35.2 // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
