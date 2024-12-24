@@ -4,7 +4,7 @@
 
 ## Overview
 
-We are excited to announce the release of **hmac-file-server v2.1-stable**. This version brings significant enhancements, new features, and important bug fixes to improve the performance, security, and usability of the HMAC File Server. Below are the detailed changes and updates included in this release.
+We are excited to announce the release of **hmac-file-server v2.2-stable**. This version brings significant enhancements, new features, and important bug fixes to improve the performance, security, and usability of the HMAC File Server. Below are the detailed changes and updates included in this release.
 
 ## New Features
 
@@ -124,7 +124,7 @@ We are excited to announce the release of **hmac-file-server v2.1-stable**. This
 2. **Update Application:**
    - Pull the latest version from the repository:
      ```sh
-     git pull origin v2.1-stable
+     git pull origin v2.2-stable
      ```
    - Alternatively, download the latest release from the [releases page](https://github.com/PlusOne/hmac-file-server/releases).
 
@@ -157,9 +157,67 @@ For any issues or questions regarding this release, please open an issue on our 
 
 ## Release Notes - Version 2.2 Stable
 
-- Added support for deduplication with Redis.  
-- Improved thumbnail generation (configurable size and directory).  
-- Enhanced ISO handling (optional mounting and creation).  
-- Auto-adjustable worker pool and improved system metrics.  
-- Expanded logging and error handling to improve reliability.  
-- Various bug fixes and performance optimizations.
+### What's New in Version 2.2:
+
+- **Enhanced Deduplication Mechanism:**
+  - Fixed issues related to SHA256 checksum validation, ensuring accurate file deduplication.
+  - Improved error handling for deduplication processes, preventing failures when referencing existing files.
+  
+- **ClamAV and Redis Optimizations:**
+  - Streamlined ClamAV initialization for faster malware scanning.
+  - Optimized Redis connection handling for better caching performance and reliability.
+  
+- **Configuration Improvements:**
+  - Introduced new configuration parameters for finer control over deduplication directories and checksum algorithms.
+  - Enhanced `config.toml` validation to ensure all necessary fields are correctly set, reducing runtime errors.
+  
+- **Logging Enhancements:**
+  - Improved log formatting for easier troubleshooting and monitoring.
+  - Added detailed logs for deduplication steps, providing clearer visibility into the deduplication process.
+  
+- **Performance Upgrades:**
+  - Further optimized auto-adjusting worker pools to handle higher loads with minimal latency.
+  - Reduced memory footprint during peak operations, ensuring consistent performance.
+
+### Key Fixes:
+
+- **Deduplication Directory Validation:**
+  - Resolved issues where the deduplication directory was not correctly recognized, preventing file reference errors.
+  
+- **Error Handling Enhancements:**
+  - Improved error messages and fallback mechanisms for ClamAV and Redis initialization failures.
+  
+- **Configuration Cleanup:**
+  - Removed deprecated parameters and streamlined configuration settings for easier management and clarity.
+
+### Upgrading to Version 2.2:
+
+1. **Pull the Latest Release:**
+   ```sh
+   git pull https://github.com/PlusOne/hmac-file-server.git
+   ```
+
+2. **Update Dependencies:**
+   ```sh
+   go mod tidy
+   ```
+
+3. **Review and Update `config.toml`:**
+   - Ensure all new configuration parameters are set.
+   - Validate the `deduplication.directory` path and permissions.
+   - Example `deduplication` section:
+     ```toml
+     [deduplication]
+     enabled = true
+     directory = "/mnt/hmac-storage/deduplication/"
+     checksum_algorithm = "sha256"  # New parameter for checksum selection
+     ```
+
+4. **Restart the Application:**
+   ```sh
+   ./hmac-file-server
+   ```
+
+### Enjoy Enhanced Performance and Security!
+
+With Version 2.2, experience more reliable file handling, robust security measures, and optimized performance. Upgrade now to take advantage of these powerful improvements!
