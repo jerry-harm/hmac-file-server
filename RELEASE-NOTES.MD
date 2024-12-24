@@ -118,7 +118,6 @@ AutoAdjustWorkers = true  # Enable auto-adjustment for worker scaling
 NetworkEvents = false     # Disable logging and tracking of network-related events
 PIDFilePath = "./hmac_file_server.pid"  # Path to PID file
 Precaching = true  # Enable pre-caching of storage paths
-ThumbnailEnabled = false  # Whether to create thumbnails for uploaded images
 
 [deduplication]
 enabled = true
@@ -129,6 +128,17 @@ Enabled = false
 Size = "2TB"
 MountPoint = "/mnt/iso"
 Charset = "utf-8"
+
+[thumbnails]
+enabled = true
+directory = "/mnt/nfs_vol01/hmac-file-server/thumbnails/"
+size = "200x200"
+
+[iso]
+enabled = false
+size = "1TB"
+mountpoint = "/mnt/nfs_vol01/hmac-file-server/iso/"
+charset = "utf-8"
 
 [timeouts]
 ReadTimeout = "480s"
