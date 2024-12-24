@@ -105,6 +105,12 @@ precaching = true
 enabled = true
 directory = "/mnt/nfs_vol01/hmac-storage/deduplication/"
 
+[iso]
+Enabled = false
+Size = "2TB"
+MountPoint = "/mnt/iso"
+Charset = "utf-8"
+
 [thumbnails]
 enabled = true
 directory = "/mnt/nfs_vol01/hmac-file-server/thumbnails/"
