@@ -1,28 +1,28 @@
 [server]
 listenport = "8080"
 unixsocket = false
-storagepath = "/uploads"
+storagepath = "/"
 loglevel = "debug"
-logfile = "/tmp/hmac-file-server.log"
+logfile = "./tmp/hmac-file-server.log"
 metricsenabled = true
 metricsport = "8081"
 filettl = "180d"
 minfreebytes = "2GB"
 autoadjustworkers = true
 networkevents = false
-temppath = "/tmp"
+temppath = "./tmp"
 loggingjson = false
-pidfilepath = "/tmp/hmac_file_server.pid"
+pidfilepath = "./tmp/hmac_file_server.pid"
 cleanuponexit = true
 precaching = false
 
 [deduplication]
 enabled = false
-directory = "/deduplication"
+directory = "./deduplication"
 
 [thumbnails]
 enabled = false
-directory = "/thumbnails"
+directory = "./thumbnails"
 size = "200x200"
 
 [iso]
