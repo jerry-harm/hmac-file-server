@@ -1,6 +1,6 @@
-# Release Notes - hmac-file-server v2.1-stable
+# Release Notes - hmac-file-server v2.2-stable
 
-**Release Date:** April 27, 2024
+**Release Date:** December 24, 2024
 
 ## Overview
 
