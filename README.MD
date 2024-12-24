@@ -92,7 +92,6 @@ loglevel = "debug"
 logfile = "/var/log/hmac-file-server.log"
 metricsenabled = true
 metricsport = "9090"
-deduplicationenabled = true
 minfreebytes = "5GB"
 filettl = "2Y"
 filettlenabled = true  # Enable or disable file TTL

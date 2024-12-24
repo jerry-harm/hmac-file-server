@@ -113,7 +113,6 @@ MetricsEnabled = true
 MetricsPort = "9090"
 FileTTL = "1y"
 FileTTLEnabled = true  # Enable or disable file TTL
-DeduplicationEnabled = true
 MinFreeBytes = "100MB"
 AutoAdjustWorkers = true  # Enable auto-adjustment for worker scaling
 NetworkEvents = false     # Disable logging and tracking of network-related events
