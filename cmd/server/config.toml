@@ -12,7 +12,7 @@ autoadjustworkers = true
 networkevents = false
 temppath = "./tmp"
 loggingjson = false
-pidfilepath = "./tmp/hmac_file_server.pid"
+pidfilepath = "/hmac_file_server.pid"
 cleanuponexit = true
 precaching = false
 
