@@ -112,6 +112,7 @@ LogFile = ""
 MetricsEnabled = true
 MetricsPort = "9090"
 FileTTL = "1y"
+FileTTLEnabled = true  # Enable or disable file TTL
 DeduplicationEnabled = true
 MinFreeBytes = "100MB"
 AutoAdjustWorkers = true  # Enable auto-adjustment for worker scaling
@@ -126,7 +127,7 @@ WriteTimeout = "480s"
 IdleTimeout = "65s"  # nginx/apache2 keep-alive 60s
 
 [security]
-Secret = ""
+Secret = "changeme"
 
 [versioning]
 EnableVersioning = false
