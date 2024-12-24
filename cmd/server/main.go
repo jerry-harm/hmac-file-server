@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/disintegration/imaging"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
@@ -38,7 +39,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"github.com/disintegration/imaging"
 )
 
 // parseSize converts a human-readable size string to bytes
@@ -104,6 +104,7 @@ type ServerConfig struct {
 	LogFile              string `mapstructure:"LogFile"`
 	MetricsEnabled       bool   `mapstructure:"MetricsEnabled"`
 	MetricsPort          string `mapstructure:"MetricsPort"`
+	FileTTLEnabled       bool   `mapstructure:"FileTTLEnabled"`
 	FileTTL              string `mapstructure:"FileTTL"`
 	MinFreeBytes         string `mapstructure:"MinFreeBytes"`
 	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
@@ -190,20 +191,20 @@ type ThumbnailsConfig struct {
 }
 
 type Config struct {
-	Server         ServerConfig         `mapstructure:"server"`
-	Timeouts       TimeoutConfig        `mapstructure:"timeouts"`
-	Security       SecurityConfig       `mapstructure:"security"`
-	Versioning     VersioningConfig     `mapstructure:"versioning"`
-	Uploads        UploadsConfig        `mapstructure:"uploads"`
-	Downloads      DownloadsConfig      `mapstructure:"downloads"`
-	ClamAV         ClamAVConfig         `mapstructure:"clamav"`
-	Redis          RedisConfig          `mapstructure:"redis"`
-	Workers        WorkersConfig        `mapstructure:"workers"`
-	File           FileConfig           `mapstructure:"file"`
-	ISO            ISOConfig            `mapstructure:"iso"`
-	Paste          PasteConfig          `mapstructure:"paste"`
-	Deduplication  DeduplicationConfig  `mapstructure:"deduplication"`
-	Thumbnails     ThumbnailsConfig     `mapstructure:"thumbnails"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Timeouts      TimeoutConfig       `mapstructure:"timeouts"`
+	Security      SecurityConfig      `mapstructure:"security"`
+	Versioning    VersioningConfig    `mapstructure:"versioning"`
+	Uploads       UploadsConfig       `mapstructure:"uploads"`
+	Downloads     DownloadsConfig     `mapstructure:"downloads"`
+	ClamAV        ClamAVConfig        `mapstructure:"clamav"`
+	Redis         RedisConfig         `mapstructure:"redis"`
+	Workers       WorkersConfig       `mapstructure:"workers"`
+	File          FileConfig          `mapstructure:"file"`
+	ISO           ISOConfig           `mapstructure:"iso"`
+	Paste         PasteConfig         `mapstructure:"paste"`
+	Deduplication DeduplicationConfig `mapstructure:"deduplication"`
+	Thumbnails    ThumbnailsConfig    `mapstructure:"thumbnails"`
 }
 
 type UploadTask struct {
@@ -222,6 +223,11 @@ type NetworkEvent struct {
 	Details string
 }
 
+// Add a new field to store the creation date of files
+type FileMetadata struct {
+	CreationDate time.Time
+}
+
 var (
 	conf           Config
 	versionString  string = "v2.2-stable"
@@ -229,6 +235,7 @@ var (
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
 	fileInfoCache  *cache.Cache
+	fileMetadataCache *cache.Cache
 	clamClient     *clamd.Clamd
 	redisClient    *redis.Client
 	redisConnected bool
@@ -335,7 +342,8 @@ func main() {
 	}
 
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
-	
+	fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)
+
 	if conf.Server.PrecachingEnabled { // Conditionally perform pre-caching
 		// Starting pre-caching of storage path
 		log.Info("Starting pre-caching of storage path...")
@@ -463,6 +471,9 @@ func main() {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}
+
+	// Start file cleanup in a separate goroutine
+	go handleFileCleanup(&conf)
 }
 
 func max(a, b int) int {
@@ -561,10 +572,11 @@ func setDefaults() {
 	viper.SetDefault("server.FileTTL", "8760h")
 	viper.SetDefault("server.MinFreeBytes", "100MB")
 	viper.SetDefault("server.AutoAdjustWorkers", true)
-	viper.SetDefault("server.NetworkEvents", true) // Set default
-	viper.SetDefault("server.precaching", true)    // Set default for precaching
+	viper.SetDefault("server.NetworkEvents", true)                        // Set default
+	viper.SetDefault("server.precaching", true)                           // Set default for precaching
 	viper.SetDefault("server.pidfilepath", "/var/run/hmacfileserver.pid") // Set default for PID file path
-	viper.SetDefault("server.thumbnail", false) // Set default for thumbnail
+	viper.SetDefault("server.thumbnail", false)                           // Set default for thumbnail
+	viper.SetDefault("server.FileTTLEnabled", true)                       // Set default for FileTTLEnabled
 	_, err := parseTTL("1D")
 	if err != nil {
 		log.Warnf("Failed to parse TTL: %v", err)
@@ -773,7 +785,7 @@ func setupLogging() {
 			Filename:   conf.Server.LogFile,
 			MaxSize:    100, // megabytes
 			MaxBackups: 3,
-			MaxAge:     28, // days
+			MaxAge:     28,   // days
 			Compress:   true, // compress old log files
 		})
 	} else {
@@ -807,7 +819,7 @@ func logSystemInfo() {
 	cpuInfo, _ := cpu.Info()
 	uniqueCPUModels := make(map[string]bool)
 	for _, info := range cpuInfo {
-		if (!uniqueCPUModels[info.ModelName]) {
+		if !uniqueCPUModels[info.ModelName] {
 			log.Infof("CPU Model: %s, Cores: %d, Mhz: %f", info.ModelName, info.Cores, info.Mhz)
 			uniqueCPUModels[info.ModelName] = true
 		}
@@ -1037,13 +1049,16 @@ func processUpload(task UploadTask) error {
 	}
 	log.Infof("File moved to final destination: %s", absFilename)
 
+	// Store file creation date in metadata cache
+	fileMetadataCache.Set(absFilename, FileMetadata{CreationDate: time.Now()}, cache.DefaultExpiration)
+
 	log.Debugf("Verifying existence immediately after rename: %s", absFilename)
 	exists, size := fileExists(absFilename)
 	log.Debugf("Exists? %v, Size: %d", exists, size)
 
 	// Gajim and Dino do not require a callback or acknowledgement beyond HTTP success.
 	callbackURL := r.Header.Get("Callback-URL")
-	if callbackURL != "" {
+	if (callbackURL != "") {
 		log.Warnf("Callback-URL provided (%s) but not needed. Ignoring.", callbackURL)
 		// We do not block or wait, just ignore.
 	}
@@ -1729,7 +1744,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if (!ok) {
+			if !ok {
 				log.Info("Network events channel closed.")
 				return
 			}
@@ -1800,7 +1815,7 @@ func initRedis() {
 	defer cancel()
 
 	_, err := redisClient.Ping(ctx).Result()
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	log.Info("Connected to Redis successfully")
@@ -1823,12 +1838,12 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 			err := client.Ping(ctx).Err()
 			mu.Lock()
 			if err != nil {
-				if (redisConnected) {
+				if redisConnected {
 					log.Errorf("Redis health check failed: %v", err)
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -1863,15 +1878,29 @@ func runFileCleaner(ctx context.Context, storeDir string, ttl time.Duration) {
 				if err != nil {
 					return err
 				}
-				if info.IsDir() {
-					return nil
-				}
-				if now.Sub(info.ModTime()) > ttl {
-					err := os.Remove(path)
-					if err != nil {
-						log.WithError(err).Errorf("Failed to remove expired file: %s", path)
+				if !info.IsDir() {
+					// Check if file metadata is cached
+					if metadata, found := fileMetadataCache.Get(path); found {
+						if fileMetadata, ok := metadata.(FileMetadata); ok {
+							if now.Sub(fileMetadata.CreationDate) > ttl {
+								err := os.Remove(path)
+								if err != nil {
+									log.WithError(err).Errorf("Failed to remove expired file: %s", path)
+								} else {
+									log.Infof("Removed expired file: %s", path)
+								}
+							}
+						}
 					} else {
-						log.Infof("Removed expired file: %s", path)
+						// If metadata is not cached, use file modification time
+						if now.Sub(info.ModTime()) > ttl {
+							err := os.Remove(path)
+							if err != nil {
+								log.WithError(err).Errorf("Failed to remove expired file: %s", path)
+							} else {
+								log.Infof("Removed expired file: %s", path)
+							}
+						}
 					}
 				}
 				return nil
@@ -2279,7 +2308,8 @@ func precacheStoragePath(dir string) error {
 		}
 		if !info.IsDir() {
 			fileInfoCache.Set(path, info, cache.DefaultExpiration)
-			log.Debugf("Cached file info for %s", path)
+			fileMetadataCache.Set(path, FileMetadata{CreationDate: info.ModTime()}, cache.DefaultExpiration)
+			log.Debugf("Cached file info and metadata for %s", path)
 		}
 		return nil
 	})
@@ -2327,4 +2357,60 @@ func generateThumbnail(originalPath, thumbnailDir, size string) error {
 	}
 
 	return nil
+}
+
+func handleFileCleanup(conf *Config) {
+	if conf.Server.FileTTLEnabled {
+		ttlDuration, err := parseTTL(conf.Server.FileTTL)
+		if err != nil {
+			log.Fatalf("Invalid TTL configuration: %v", err)
+		}
+		log.Printf("File TTL is enabled. Files older than %v will be deleted.", ttlDuration)
+
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			deleteOldFiles(conf, ttlDuration)
+		}
+	} else {
+		log.Println("File TTL is disabled. No files will be automatically deleted.")
+	}
+}
+
+func deleteOldFiles(conf *Config, ttl time.Duration) {
+	err := filepath.Walk(conf.Server.StoragePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			// Check if file metadata is cached
+			if metadata, found := fileMetadataCache.Get(path); found {
+				if fileMetadata, ok := metadata.(FileMetadata); ok {
+					if time.Since(fileMetadata.CreationDate) > ttl {
+						err := os.Remove(path)
+						if err != nil {
+							log.Printf("Failed to delete %s: %v", path, err)
+						} else {
+							log.Printf("Deleted old file: %s", path)
+						}
+					}
+				}
+			} else {
+				// If metadata is not cached, use file modification time
+				if time.Since(info.ModTime()) > ttl {
+					err := os.Remove(path)
+					if err != nil {
+						log.Printf("Failed to delete %s: %v", path, err)
+					} else {
+						log.Printf("Deleted old file: %s", path)
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("Error during file cleanup: %v", err)
+	}
 }
