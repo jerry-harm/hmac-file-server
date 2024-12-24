@@ -38,6 +38,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"github.com/disintegration/imaging"
 )
 
 // parseSize converts a human-readable size string to bytes
@@ -111,6 +112,7 @@ type ServerConfig struct {
 	NetworkEvents        bool   `mapstructure:"NetworkEvents"` // Added field
 	PrecachingEnabled    bool   `mapstructure:"precaching"`    // Added field
 	PIDFilePath          string `mapstructure:"pidfilepath"`   // Added field
+	ThumbnailEnabled     bool   `mapstructure:"thumbnail"`     // Added field
 }
 
 type TimeoutConfig struct {
@@ -176,19 +178,32 @@ type DownloadsConfig struct {
 	ChunkSize                string `mapstructure:"ChunkSize"`
 }
 
+type DeduplicationConfig struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	Directory string `mapstructure:"directory"`
+}
+
+type ThumbnailsConfig struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	Directory string `mapstructure:"directory"`
+	Size      string `mapstructure:"size"`
+}
+
 type Config struct {
-	Server     ServerConfig     `mapstructure:"server"`
-	Timeouts   TimeoutConfig    `mapstructure:"timeouts"`
-	Security   SecurityConfig   `mapstructure:"security"`
-	Versioning VersioningConfig `mapstructure:"versioning"`
-	Uploads    UploadsConfig    `mapstructure:"uploads"`
-	Downloads  DownloadsConfig  `mapstructure:"downloads"`
-	ClamAV     ClamAVConfig     `mapstructure:"clamav"`
-	Redis      RedisConfig      `mapstructure:"redis"`
-	Workers    WorkersConfig    `mapstructure:"workers"`
-	File       FileConfig       `mapstructure:"file"`
-	ISO        ISOConfig        `mapstructure:"iso"`
-	Paste      PasteConfig      `mapstructure:"paste"`
+	Server         ServerConfig         `mapstructure:"server"`
+	Timeouts       TimeoutConfig        `mapstructure:"timeouts"`
+	Security       SecurityConfig       `mapstructure:"security"`
+	Versioning     VersioningConfig     `mapstructure:"versioning"`
+	Uploads        UploadsConfig        `mapstructure:"uploads"`
+	Downloads      DownloadsConfig      `mapstructure:"downloads"`
+	ClamAV         ClamAVConfig         `mapstructure:"clamav"`
+	Redis          RedisConfig          `mapstructure:"redis"`
+	Workers        WorkersConfig        `mapstructure:"workers"`
+	File           FileConfig           `mapstructure:"file"`
+	ISO            ISOConfig            `mapstructure:"iso"`
+	Paste          PasteConfig          `mapstructure:"paste"`
+	Deduplication  DeduplicationConfig  `mapstructure:"deduplication"`
+	Thumbnails     ThumbnailsConfig     `mapstructure:"thumbnails"`
 }
 
 type UploadTask struct {
@@ -209,7 +224,7 @@ type NetworkEvent struct {
 
 var (
 	conf           Config
-	versionString  string = "v2.1-stable"
+	versionString  string = "v2.2-stable"
 	log                   = logrus.New()
 	uploadQueue    chan UploadTask
 	networkEvents  chan NetworkEvent
@@ -320,7 +335,7 @@ func main() {
 	}
 
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
-
+	
 	if conf.Server.PrecachingEnabled { // Conditionally perform pre-caching
 		// Starting pre-caching of storage path
 		log.Info("Starting pre-caching of storage path...")
@@ -546,9 +561,10 @@ func setDefaults() {
 	viper.SetDefault("server.FileTTL", "8760h")
 	viper.SetDefault("server.MinFreeBytes", "100MB")
 	viper.SetDefault("server.AutoAdjustWorkers", true)
-	viper.SetDefault("server.NetworkEvents", true)                        // Set default
-	viper.SetDefault("server.precaching", true)                           // Set default for precaching
+	viper.SetDefault("server.NetworkEvents", true) // Set default
+	viper.SetDefault("server.precaching", true)    // Set default for precaching
 	viper.SetDefault("server.pidfilepath", "/var/run/hmacfileserver.pid") // Set default for PID file path
+	viper.SetDefault("server.thumbnail", false) // Set default for thumbnail
 	_, err := parseTTL("1D")
 	if err != nil {
 		log.Warnf("Failed to parse TTL: %v", err)
@@ -700,12 +716,54 @@ func validateConfig(conf *Config) error {
 		}
 	}
 
+	if conf.Deduplication.Enabled {
+		if conf.Deduplication.Directory == "" {
+			return fmt.Errorf("deduplication.directory is required when deduplication is enabled")
+		}
+		// Optionally, check if deduplication directory exists
+		if _, err := os.Stat(conf.Deduplication.Directory); os.IsNotExist(err) {
+			return fmt.Errorf("deduplication.directory does not exist: %s", conf.Deduplication.Directory)
+		}
+	}
+
+	if conf.Thumbnails.Enabled {
+		if conf.Thumbnails.Directory == "" {
+			return fmt.Errorf("thumbnails.directory is required when thumbnails are enabled")
+		}
+		// Optionally, check if thumbnails storage path exists
+		if _, err := os.Stat(conf.Thumbnails.Directory); os.IsNotExist(err) {
+			return fmt.Errorf("thumbnails.directory does not exist: %s", conf.Thumbnails.Directory)
+		}
+	}
+
+	// Verify that the primary storage path is accessible
+	if err := checkStoragePath(conf.Server.StoragePath); err != nil {
+		return fmt.Errorf("storage path check failed: %w", err)
+	}
+
+	return nil
+}
+
+func checkStoragePath(path string) error {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		log.Errorf("Storage path does not exist: %s", path)
+		return err
+	}
+	if err != nil {
+		log.Errorf("Error accessing storage path: %v", err)
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", path)
+	}
+	log.Infof("Verified storage path is accessible: %s", path)
 	return nil
 }
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if err != nil {
+	if (err != nil) {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -715,7 +773,7 @@ func setupLogging() {
 			Filename:   conf.Server.LogFile,
 			MaxSize:    100, // megabytes
 			MaxBackups: 3,
-			MaxAge:     28,   // days
+			MaxAge:     28, // days
 			Compress:   true, // compress old log files
 		})
 	} else {
@@ -749,7 +807,7 @@ func logSystemInfo() {
 	cpuInfo, _ := cpu.Info()
 	uniqueCPUModels := make(map[string]bool)
 	for _, info := range cpuInfo {
-		if !uniqueCPUModels[info.ModelName] {
+		if (!uniqueCPUModels[info.ModelName]) {
 			log.Infof("CPU Model: %s, Cores: %d, Mhz: %f", info.ModelName, info.Cores, info.Mhz)
 			uniqueCPUModels[info.ModelName] = true
 		}
@@ -815,6 +873,7 @@ func updateSystemMetrics(ctx context.Context) {
 }
 
 func fileExists(filePath string) (bool, int64) {
+	log.Debugf("Checking file existence: %s", filePath)
 	if cachedInfo, found := fileInfoCache.Get(filePath); found {
 		if info, ok := cachedInfo.(os.FileInfo); ok {
 			return !info.IsDir(), info.Size()
@@ -950,7 +1009,23 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
-	err := os.Rename(tempFilename, absFilename)
+	// Compute file hash first:
+	hashVal, err := computeSHA256(context.Background(), tempFilename)
+	if err != nil {
+		log.Errorf("Could not compute hash: %v", err)
+		return err
+	}
+	log.Infof("Computed hash for %s: %s", absFilename, hashVal)
+
+	// Check Redis for existing entry:
+	existingPath, redisErr := redisClient.Get(context.Background(), hashVal).Result()
+	if redisErr == nil && existingPath != "" {
+		log.Warnf("Duplicate upload detected. Using existing file at: %s", existingPath)
+		return nil
+	}
+
+	log.Debugf("Renaming temp file %s -> %s", tempFilename, absFilename)
+	err = os.Rename(tempFilename, absFilename)
 	defer func() {
 		if err != nil {
 			os.Remove(tempFilename)
@@ -962,6 +1037,10 @@ func processUpload(task UploadTask) error {
 	}
 	log.Infof("File moved to final destination: %s", absFilename)
 
+	log.Debugf("Verifying existence immediately after rename: %s", absFilename)
+	exists, size := fileExists(absFilename)
+	log.Debugf("Exists? %v, Size: %d", exists, size)
+
 	// Gajim and Dino do not require a callback or acknowledgement beyond HTTP success.
 	callbackURL := r.Header.Get("Callback-URL")
 	if callbackURL != "" {
@@ -970,6 +1049,9 @@ func processUpload(task UploadTask) error {
 	}
 
 	if conf.Server.DeduplicationEnabled {
+		log.Debugf("Performing deduplication check for %s", task.AbsFilename)
+		log.Debugf("Dedup check: Using hash %s to find existing path", hashVal)
+		log.Debugf("Existing path found in Redis: %s", existingPath)
 		err = handleDeduplication(context.Background(), absFilename)
 		if err != nil {
 			log.WithError(err).Error("Deduplication failed")
@@ -987,6 +1069,25 @@ func processUpload(task UploadTask) error {
 			return err
 		}
 		log.Infof("ISO container handled successfully for file: %s", absFilename)
+	}
+
+	if conf.Thumbnails.Enabled {
+		err = generateThumbnail(absFilename, conf.Thumbnails.Directory, conf.Thumbnails.Size)
+		if err != nil {
+			log.Errorf("Failed to generate thumbnail for %s: %v", absFilename, err)
+			uploadErrorsTotal.Inc()
+			return err
+		}
+		log.Infof("Thumbnail generated for %s", absFilename)
+	}
+
+	if redisClient != nil {
+		errSet := redisClient.Set(context.Background(), hashVal, absFilename, 0).Err()
+		if errSet != nil {
+			log.Warnf("Failed storing hash reference: %v", errSet)
+		} else {
+			log.Infof("Hash reference stored: %s -> %s", hashVal, absFilename)
+		}
 	}
 
 	log.WithFields(logrus.Fields{"file": absFilename}).Info("File uploaded and processed successfully")
@@ -1359,16 +1460,24 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
+	log.Debugf("Attempting to download file from path: %s", absFilename)
+
 	fileInfo, err := getFileInfo(absFilename)
 	if err != nil {
-		log.WithError(err).Error("Failed to get file information")
-		http.Error(w, "Not Found", http.StatusNotFound)
-		downloadErrorsTotal.Inc()
-		return
-	} else if fileInfo.IsDir() {
-		log.Warn("Directory listing forbidden")
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		downloadErrorsTotal.Inc()
+		log.Errorf("Failed to get file information for %s: %v", absFilename, err)
+		// If file doesn't exist, list directory contents for debug
+		if os.IsNotExist(err) {
+			dir := filepath.Dir(absFilename)
+			items, dirErr := os.ReadDir(dir)
+			if dirErr == nil {
+				for _, it := range items {
+					log.Debugf("Dir item: %s", it.Name())
+				}
+			} else {
+				log.Warnf("Could not read directory %s: %v", dir, dirErr)
+			}
+		}
+		http.NotFound(w, r)
 		return
 	}
 
@@ -1620,7 +1729,7 @@ func handleNetworkEvents(ctx context.Context) {
 			log.Info("Stopping network event handler.")
 			return
 		case event, ok := <-networkEvents:
-			if !ok {
+			if (!ok) {
 				log.Info("Network events channel closed.")
 				return
 			}
@@ -1676,7 +1785,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 }
 
 func initRedis() {
-	if !conf.Redis.RedisEnabled {
+	if (!conf.Redis.RedisEnabled) {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1691,7 +1800,7 @@ func initRedis() {
 	defer cancel()
 
 	_, err := redisClient.Ping(ctx).Result()
-	if err != nil {
+	if (err != nil) {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	log.Info("Connected to Redis successfully")
@@ -1714,12 +1823,12 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 			err := client.Ping(ctx).Err()
 			mu.Lock()
 			if err != nil {
-				if redisConnected {
+				if (redisConnected) {
 					log.Errorf("Redis health check failed: %v", err)
 				}
 				redisConnected = false
 			} else {
-				if !redisConnected {
+				if (!redisConnected) {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -1959,43 +2068,39 @@ func checkStorageSpace(storagePath string, minFreeBytes int64) error {
 }
 
 func handleDeduplication(ctx context.Context, absFilename string) error {
+	log.Debugf("Starting deduplication for: %s", absFilename)
 	checksum, err := computeSHA256(ctx, absFilename)
 	if err != nil {
-		log.Errorf("Failed to compute SHA256 for %s: %v", absFilename, err)
-		return fmt.Errorf("checksum computation failed: %w", err)
+		log.Errorf("Failed to compute checksum for %s: %v", absFilename, err)
+		return err
 	}
 	log.Debugf("Computed checksum for %s: %s", absFilename, checksum)
 
 	existingPath, err := redisClient.Get(ctx, checksum).Result()
-	if err != nil {
-		if err == redis.Nil {
-			err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
-			if err != nil {
-				log.Errorf("Redis error setting checksum %s: %v", checksum, err)
-				return fmt.Errorf("redis error: %w", err)
-			}
-			log.Infof("Stored new checksum %s for file %s", checksum, absFilename)
-			return nil
-		}
-		log.Errorf("Redis error fetching checksum %s: %v", checksum, err)
-		return fmt.Errorf("redis error: %w", err)
-	}
-
-	if existingPath != absFilename {
-		if _, err := os.Stat(existingPath); os.IsNotExist(err) {
-			log.Errorf("Existing file for checksum %s not found at %s", checksum, existingPath)
-			return fmt.Errorf("existing file not found: %w", err)
-		}
-
-		err = os.Link(existingPath, absFilename)
+	if err == redis.Nil {
+		log.Debugf("No existing file found for checksum %s", checksum)
+		err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
 		if err != nil {
-			log.Errorf("Failed linking %s to %s: %v", existingPath, absFilename, err)
-			return fmt.Errorf("failed link: %w", err)
+			log.Errorf("Failed to set checksum in Redis: %v", err)
+			return err
 		}
-		log.Infof("Created hard link for duplicate file %s -> %s", absFilename, existingPath)
-	} else {
-		log.Infof("File %s already exists with same checksum", absFilename)
+		log.Infof("Stored checksum %s with path %s in Redis", checksum, absFilename)
+		return nil
+	} else if err != nil {
+		log.Errorf("Redis lookup error: %v", err)
+		return err
 	}
+
+	log.Infof("Found existing file for checksum %s at %s", checksum, existingPath)
+	err = os.Link(existingPath, absFilename)
+	if err != nil {
+		log.Errorf("Failed to create hard link: %v", err)
+		return err
+	}
+	log.Infof("Created hard link from %s to %s", absFilename, existingPath)
+
+	exists, size := fileExists(existingPath)
+	log.Debugf("Post-dedup check: Exists=%v, Size=%d at %s", exists, size, existingPath)
 
 	return nil
 }
@@ -2178,4 +2283,48 @@ func precacheStoragePath(dir string) error {
 		}
 		return nil
 	})
+}
+
+func generateThumbnail(originalPath, thumbnailDir, size string) error {
+	// Implement thumbnail generation logic here
+	// For example, using an image processing library like "github.com/disintegration/imaging"
+
+	img, err := imaging.Open(originalPath)
+	if err != nil {
+		return err
+	}
+
+	// Parse size (e.g., "200x200")
+	dimensions := strings.Split(size, "x")
+	if len(dimensions) != 2 {
+		return fmt.Errorf("invalid thumbnail size format: %s", size)
+	}
+
+	width, err := strconv.Atoi(dimensions[0])
+	if err != nil {
+		return fmt.Errorf("invalid thumbnail width: %s", dimensions[0])
+	}
+
+	height, err := strconv.Atoi(dimensions[1])
+	if err != nil {
+		return fmt.Errorf("invalid thumbnail height: %s", dimensions[1])
+	}
+
+	thumb := imaging.Thumbnail(img, width, height, imaging.Lanczos) // Example size
+
+	baseName := filepath.Base(originalPath)
+	thumbName := strings.TrimSuffix(baseName, filepath.Ext(baseName)) + "_thumb" + filepath.Ext(baseName)
+	thumbPath := filepath.Join(thumbnailDir, thumbName)
+
+	err = os.MkdirAll(thumbnailDir, os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	err = imaging.Save(thumb, thumbPath)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

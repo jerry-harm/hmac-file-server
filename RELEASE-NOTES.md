@@ -154,3 +154,12 @@ For any issues or questions regarding this release, please open an issue on our 
 ---
 
 *Thank you for using hmac-file-server! We hope this release enhances your experience and meets your needs effectively.*
+
+## Release Notes - Version 2.2 Stable
+
+- Added support for deduplication with Redis.  
+- Improved thumbnail generation (configurable size and directory).  
+- Enhanced ISO handling (optional mounting and creation).  
+- Auto-adjustable worker pool and improved system metrics.  
+- Expanded logging and error handling to improve reliability.  
+- Various bug fixes and performance optimizations.

@@ -69,7 +69,40 @@ Setting `NetworkEvents = false` in the server configuration disables the logging
 
 The `precaching` feature allows the server to pre-cache storage paths for faster access. This can improve performance by reducing the time needed to access frequently used storage paths.
 
+### Thumbnail Creation
+
+Set `thumbnail` to true in the `[server]` section of `config.toml` to enable image thumbnail generation.
+
+### Deduplication
+
+Set `enabled` to true in the `[deduplication]` section of `config.toml` to enable file deduplication. Specify the `storagepath` where deduplicated files will be stored.
+
 ---
+
+## Deduplication
+
+Set `enabled` to true in the `[deduplication]` section of `config.toml` to enable file deduplication. Specify the `directory` where deduplicated files will be stored.
+
+### Example `config.toml`
+
+```toml
+[deduplication]
+enabled = true
+directory = "/mnt/hmac-storage/deduplication/"
+```
+
+## Thumbnails
+
+Set `enabled` to true in the `[thumbnails]` section of `config.toml` to enable thumbnail creation. Specify the `directory` where thumbnails will be stored and the `size` of the thumbnails.
+
+### Example `config.toml`
+
+```toml
+[thumbnails]
+enabled = true
+directory = "/mnt/hmac-storage/thumbnails/"
+size = "200x200"
+```
 
 ## Example `config.toml`
 
@@ -87,8 +120,9 @@ DeduplicationEnabled = true
 MinFreeBytes = "100MB"
 AutoAdjustWorkers = true  # Enable auto-adjustment for worker scaling
 NetworkEvents = false     # Disable logging and tracking of network-related events
-pidfilepath = "./hmac_file_server.pid"  # Path to PID file
-precaching = true  # Enable pre-caching of storage paths
+PIDFilePath = "./hmac_file_server.pid"  # Path to PID file
+Precaching = true  # Enable pre-caching of storage paths
+ThumbnailEnabled = false  # Whether to create thumbnails for uploaded images
 
 [timeouts]
 ReadTimeout = "480s"
@@ -132,6 +166,105 @@ UploadQueueSize = 5000
 
 [file]
 FileRevision = 1  # Revision number for file handling
+
+[deduplication]
+enabled = true
+storagepath = "/mnt/nfs_vol01/hmac-file-server/deduplication/"
+```
+
+---
+
+## HMAC File Server - Version 2.2 Stable
+
+Below is an example configuration file (config.toml) you can use as a reference (with sensitive data removed):
+
+```toml
+[server]
+listenport = "8080"
+unixsocket = false
+storagepath = "/mnt/nfs_vol01/hmac-file-server/"
+loglevel = "debug"
+logfile = "/var/log/hmac-file-server.log"
+metricsenabled = true
+metricsport = "9090"
+deduplicationenabled = true
+minfreebytes = "5GB"
+filettl = "2Y"
+autoadjustworkers = true
+networkevents = false
+pidfilepath = "./hmac-file-server.pid"
+precaching = true
+
+[deduplication]
+enabled = true
+directory = "/mnt/nfs_vol01/hmac-storage/deduplication/"
+
+[thumbnails]
+enabled = true
+directory = "/mnt/nfs_vol01/hmac-file-server/thumbnails/"
+size = "200x200"
+
+[iso]
+enabled = false
+size = "1TB"
+mountpoint = "/mnt/nfs_vol01/hmac-file-server/iso/"
+charset = "utf-8"
+
+[timeouts]
+readtimeout = "3600s"
+writetimeout = "3600s"
+idletimeout = "3600s"
+
+[security]
+secret = "stellar-wisdom-orbit-echo"
+
+[versioning]
+enableversioning = false
+maxversions = 1
+
+[uploads]
+resumableuploadsenabled = false
+chunkeduploadsenabled = true
+chunksize = "32MB"
+allowedextensions = [
+    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
+    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
+    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
+    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
+]
+
+[downloads]
+chunkeddownloadsenabled = false
+chunksize = "32MB"
+allowedextensions = [
+    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
+    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
+    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
+    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
+]
+
+[clamav]
+clamavenabled = true
+clamavsocket = "/var/run/clamav/clamd.ctl"
+numscanworkers = 4
+scanfileextensions = [
+    ".exe", ".dll", ".bin", ".com", ".bat",
+    ".sh", ".php", ".js"
+]
+
+[redis]
+redisenabled = true
+redisdbindex = 0
+redisaddr = "localhost:6379"
+redispassword = ""
+redishealthcheckinterval = "120s"
+
+[workers]
+numworkers = 4
+uploadqueuesize = 5000
+
+[file]
+filerevision = 1
 ```
 
 ---
