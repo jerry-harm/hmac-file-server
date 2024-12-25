@@ -2344,7 +2344,7 @@ func precacheStoragePath(dir string) error {
 
 func generateThumbnail(originalPath, thumbnailDir, size string) error {
 	// Check if thumbnail generation is enabled
-	if !conf.Thumbnails.Enabled {
+	if (!conf.Thumbnails.Enabled) {
 		log.Println("Thumbnail generation is disabled.")
 		return nil
 	}
