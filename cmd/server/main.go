@@ -10,6 +10,11 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+
+	// "image" // Unused import removed
+	_ "image/gif"  // Ensure GIF support
+	_ "image/jpeg" // Ensure JPEG support
+	_ "image/png"  // Ensure PNG support
 	"io"
 	"mime"
 	"net"
@@ -32,6 +37,7 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/robfig/cron/v3"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/host"
@@ -123,9 +129,10 @@ type DeduplicationConfig struct {
 }
 
 type ThumbnailsConfig struct {
-	Enabled   bool   `mapstructure:"enabled"`
-	Directory string `mapstructure:"directory"`
-	Size      string `mapstructure:"size"`
+	Enabled               bool   `mapstructure:"enabled"`
+	Directory             string `mapstructure:"directory"`
+	Size                  string `mapstructure:"size"`
+	ThumbnailIntervalScan string `mapstructure:"thumbnailintervalscan"`
 }
 
 type ISOConfig struct {
@@ -225,17 +232,17 @@ type FileMetadata struct {
 }
 
 var (
-	conf             Config
-	versionString    string = "v2.2-stable"
-	log                         = logrus.New()
-	uploadQueue      chan UploadTask
-	networkEvents    chan NetworkEvent
-	fileInfoCache    *cache.Cache
+	conf              Config
+	versionString     string = "v2.2"
+	log                      = logrus.New()
+	uploadQueue       chan UploadTask
+	networkEvents     chan NetworkEvent
+	fileInfoCache     *cache.Cache
 	fileMetadataCache *cache.Cache
-	clamClient       *clamd.Clamd
-	redisClient      *redis.Client
-	redisConnected   bool
-	mu               sync.RWMutex
+	clamClient        *clamd.Clamd
+	redisClient       *redis.Client
+	redisConnected    bool
+	mu                sync.RWMutex
 
 	uploadDuration      prometheus.Histogram
 	uploadErrorsTotal   prometheus.Counter
@@ -251,8 +258,8 @@ var (
 	uploadSizeBytes     prometheus.Histogram
 	downloadSizeBytes   prometheus.Histogram
 
-	scanQueue    chan ScanTask
-	ScanWorkers  = 5
+	scanQueue   chan ScanTask
+	ScanWorkers = 5
 )
 
 const (
@@ -322,6 +329,26 @@ func main() {
 		log.Fatalf("Error reading config: %v", err)
 	}
 	log.Info("Configuration loaded successfully.")
+
+	// Log configuration settings
+	log.Infof("Server ListenPort: %s", conf.Server.ListenPort)
+	log.Infof("Server UnixSocket: %v", conf.Server.UnixSocket)
+	log.Infof("Server StoragePath: %s", conf.Server.StoragePath)
+	log.Infof("Server LogLevel: %s", conf.Server.LogLevel)
+	log.Infof("Server LogFile: %s", conf.Server.LogFile)
+	log.Infof("Server MetricsEnabled: %v", conf.Server.MetricsEnabled)
+	log.Infof("Server MetricsPort: %s", conf.Server.MetricsPort)
+	log.Infof("Server FileTTL: %s", conf.Server.FileTTL)
+	log.Infof("Server MinFreeBytes: %s", conf.Server.MinFreeBytes)
+	log.Infof("Server AutoAdjustWorkers: %v", conf.Server.AutoAdjustWorkers)
+	log.Infof("Server NetworkEvents: %v", conf.Server.NetworkEvents)
+	log.Infof("Server TempPath: %s", conf.Server.TempPath)
+	log.Infof("Server LoggingJSON: %v", conf.Server.LoggingJSON)
+	log.Infof("Server PIDFilePath: %s", conf.Server.PIDFilePath)
+	log.Infof("Server CleanUponExit: %v", conf.Server.CleanUponExit)
+	log.Infof("Server PreCaching: %v", conf.Server.PreCaching)
+	log.Infof("Server FileTTLEnabled: %v", conf.Server.FileTTLEnabled)
+	log.Infof("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
 
 	err = writePIDFile(conf.Server.PIDFilePath) // Write PID file after config is loaded
 	if err != nil {
@@ -457,6 +484,9 @@ func main() {
 	if conf.Server.AutoAdjustWorkers {
 		go monitorWorkerPerformance(ctx, &conf.Server, &conf.Workers, &conf.ClamAV)
 	}
+
+	// Schedule periodic thumbnail generation
+	scheduleThumbnailGeneration()
 
 	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
@@ -619,6 +649,8 @@ func setDefaults() {
 	viper.SetDefault("iso.size", "1GB")
 	viper.SetDefault("iso.mountpoint", "/mnt/iso")
 	viper.SetDefault("iso.charset", "utf-8")
+
+	viper.SetDefault("thumbnails.thumbnailintervalscan", "24h")
 }
 
 func validateConfig(conf *Config) error {
@@ -764,7 +796,7 @@ func checkStoragePath(path string) error {
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Server.LogLevel)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %s", conf.Server.LogLevel)
 	}
 	log.SetLevel(level)
@@ -1047,7 +1079,7 @@ func processUpload(task UploadTask) error {
 
 	// Gajim and Dino do not require a callback or acknowledgement beyond HTTP success.
 	callbackURL := r.Header.Get("Callback-URL")
-	if (callbackURL != "") {
+	if callbackURL != "" {
 		log.Warnf("Callback-URL provided (%s) but not needed. Ignoring.", callbackURL)
 		// We do not block or wait, just ignore.
 	}
@@ -1073,17 +1105,6 @@ func processUpload(task UploadTask) error {
 			return err
 		}
 		log.Infof("ISO container handled successfully for file: %s", absFilename)
-	}
-
-	if conf.Thumbnails.Enabled {
-		thumbnailDir := conf.Thumbnails.Directory
-		size := conf.Thumbnails.Size
-		if err := generateThumbnail(task.AbsFilename, thumbnailDir, size); err != nil {
-			log.Errorf("Thumbnail generation failed for %s: %v", task.AbsFilename, err)
-			uploadErrorsTotal.Inc()
-			return err
-		}
-		uploadsTotal.Inc()
 	}
 
 	if redisClient != nil {
@@ -1454,15 +1475,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 			}
 		}
 
-		// Generate thumbnail if enabled
-		if conf.Thumbnails.Enabled {
-			thumbnailPath := filepath.Join(conf.Thumbnails.Directory, filepath.Base(absFilename))
-			err := generateThumbnail(absFilename, thumbnailPath, conf.Thumbnails.Size)
-			if err != nil {
-				log.Errorf("Failed to generate thumbnail for %s: %v", absFilename, err)
-			}
-		}
-
 		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", absFilename))
 		uploadsTotal.Inc()
 
@@ -1799,7 +1811,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 }
 
 func initRedis() {
-	if (!conf.Redis.RedisEnabled) {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -2331,11 +2343,13 @@ func precacheStoragePath(dir string) error {
 }
 
 func generateThumbnail(originalPath, thumbnailDir, size string) error {
+	// Check if thumbnail generation is enabled
 	if !conf.Thumbnails.Enabled {
+		log.Println("Thumbnail generation is disabled.")
 		return nil
 	}
 
-	// Parse size (e.g., "200x200")
+	// Parse the size (e.g., "200x200")
 	dimensions := strings.Split(size, "x")
 	if len(dimensions) != 2 {
 		return fmt.Errorf("invalid thumbnail size format: %s", size)
@@ -2351,37 +2365,40 @@ func generateThumbnail(originalPath, thumbnailDir, size string) error {
 		return fmt.Errorf("invalid thumbnail height: %s", dimensions[1])
 	}
 
-	// Open the original image
-	img, err := imaging.Open(originalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open image: %v", err)
-	}
-
-	// Create the thumbnail
-	thumbnail := imaging.Resize(img, width, height, imaging.Lanczos)
-
 	// Ensure the thumbnail directory exists
 	if err := os.MkdirAll(thumbnailDir, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create thumbnail directory: %v", err)
 	}
 
-	// Construct the thumbnail file path
+	// Open the original image
+	img, err := imaging.Open(originalPath)
+	if err != nil {
+		log.Printf("Error opening image %s: %v", originalPath, err)
+		return fmt.Errorf("thumbnail creation skipped for %s: %v", originalPath, err)
+	}
+
+	// Resize the image using Lanczos filter
+	thumbnail := imaging.Resize(img, width, height, imaging.Lanczos)
+
+	// Define the thumbnail file path
 	filename := filepath.Base(originalPath)
 	thumbnailPath := filepath.Join(thumbnailDir, filename)
 
 	// Save the thumbnail
-	if err := imaging.Save(thumbnail, thumbnailPath); err != nil {
-		return fmt.Errorf("failed to save thumbnail: %v", err)
+	err = imaging.Save(thumbnail, thumbnailPath)
+	if err != nil {
+		log.Printf("Error saving thumbnail for %s: %v", originalPath, err)
+		return fmt.Errorf("thumbnail creation skipped for %s: %v", originalPath, err)
 	}
 
-	log.Infof("Thumbnail created at %s", thumbnailPath)
+	log.Printf("Thumbnail created at %s", thumbnailPath)
 	return nil
 }
 
 func handleFileCleanup(conf *Config) {
 	if conf.Server.FileTTLEnabled {
 		ttlDuration, err := parseTTL(conf.Server.FileTTL)
-		if (err != nil) {
+		if err != nil {
 			log.Fatalf("Invalid TTL configuration: %v", err)
 		}
 		log.Printf("File TTL is enabled. Files older than %v will be deleted.", ttlDuration)
@@ -2432,4 +2449,43 @@ func deleteOldFiles(conf *Config, ttl time.Duration) {
 	if err != nil {
 		log.Printf("Error during file cleanup: %v", err)
 	}
+}
+
+func scheduleThumbnailGeneration() {
+	if !conf.Thumbnails.Enabled {
+		log.Println("Thumbnail generation is disabled.")
+		return
+	}
+
+	c := cron.New()
+	_, err := c.AddFunc("@every "+conf.Thumbnails.ThumbnailIntervalScan, func() {
+		log.Println("Starting scheduled thumbnail generation.")
+		err := filepath.Walk(conf.Server.StoragePath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				log.Printf("Error accessing path %s: %v", path, err)
+				return nil
+			}
+			if !info.IsDir() && isExtensionAllowed(path) {
+				thumbPath := filepath.Join(conf.Thumbnails.Directory, filepath.Base(path))
+				if _, err := os.Stat(thumbPath); os.IsNotExist(err) {
+					err := generateThumbnail(path, conf.Thumbnails.Directory, conf.Thumbnails.Size)
+					if err != nil {
+						log.Printf("Failed to generate thumbnail for %s: %v", path, err)
+					} else {
+						log.Printf("Thumbnail generated for %s", path)
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			log.Printf("Error during thumbnail generation: %v", err)
+		}
+		log.Println("Thumbnail generation complete.")
+	})
+	if err != nil {
+		log.Fatalf("Failed to schedule thumbnail generation: %v", err)
+	}
+	c.Start()
+	log.Println("Thumbnail generation scheduler started.")
 }
