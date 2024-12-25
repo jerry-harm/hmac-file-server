@@ -97,86 +97,24 @@ func parseTTL(ttlStr string) (time.Duration, error) {
 
 // Configuration structures
 type ServerConfig struct {
-	ListenPort           string `mapstructure:"ListenPort"`
-	UnixSocket           bool   `mapstructure:"UnixSocket"`
-	StoragePath          string `mapstructure:"StoragePath"`
-	LogLevel             string `mapstructure:"LogLevel"`
-	LogFile              string `mapstructure:"LogFile"`
-	MetricsEnabled       bool   `mapstructure:"MetricsEnabled"`
-	MetricsPort          string `mapstructure:"MetricsPort"`
-	FileTTLEnabled       bool   `mapstructure:"FileTTLEnabled"`
-	FileTTL              string `mapstructure:"FileTTL"`
-	MinFreeBytes         string `mapstructure:"MinFreeBytes"`
-	DeduplicationEnabled bool   `mapstructure:"DeduplicationEnabled"`
-	MinFreeByte          string `mapstructure:"MinFreeByte"`
-	AutoAdjustWorkers    bool   `mapstructure:"AutoAdjustWorkers"`
-	NetworkEvents        bool   `mapstructure:"NetworkEvents"` // Added field
-	PrecachingEnabled    bool   `mapstructure:"precaching"`    // Added field
-	PIDFilePath          string `mapstructure:"pidfilepath"`   // Added field
-	ThumbnailEnabled     bool   `mapstructure:"thumbnail"`     // Added field
-}
-
-type TimeoutConfig struct {
-	ReadTimeout  string `mapstructure:"ReadTimeout"`
-	WriteTimeout string `mapstructure:"WriteTimeout"`
-	IdleTimeout  string `mapstructure:"IdleTimeout"`
-}
-
-type SecurityConfig struct {
-	Secret string `mapstructure:"Secret"`
-}
-
-type VersioningConfig struct {
-	EnableVersioning bool `mapstructure:"EnableVersioning"`
-	MaxVersions      int  `mapstructure:"MaxVersions"`
-}
-
-type UploadsConfig struct {
-	ResumableUploadsEnabled bool     `mapstructure:"ResumableUploadsEnabled"`
-	ChunkedUploadsEnabled   bool     `mapstructure:"ChunkedUploadsEnabled"`
-	ChunkSize               string   `mapstructure:"ChunkSize"`
-	AllowedExtensions       []string `mapstructure:"AllowedExtensions"`
-}
-
-type ClamAVConfig struct {
-	ClamAVEnabled      bool     `mapstructure:"ClamAVEnabled"`
-	ClamAVSocket       string   `mapstructure:"ClamAVSocket"`
-	NumScanWorkers     int      `mapstructure:"NumScanWorkers"`
-	ScanFileExtensions []string `mapstructure:"ScanFileExtensions"`
-}
-
-type RedisConfig struct {
-	RedisEnabled             bool   `mapstructure:"RedisEnabled"`
-	RedisDBIndex             int    `mapstructure:"RedisDBIndex"`
-	RedisAddr                string `mapstructure:"RedisAddr"`
-	RedisPassword            string `mapstructure:"RedisPassword"`
-	RedisHealthCheckInterval string `mapstructure:"RedisHealthCheckInterval"`
-}
-
-type WorkersConfig struct {
-	NumWorkers      int `mapstructure:"NumWorkers"`
-	UploadQueueSize int `mapstructure:"UploadQueueSize"`
-}
-
-type FileConfig struct {
-	FileRevision int `mapstructure:"FileRevision"`
-}
-
-type ISOConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	Size       string `mapstructure:"size"`
-	MountPoint string `mapstructure:"mountpoint"`
-	Charset    string `mapstructure:"charset"`
-}
-
-type PasteConfig struct {
-	Enabled     bool   `mapstructure:"enabled"`
-	StoragePath string `mapstructure:"storagePath"`
-}
-
-type DownloadsConfig struct {
-	ResumableDownloadEnabled bool   `mapstructure:"ResumableDownloadEnabled"`
-	ChunkSize                string `mapstructure:"ChunkSize"`
+	ListenPort           string `mapstructure:"listenport"`
+	UnixSocket           bool   `mapstructure:"unixsocket"`
+	StoragePath          string `mapstructure:"storagepath"`
+	LogLevel             string `mapstructure:"loglevel"`
+	LogFile              string `mapstructure:"logfile"`
+	MetricsEnabled       bool   `mapstructure:"metricsenabled"`
+	MetricsPort          string `mapstructure:"metricsport"`
+	FileTTL              string `mapstructure:"filettl"`
+	MinFreeBytes         string `mapstructure:"minfreebytes"`
+	AutoAdjustWorkers    bool   `mapstructure:"autoadjustworkers"`
+	NetworkEvents        bool   `mapstructure:"networkevents"`
+	TempPath             string `mapstructure:"temppath"`
+	LoggingJSON          bool   `mapstructure:"loggingjson"`
+	PIDFilePath          string `mapstructure:"pidfilepath"`
+	CleanUponExit        bool   `mapstructure:"cleanuponexit"`
+	PreCaching           bool   `mapstructure:"precaching"`
+	FileTTLEnabled       bool   `mapstructure:"filettlenabled"`
+	DeduplicationEnabled bool   `mapstructure:"deduplicationenabled"`
 }
 
 type DeduplicationConfig struct {
@@ -190,8 +128,70 @@ type ThumbnailsConfig struct {
 	Size      string `mapstructure:"size"`
 }
 
+type ISOConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	Size       string `mapstructure:"size"`
+	MountPoint string `mapstructure:"mountpoint"`
+	Charset    string `mapstructure:"charset"`
+}
+
+type TimeoutConfig struct {
+	ReadTimeout  string `mapstructure:"readtimeout"`
+	WriteTimeout string `mapstructure:"writetimeout"`
+	IdleTimeout  string `mapstructure:"idletimeout"`
+}
+
+type SecurityConfig struct {
+	Secret string `mapstructure:"secret"`
+}
+
+type VersioningConfig struct {
+	EnableVersioning bool `mapstructure:"enableversioning"`
+	MaxVersions      int  `mapstructure:"maxversions"`
+}
+
+type UploadsConfig struct {
+	ResumableUploadsEnabled bool     `mapstructure:"resumableuploadsenabled"`
+	ChunkedUploadsEnabled   bool     `mapstructure:"chunkeduploadsenabled"`
+	ChunkSize               string   `mapstructure:"chunksize"`
+	AllowedExtensions       []string `mapstructure:"allowedextensions"`
+}
+
+type DownloadsConfig struct {
+	ResumableDownloadsEnabled bool   `mapstructure:"resumabledownloadsenabled"`
+	ChunkedDownloadsEnabled   bool   `mapstructure:"chunkeddownloadsenabled"`
+	ChunkSize                 string `mapstructure:"chunksize"`
+}
+
+type ClamAVConfig struct {
+	ClamAVEnabled      bool     `mapstructure:"clamavenabled"`
+	ClamAVSocket       string   `mapstructure:"clamavsocket"`
+	NumScanWorkers     int      `mapstructure:"numscanworkers"`
+	ScanFileExtensions []string `mapstructure:"scanfileextensions"`
+}
+
+type RedisConfig struct {
+	RedisEnabled             bool   `mapstructure:"redisenabled"`
+	RedisDBIndex             int    `mapstructure:"redisdbindex"`
+	RedisAddr                string `mapstructure:"redisaddr"`
+	RedisPassword            string `mapstructure:"redispassword"`
+	RedisHealthCheckInterval string `mapstructure:"redishealthcheckinterval"`
+}
+
+type WorkersConfig struct {
+	NumWorkers      int `mapstructure:"numworkers"`
+	UploadQueueSize int `mapstructure:"uploadqueuesize"`
+}
+
+type FileConfig struct {
+	FileRevision int `mapstructure:"filerevision"`
+}
+
 type Config struct {
 	Server        ServerConfig        `mapstructure:"server"`
+	Deduplication DeduplicationConfig `mapstructure:"deduplication"`
+	Thumbnails    ThumbnailsConfig    `mapstructure:"thumbnails"`
+	ISO           ISOConfig           `mapstructure:"iso"`
 	Timeouts      TimeoutConfig       `mapstructure:"timeouts"`
 	Security      SecurityConfig      `mapstructure:"security"`
 	Versioning    VersioningConfig    `mapstructure:"versioning"`
@@ -201,10 +201,6 @@ type Config struct {
 	Redis         RedisConfig         `mapstructure:"redis"`
 	Workers       WorkersConfig       `mapstructure:"workers"`
 	File          FileConfig          `mapstructure:"file"`
-	ISO           ISOConfig           `mapstructure:"iso"`
-	Paste         PasteConfig         `mapstructure:"paste"`
-	Deduplication DeduplicationConfig `mapstructure:"deduplication"`
-	Thumbnails    ThumbnailsConfig    `mapstructure:"thumbnails"`
 }
 
 type UploadTask struct {
@@ -229,17 +225,17 @@ type FileMetadata struct {
 }
 
 var (
-	conf           Config
-	versionString  string = "v2.2-stable"
-	log                   = logrus.New()
-	uploadQueue    chan UploadTask
-	networkEvents  chan NetworkEvent
-	fileInfoCache  *cache.Cache
+	conf             Config
+	versionString    string = "v2.2-trash"
+	log                         = logrus.New()
+	uploadQueue      chan UploadTask
+	networkEvents    chan NetworkEvent
+	fileInfoCache    *cache.Cache
 	fileMetadataCache *cache.Cache
-	clamClient     *clamd.Clamd
-	redisClient    *redis.Client
-	redisConnected bool
-	mu             sync.RWMutex
+	clamClient       *clamd.Clamd
+	redisClient      *redis.Client
+	redisConnected   bool
+	mu               sync.RWMutex
 
 	uploadDuration      prometheus.Histogram
 	uploadErrorsTotal   prometheus.Counter
@@ -255,8 +251,8 @@ var (
 	uploadSizeBytes     prometheus.Histogram
 	downloadSizeBytes   prometheus.Histogram
 
-	scanQueue   chan ScanTask
-	ScanWorkers = 5
+	scanQueue    chan ScanTask
+	ScanWorkers  = 5
 )
 
 const (
@@ -344,7 +340,7 @@ func main() {
 	fileInfoCache = cache.New(5*time.Minute, 10*time.Minute)
 	fileMetadataCache = cache.New(5*time.Minute, 10*time.Minute)
 
-	if conf.Server.PrecachingEnabled { // Conditionally perform pre-caching
+	if conf.Server.PreCaching { // Conditionally perform pre-caching
 		// Starting pre-caching of storage path
 		log.Info("Starting pre-caching of storage path...")
 		err = precacheStoragePath(conf.Server.StoragePath)
@@ -379,8 +375,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go monitorNetwork(ctx)
-	go handleNetworkEvents(ctx)
+	if conf.Server.NetworkEvents {
+		go monitorNetwork(ctx)
+		go handleNetworkEvents(ctx)
+	}
 	go updateSystemMetrics(ctx)
 
 	if conf.ClamAV.ClamAVEnabled {
@@ -556,69 +554,64 @@ func readConfig(configFilename string, conf *Config) error {
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 
-	conf.Server.DeduplicationEnabled = viper.GetBool("deduplication.Enabled")
-
 	return nil
 }
 
 func setDefaults() {
-	viper.SetDefault("server.ListenPort", "8080")
-	viper.SetDefault("server.UnixSocket", false)
-	viper.SetDefault("server.StoragePath", "./uploads")
-	viper.SetDefault("server.LogLevel", "info")
-	viper.SetDefault("server.LogFile", "")
-	viper.SetDefault("server.MetricsEnabled", true)
-	viper.SetDefault("server.MetricsPort", "9090")
-	viper.SetDefault("server.FileTTL", "8760h")
-	viper.SetDefault("server.MinFreeBytes", "100MB")
-	viper.SetDefault("server.AutoAdjustWorkers", true)
-	viper.SetDefault("server.NetworkEvents", true)                        // Set default
-	viper.SetDefault("server.precaching", true)                           // Set default for precaching
-	viper.SetDefault("server.pidfilepath", "/var/run/hmacfileserver.pid") // Set default for PID file path
-	viper.SetDefault("server.thumbnail", false)                           // Set default for thumbnail
-	viper.SetDefault("server.FileTTLEnabled", true)                       // Set default for FileTTLEnabled
-	_, err := parseTTL("1D")
-	if err != nil {
-		log.Warnf("Failed to parse TTL: %v", err)
-	}
+	viper.SetDefault("server.listenport", "8080")
+	viper.SetDefault("server.unixsocket", false)
+	viper.SetDefault("server.storagepath", "./uploads")
+	viper.SetDefault("server.loglevel", "info")
+	viper.SetDefault("server.logfile", "")
+	viper.SetDefault("server.metricsenabled", true)
+	viper.SetDefault("server.metricsport", "9090")
+	viper.SetDefault("server.filettl", "8760h")
+	viper.SetDefault("server.minfreebytes", "100MB")
+	viper.SetDefault("server.autoadjustworkers", true)
+	viper.SetDefault("server.networkevents", true)
+	viper.SetDefault("server.precaching", true)
+	viper.SetDefault("server.pidfilepath", "/var/run/hmacfileserver.pid")
+	viper.SetDefault("server.loggingjson", false)
+	viper.SetDefault("server.filettlenabled", true)
+	viper.SetDefault("server.deduplicationenabled", true)
 
-	viper.SetDefault("timeouts.ReadTimeout", "4800s")
-	viper.SetDefault("timeouts.WriteTimeout", "4800s")
-	viper.SetDefault("timeouts.IdleTimeout", "4800s")
+	viper.SetDefault("timeouts.readtimeout", "4800s")
+	viper.SetDefault("timeouts.writetimeout", "4800s")
+	viper.SetDefault("timeouts.idletimeout", "4800s")
 
-	viper.SetDefault("security.Secret", "changeme")
+	viper.SetDefault("security.secret", "changeme")
 
-	viper.SetDefault("versioning.EnableVersioning", false)
-	viper.SetDefault("versioning.MaxVersions", 1)
+	viper.SetDefault("versioning.enableversioning", false)
+	viper.SetDefault("versioning.maxversions", 1)
 
-	viper.SetDefault("uploads.ResumableUploadsEnabled", true)
-	viper.SetDefault("uploads.ChunkedUploadsEnabled", true)
-	viper.SetDefault("uploads.ChunkSize", "8192")
-	viper.SetDefault("uploads.AllowedExtensions", []string{
+	viper.SetDefault("uploads.resumableuploadsenabled", true)
+	viper.SetDefault("uploads.chunkeduploadsenabled", true)
+	viper.SetDefault("uploads.chunksize", "8192")
+	viper.SetDefault("uploads.allowedextensions", []string{
 		".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp",
 		".wav", ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".mpeg", ".mpg", ".m4v",
 		".3gp", ".3g2", ".mp3", ".ogg",
 	})
 
-	viper.SetDefault("clamav.ClamAVEnabled", true)
-	viper.SetDefault("clamav.ClamAVSocket", "/var/run/clamav/clamd.ctl")
-	viper.SetDefault("clamav.NumScanWorkers", 2)
+	viper.SetDefault("clamav.clamavenabled", true)
+	viper.SetDefault("clamav.clamavsocket", "/var/run/clamav/clamd.ctl")
+	viper.SetDefault("clamav.numscanworkers", 2)
 
-	viper.SetDefault("redis.RedisEnabled", true)
-	viper.SetDefault("redis.RedisAddr", "localhost:6379")
-	viper.SetDefault("redis.RedisPassword", "")
-	viper.SetDefault("redis.RedisDBIndex", 0)
-	viper.SetDefault("redis.RedisHealthCheckInterval", "120s")
+	viper.SetDefault("redis.redisenabled", true)
+	viper.SetDefault("redis.redisaddr", "localhost:6379")
+	viper.SetDefault("redis.redispassword", "")
+	viper.SetDefault("redis.redisdbindex", 0)
+	viper.SetDefault("redis.redishealthcheckinterval", "120s")
 
-	viper.SetDefault("workers.NumWorkers", 4)
-	viper.SetDefault("workers.UploadQueueSize", 50)
+	viper.SetDefault("workers.numworkers", 4)
+	viper.SetDefault("workers.uploadqueuesize", 50)
 
-	viper.SetDefault("deduplication.Enabled", true)
+	viper.SetDefault("deduplication.enabled", true)
 
-	viper.SetDefault("iso.Enabled", true)
-	viper.SetDefault("iso.Size", "1GB")
-	viper.SetDefault("iso.MountPoint", "/mnt/iso")
-	viper.SetDefault("iso.Charset", "utf-8")
+	viper.SetDefault("iso.enabled", true)
+	viper.SetDefault("iso.size", "1GB")
+	viper.SetDefault("iso.mountpoint", "/mnt/iso")
+	viper.SetDefault("iso.charset", "utf-8")
 }
 
 func validateConfig(conf *Config) error {
@@ -663,12 +656,8 @@ func validateConfig(conf *Config) error {
 		}
 	}
 
-	if conf.Paste.Enabled && conf.Paste.StoragePath == "" {
-		return fmt.Errorf("paste is enabled but 'storagePath' is not set in '[paste]' section")
-	}
-
 	// Validate Downloads Configuration
-	if conf.Downloads.ResumableDownloadEnabled {
+	if conf.Downloads.ResumableDownloadsEnabled {
 		if conf.Downloads.ChunkSize == "" {
 			return fmt.Errorf("downloads.chunkSize must be set when resumable downloads are enabled")
 		}
@@ -718,13 +707,6 @@ func validateConfig(conf *Config) error {
 		}
 		if conf.ISO.Charset == "" {
 			return fmt.Errorf("iso.charset must be set when ISO is enabled")
-		}
-	}
-
-	// Validate Paste Configuration
-	if conf.Paste.Enabled {
-		if conf.Paste.StoragePath == "" {
-			return fmt.Errorf("paste.storagePath must be set when paste is enabled")
 		}
 	}
 
@@ -1464,6 +1446,15 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 			}
 		}
 
+		// Generate thumbnail if enabled
+		if conf.Thumbnails.Enabled {
+			thumbnailPath := filepath.Join(conf.Thumbnails.Directory, filepath.Base(absFilename))
+			err := generateThumbnail(absFilename, thumbnailPath, conf.Thumbnails.Size)
+			if err != nil {
+				log.Errorf("Failed to generate thumbnail for %s: %v", absFilename, err)
+			}
+		}
+
 		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", absFilename))
 		uploadsTotal.Inc()
 
@@ -2105,31 +2096,47 @@ func handleDeduplication(ctx context.Context, absFilename string) error {
 	}
 	log.Debugf("Computed checksum for %s: %s", absFilename, checksum)
 
-	existingPath, err := redisClient.Get(ctx, checksum).Result()
-	if err == redis.Nil {
-		log.Debugf("No existing file found for checksum %s", checksum)
-		err = redisClient.Set(ctx, checksum, absFilename, 0).Err()
-		if err != nil {
-			log.Errorf("Failed to set checksum in Redis: %v", err)
-			return err
-		}
-		log.Infof("Stored checksum %s with path %s in Redis", checksum, absFilename)
-		return nil
-	} else if err != nil {
-		log.Errorf("Redis lookup error: %v", err)
-		return err
+	// Use directory names instead of hash values for deduplication
+	dedupDir := conf.Deduplication.Directory
+	if dedupDir == "" {
+		return fmt.Errorf("deduplication directory is not configured")
 	}
 
-	log.Infof("Found existing file for checksum %s at %s", checksum, existingPath)
+	// Create a directory for the checksum if it doesn't exist
+	dedupPath := filepath.Join(dedupDir, checksum)
+	if err := os.MkdirAll(dedupPath, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create deduplication directory: %w", err)
+	}
+
+	// Check if a file with the same name already exists in the deduplication directory
+	existingPath := filepath.Join(dedupPath, filepath.Base(absFilename))
+	if _, err := os.Stat(existingPath); err == nil {
+		log.Infof("Found existing file for checksum %s at %s", checksum, existingPath)
+		err = os.Link(existingPath, absFilename)
+		if err != nil {
+			log.Errorf("Failed to create hard link: %v", err)
+			return err
+		}
+		log.Infof("Created hard link from %s to %s", absFilename, existingPath)
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("error checking existing file: %w", err)
+	}
+
+	// Move the file to the deduplication directory
+	err = os.Rename(absFilename, existingPath)
+	if err != nil {
+		return fmt.Errorf("failed to move file to deduplication directory: %w", err)
+	}
+	log.Infof("Moved file to deduplication directory: %s", existingPath)
+
+	// Create a hard link from the deduplication directory to the original location
 	err = os.Link(existingPath, absFilename)
 	if err != nil {
 		log.Errorf("Failed to create hard link: %v", err)
 		return err
 	}
-	log.Infof("Created hard link from %s to %s", absFilename, existingPath)
-
-	exists, size := fileExists(existingPath)
-	log.Debugf("Post-dedup check: Exists=%v, Size=%d at %s", exists, size, existingPath)
+	log.Infof("Created hard link from %s to %s", existingPath, absFilename)
 
 	return nil
 }
@@ -2362,7 +2369,7 @@ func generateThumbnail(originalPath, thumbnailDir, size string) error {
 func handleFileCleanup(conf *Config) {
 	if conf.Server.FileTTLEnabled {
 		ttlDuration, err := parseTTL(conf.Server.FileTTL)
-		if err != nil {
+		if (err != nil) {
 			log.Fatalf("Invalid TTL configuration: %v", err)
 		}
 		log.Printf("File TTL is enabled. Files older than %v will be deleted.", ttlDuration)
