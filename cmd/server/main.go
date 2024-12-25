@@ -226,7 +226,7 @@ type FileMetadata struct {
 
 var (
 	conf             Config
-	versionString    string = "v2.2-trash"
+	versionString    string = "v2.2-stable"
 	log                         = logrus.New()
 	uploadQueue      chan UploadTask
 	networkEvents    chan NetworkEvent
