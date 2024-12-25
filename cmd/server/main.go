@@ -357,6 +357,13 @@ func main() {
 	}
 	log.WithField("directory", conf.Server.StoragePath).Info("Store directory is ready")
 
+	// Ensure thumbnail directory exists if thumbnails are enabled
+	if conf.Thumbnails.Enabled {
+		if err := os.MkdirAll(conf.Thumbnails.Directory, os.ModePerm); err != nil {
+			log.Fatalf("Failed to create thumbnail directory: %v", err)
+		}
+	}
+
 	err = checkFreeSpaceWithRetry(conf.Server.StoragePath, 3, 5*time.Second)
 	if err != nil {
 		log.Fatalf("Insufficient free space: %v", err)
@@ -1069,13 +1076,14 @@ func processUpload(task UploadTask) error {
 	}
 
 	if conf.Thumbnails.Enabled {
-		err = generateThumbnail(absFilename, conf.Thumbnails.Directory, conf.Thumbnails.Size)
-		if err != nil {
-			log.Errorf("Failed to generate thumbnail for %s: %v", absFilename, err)
+		thumbnailDir := conf.Thumbnails.Directory
+		size := conf.Thumbnails.Size
+		if err := generateThumbnail(task.AbsFilename, thumbnailDir, size); err != nil {
+			log.Errorf("Thumbnail generation failed for %s: %v", task.AbsFilename, err)
 			uploadErrorsTotal.Inc()
 			return err
 		}
-		log.Infof("Thumbnail generated for %s", absFilename)
+		uploadsTotal.Inc()
 	}
 
 	if redisClient != nil {
@@ -2323,12 +2331,8 @@ func precacheStoragePath(dir string) error {
 }
 
 func generateThumbnail(originalPath, thumbnailDir, size string) error {
-	// Implement thumbnail generation logic here
-	// For example, using an image processing library like "github.com/disintegration/imaging"
-
-	img, err := imaging.Open(originalPath)
-	if err != nil {
-		return err
+	if !conf.Thumbnails.Enabled {
+		return nil
 	}
 
 	// Parse size (e.g., "200x200")
@@ -2347,22 +2351,30 @@ func generateThumbnail(originalPath, thumbnailDir, size string) error {
 		return fmt.Errorf("invalid thumbnail height: %s", dimensions[1])
 	}
 
-	thumb := imaging.Thumbnail(img, width, height, imaging.Lanczos) // Example size
-
-	baseName := filepath.Base(originalPath)
-	thumbName := strings.TrimSuffix(baseName, filepath.Ext(baseName)) + "_thumb" + filepath.Ext(baseName)
-	thumbPath := filepath.Join(thumbnailDir, thumbName)
-
-	err = os.MkdirAll(thumbnailDir, os.ModePerm)
+	// Open the original image
+	img, err := imaging.Open(originalPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open image: %v", err)
 	}
 
-	err = imaging.Save(thumb, thumbPath)
-	if err != nil {
-		return err
+	// Create the thumbnail
+	thumbnail := imaging.Resize(img, width, height, imaging.Lanczos)
+
+	// Ensure the thumbnail directory exists
+	if err := os.MkdirAll(thumbnailDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create thumbnail directory: %v", err)
 	}
 
+	// Construct the thumbnail file path
+	filename := filepath.Base(originalPath)
+	thumbnailPath := filepath.Join(thumbnailDir, filename)
+
+	// Save the thumbnail
+	if err := imaging.Save(thumbnail, thumbnailPath); err != nil {
+		return fmt.Errorf("failed to save thumbnail: %v", err)
+	}
+
+	log.Infof("Thumbnail created at %s", thumbnailPath)
 	return nil
 }
 
