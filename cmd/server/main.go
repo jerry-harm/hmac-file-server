@@ -10,11 +10,10 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-
 	// "image" // Unused import removed
-	_ "image/gif"  // Ensure GIF support
-	_ "image/jpeg" // Ensure JPEG support
 	_ "image/png"  // Ensure PNG support
+	_ "image/jpeg" // Ensure JPEG support
+	_ "image/gif"  // Ensure GIF support
 	"io"
 	"mime"
 	"net"
@@ -31,13 +30,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/disintegration/imaging"
-	"github.com/dutchcoders/go-clamd" // ClamAV integration
-	"github.com/go-redis/redis/v8"    // Redis integration
+	"github.com/dutchcoders/go-clamd"   // ClamAV integration
+	"github.com/go-redis/redis/v8"      // Redis integration
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/robfig/cron/v3"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/shirou/gopsutil/host"
@@ -45,6 +42,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"github.com/disintegration/imaging"
+	"github.com/robfig/cron/v3"
 )
 
 // parseSize converts a human-readable size string to bytes
@@ -234,9 +233,9 @@ type FileMetadata struct {
 var (
 	conf              Config
 	versionString     string = "v2.2"
-	log                      = logrus.New()
-	uploadQueue       chan UploadTask
-	networkEvents     chan NetworkEvent
+	log               = logrus.New()
+	uploadQueue       = make(chan UploadTask, 100)
+	networkEvents     = make(chan NetworkEvent, 100)
 	fileInfoCache     *cache.Cache
 	fileMetadataCache *cache.Cache
 	clamClient        *clamd.Clamd
@@ -1847,7 +1846,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 }
 
 func initRedis() {
-	if !conf.Redis.RedisEnabled {
+	if (!conf.Redis.RedisEnabled) {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -1890,7 +1889,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if !redisConnected {
+				if (!redisConnected) {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -2379,62 +2378,62 @@ func precacheStoragePath(dir string) error {
 }
 
 func generateThumbnail(originalPath, thumbnailDir, size string) error {
-	// Check if thumbnail generation is enabled
-	if !conf.Thumbnails.Enabled {
-		log.Println("Thumbnail generation is disabled.")
-		return nil
-	}
+    // Check if thumbnail generation is enabled
+    if (!conf.Thumbnails.Enabled) {
+        log.Println("Thumbnail generation is disabled.")
+        return nil
+    }
 
-	// Parse the size (e.g., "200x200")
-	dimensions := strings.Split(size, "x")
-	if len(dimensions) != 2 {
-		return fmt.Errorf("invalid thumbnail size format: %s", size)
-	}
+    // Parse the size (e.g., "200x200")
+    dimensions := strings.Split(size, "x")
+    if len(dimensions) != 2 {
+        return fmt.Errorf("invalid thumbnail size format: %s", size)
+    }
 
-	width, err := strconv.Atoi(dimensions[0])
-	if err != nil {
-		return fmt.Errorf("invalid thumbnail width: %s", dimensions[0])
-	}
+    width, err := strconv.Atoi(dimensions[0])
+    if err != nil {
+        return fmt.Errorf("invalid thumbnail width: %s", dimensions[0])
+    }
 
-	height, err := strconv.Atoi(dimensions[1])
-	if err != nil {
-		return fmt.Errorf("invalid thumbnail height: %s", dimensions[1])
-	}
+    height, err := strconv.Atoi(dimensions[1])
+    if err != nil {
+        return fmt.Errorf("invalid thumbnail height: %s", dimensions[1])
+    }
 
-	// Ensure the thumbnail directory exists
-	if err := os.MkdirAll(thumbnailDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create thumbnail directory: %v", err)
-	}
+    // Ensure the thumbnail directory exists
+    if err := os.MkdirAll(thumbnailDir, os.ModePerm); err != nil {
+        return fmt.Errorf("failed to create thumbnail directory: %v", err)
+    }
 
-	// Open the original image
-	img, err := imaging.Open(originalPath)
-	if err != nil {
-		log.Printf("Error opening image %s: %v", originalPath, err)
-		return fmt.Errorf("thumbnail creation skipped for %s: %v", originalPath, err)
-	}
+    // Open the original image
+    img, err := imaging.Open(originalPath)
+    if (err != nil) {
+        log.Printf("Error opening image %s: %v", originalPath, err)
+        return fmt.Errorf("thumbnail creation skipped for %s: %v", originalPath, err)
+    }
 
-	// Resize the image using Lanczos filter
-	thumbnail := imaging.Resize(img, width, height, imaging.Lanczos)
+    // Resize the image using Lanczos filter
+    thumbnail := imaging.Resize(img, width, height, imaging.Lanczos)
 
-	// Define the thumbnail file path
-	filename := filepath.Base(originalPath)
-	thumbnailPath := filepath.Join(thumbnailDir, filename)
+    // Define the thumbnail file path
+    filename := filepath.Base(originalPath)
+    thumbnailPath := filepath.Join(thumbnailDir, filename)
 
-	// Save the thumbnail
-	err = imaging.Save(thumbnail, thumbnailPath)
-	if err != nil {
-		log.Printf("Error saving thumbnail for %s: %v", originalPath, err)
-		return fmt.Errorf("thumbnail creation skipped for %s: %v", originalPath, err)
-	}
+    // Save the thumbnail
+    err = imaging.Save(thumbnail, thumbnailPath)
+    if err != nil {
+        log.Printf("Error saving thumbnail for %s: %v", originalPath, err)
+        return fmt.Errorf("thumbnail creation skipped for %s: %v", originalPath, err)
+    }
 
-	log.Printf("Thumbnail created at %s", thumbnailPath)
-	return nil
+    log.Printf("Thumbnail created at %s", thumbnailPath)
+    return nil
 }
 
 func handleFileCleanup(conf *Config) {
 	if conf.Server.FileTTLEnabled {
 		ttlDuration, err := parseTTL(conf.Server.FileTTL)
-		if err != nil {
+		if (err != nil) {
 			log.Fatalf("Invalid TTL configuration: %v", err)
 		}
 		log.Printf("File TTL is enabled. Files older than %v will be deleted.", ttlDuration)
@@ -2488,7 +2487,7 @@ func deleteOldFiles(conf *Config, ttl time.Duration) {
 }
 
 func scheduleThumbnailGeneration() {
-	if !conf.Thumbnails.Enabled {
+	if (!conf.Thumbnails.Enabled) {
 		log.Println("Thumbnail generation is disabled.")
 		return
 	}
