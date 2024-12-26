@@ -50,6 +50,24 @@ cd hmac-file-server
 go build -o hmac-file-server main.go
 ```
 
+### Building for Different Architectures
+
+To build the HMAC File Server for different architectures, use the following commands:
+
+#### Build for `arm64`
+```bash
+cd /path/to/hmac-file-server
+GOOS=linux GOARCH=arm64 go build -o ~/Temp/hmac-file-server-2.2-stable_arm64 main.go
+```
+
+#### Build for `amd64`
+```bash
+cd /path/to/hmac-file-server
+GOOS=linux GOARCH=amd64 go build -o ~/Temp/hmac-file-server-2.2-stable_amd64 main.go
+```
+
+Replace `/path/to/hmac-file-server` with the actual path to your project directory. These commands will generate the binaries for `arm64` and `amd64` architectures and place them in the `~/Temp` directory.
+
 ---
 
 ## Configuration
