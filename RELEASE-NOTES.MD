@@ -18,6 +18,7 @@
 - **Graceful Shutdown:** Handles signals and ensures proper cleanup.
 - **Deduplication:** Remove duplicate files based on hashing for storage efficiency.
 - **Auto-Adjust Worker Scaling:** Dynamically optimize HMAC and ClamAV workers based on system resources when enabled.
+- **Thumbnail Support:** Generate smaller versions of uploaded images for efficient storage and quick access.
 
 ---
 
@@ -69,9 +70,9 @@ Setting `NetworkEvents = false` in the server configuration disables the logging
 
 The `precaching` feature allows the server to pre-cache storage paths for faster access. This can improve performance by reducing the time needed to access frequently used storage paths.
 
-### Added thumbnail support
+### Thumbnail Support
 
-- New configuration option `thumbnail` in `[server]` to enable or disable generating image thumbnails
+- New configuration option `thumbnail` in `[server]` to enable or disable generating image thumbnails.
 
 ---
 

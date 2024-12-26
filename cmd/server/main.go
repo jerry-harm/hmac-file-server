@@ -232,7 +232,7 @@ type FileMetadata struct {
 
 var (
 	conf              Config
-	versionString     string = "v2.2"
+	versionString     string = "v2.2-supertrash"
 	log               = logrus.New()
 	uploadQueue       = make(chan UploadTask, 100)
 	networkEvents     = make(chan NetworkEvent, 100)
