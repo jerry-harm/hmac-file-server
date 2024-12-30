@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath" // Added this import for filepath usage
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 )
 
 const (
@@ -23,6 +25,17 @@ const (
 
 // TestUpload performs a basic HMAC validation and upload test.
 func TestUpload(t *testing.T) {
+	// Start the server in a separate goroutine
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		startServer() // Replace main() with startServer()
+	}()
+
+	// Allow the server some time to start
+	time.Sleep(2 * time.Second)
+
 	// File setup for testing
 	file, err := os.Open(uploadPath)
 	if err != nil {
@@ -56,6 +69,8 @@ func TestUpload(t *testing.T) {
 	defer resp.Body.Close()
 
 	t.Logf("Response status: %s", resp.Status)
+
+	wg.Wait()
 }
 
 // Generates the HMAC based on your protocol version
@@ -77,4 +92,8 @@ func generateHMAC(filePath string, contentLength int64, protocol string) string 
 	}
 
 	return macString
+}
+
+func startServer() {
+	main() // Ensure main() is callable from startServer()
 }
