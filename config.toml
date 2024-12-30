@@ -52,14 +52,19 @@ idletimeout = "4800s"
 secret = "changeme"
 
 [versioning]
-enableversioning = true
-maxversions = 5
+enableversioning = false
+maxversions = 1
 
 [uploads]
 resumableuploadsenabled = true
 chunkeduploadsenabled = true
 chunksize = "8192"
-allowedextensions = ["*"] # Use ["*"] to allow all or specify extensions
+allowedextensions = [
+    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
+    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
+    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
+    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
+]
 
 [downloads]
 resumabledownloadsenabled = true
@@ -83,9 +88,18 @@ redishealthcheckinterval = "120s"
 [workers]
 numworkers = 4
 uploadqueuesize = 50
+max_concurrent_operations = 10
+network_event_buffer = 100
+performance_monitor_interval = "5m"
+metrics_update_interval = "10s"
 
 [file]
 filerevision = 1
 
+[precache]
+redisEnabled = true
+redisAddr = "localhost:6379"
+staticIndexFile = "./static_index.json"
+
 [build]
-version = "v2.3"
+version = "v1.0.0"
