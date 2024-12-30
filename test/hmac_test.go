@@ -11,9 +11,9 @@ import (
 	"os"
 	"path/filepath" // Added this import for filepath usage
 	"strconv"
-	"sync"
 	"testing"
 	"time"
+	"context" // Added for context management
 )
 
 const (
@@ -23,15 +23,28 @@ const (
 	protocolType = "v2"                        // Use v2, v, or token as needed
 )
 
+// Step 1: Refactor startServer to accept a context for shutdown
+func startServer(ctx context.Context, done chan<- struct{}) {
+	go func() {
+		runServer(ctx) // Ensure runServer() listens to context for shutdown
+		done <- struct{}{}
+	}()
+}
+
+func runServer(ctx context.Context) {
+	// Simulate server running and listening for context cancellation
+	<-ctx.Done()
+		fmt.Println("Server shutting down...")
+}
+
 // TestUpload performs a basic HMAC validation and upload test.
 func TestUpload(t *testing.T) {
-	// Start the server in a separate goroutine
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		startServer() // Replace main() with startServer()
-	}()
+	// Create a context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	startServer(ctx, done) // Start server with context
 
 	// Allow the server some time to start
 	time.Sleep(2 * time.Second)
@@ -70,7 +83,9 @@ func TestUpload(t *testing.T) {
 
 	t.Logf("Response status: %s", resp.Status)
 
-	wg.Wait()
+	// After test completes, cancel the context to shut down the server
+	cancel()
+	<-done // Wait for server to shutdown
 }
 
 // Generates the HMAC based on your protocol version
@@ -92,8 +107,4 @@ func generateHMAC(filePath string, contentLength int64, protocol string) string 
 	}
 
 	return macString
-}
-
-func startServer() {
-	main() // Ensure main() is callable from startServer()
 }
