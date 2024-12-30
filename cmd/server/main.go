@@ -585,12 +585,22 @@ func main() {
 		log.Fatalf("Invalid IdleTimeout: %v", err)
 	}
 
+	// Log the BindIP from configuration
+	log.Infof("Server BindIP: %s", conf.Server.BindIP)
+
+	// Construct the listen address
 	listenAddress := conf.Server.BindIP + ":" + conf.Server.ListenPort
+
+	// Check if the IP is IPv6 and enclose it in brackets if necessary
 	if net.ParseIP(conf.Server.BindIP) != nil && strings.Contains(conf.Server.BindIP, ":") {
 		// Remove existing brackets to prevent duplication
 		cleanedIP := strings.Trim(conf.Server.BindIP, "[]")
 		listenAddress = "[" + cleanedIP + "]:" + conf.Server.ListenPort
 	}
+
+	// Log the constructed listen address
+	log.Infof("Listen address: %s", listenAddress)
+
 	server := &http.Server{
 		Addr:           listenAddress,
 		Handler:        router,

@@ -518,25 +518,38 @@ Access the metrics at `http://localhost:9090/metrics` (assuming default `metrics
 
 ## Troubleshooting
 
-- **Cannot Connect to Redis:**
-  - Ensure Redis is running and accessible at the address specified in `redisaddr`.
-  - Verify that the `redispassword` is correct if authentication is enabled.
-  
-- **ClamAV Scanning Fails:**
-  - Check if ClamAV is installed and the `clamavsocket` path is correct.
-  - Ensure that the ClamAV daemon (`clamd`) is running.
+### IP Binding Issues
 
-- **Insufficient Disk Space:**
-  - Monitor the disk space and adjust `minfreebytes` in the configuration as needed.
-  - Enable file TTL and cleanup to automatically remove old files.
+If the server is not listening on the specified `bind_ip`, follow these steps:
 
-- **Metrics Not Available:**
-  - Ensure that `metricsenabled` is set to `true` and the server is running without errors.
-  - Check if the specified `metricsport` is not blocked by a firewall.
+1. **Verify Configuration:**
+   Ensure that `bind_ip` is correctly set in `config.toml`:
+   ```toml
+   [server]
+   bind_ip = "127.0.0.1"
+   listenport = "8080"
+   ```
 
-- **Thumbnail Generation Not Working:**
-  - Verify that the `[thumbnails].enabled` is set to `true` and the `directory` exists with appropriate permissions.
-  - Check the logs for any errors related to image processing.
+2. **Check Logs:**
+   The server now logs the `bind_ip` and the constructed listen address. Check the logs to confirm:
+   ```
+   INFO[0000] Server BindIP: 127.0.0.1
+   INFO[0000] Listen address: 127.0.0.1:8080
+   ```
+
+3. **Ensure No Conflicting Processes:**
+   Make sure no other process is using the specified port:
+   ```sh
+   netstat -tuln | grep 8080
+   ```
+
+4. **Firewall Settings:**
+   Verify that the firewall allows traffic on the specified port.
+
+5. **Restart the Server:**
+   After making changes, restart the server to apply the new configuration.
+
+By following these steps, you can identify and resolve issues related to IP binding in the **HMAC File Server**.
 
 ---
 
