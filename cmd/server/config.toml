@@ -58,7 +58,7 @@ maxversions = 1
 [uploads]
 resumableuploadsenabled = true
 chunkeduploadsenabled = true
-chunksize = "8192"
+chunksize = "32MB"
 allowedextensions = [
     ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
     ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
@@ -69,7 +69,7 @@ allowedextensions = [
 [downloads]
 resumabledownloadsenabled = true
 chunkeddownloadsenabled = true
-chunksize = "8192"
+chunksize = "32MB"
 allowedextensions = [".jpg", ".png"] # Restricts downloads to specific types
 
 [clamav]
