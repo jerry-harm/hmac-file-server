@@ -1,7 +1,7 @@
 [server]
 listenport = "8080"
 unixsocket = false
-storagepath = "./uploads"
+storagepath = "./temp"
 metricsenabled = true
 metricsport = "9090"
 filettl = "8760h"
