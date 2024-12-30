@@ -1,61 +1,64 @@
 [server]
-bind_ip = "127.0.0.1"
 listenport = "8080"
 unixsocket = false
-storagepath = "/mnt/nfs_vol01/hmac-file-server/data/"
+storagepath = "./uploads"
 metricsenabled = true
 metricsport = "9090"
-deduplicationenabled = true
-minfreebytes = "5GB"
-filettl = "2y"
-filettlenabled = true
+filettl = "8760h"
+minfreebytes = "100MB"
 autoadjustworkers = true
-networkevents = false
-pidfilepath = "./hmac-file-server.pid"
+networkevents = true
+temppath = "/tmp/hmac-file-server"
+loggingjson = false
+pidfilepath = "/var/run/hmacfileserver.pid"
+cleanuponexit = true
 precaching = true
-#globalextensions = ["*"]
-
-[deduplication]
-enabled = true
-directory = "/mnt/nfs_vol01/hmac-file-server/deduplication/"
+filettlenabled = true
+deduplicationenabled = true
+globalextensions = ["*"] # Allows all file types globally
+bind_ip = "0.0.0.0" # New option: Specify the IP address to bind to (IPv4 or IPv6)
 
 [logging]
-level = "debug"
+level = "info"
 file = "/var/log/hmac-file-server.log"
 max_size = 100
 max_backups = 7
 max_age = 30
 compress = true
 
+[deduplication]
+enabled = false
+directory = "./deduplication"
+
 [thumbnails]
-enabled = true
-directory = "/mnt/nfs_vol01/hmac-file-server/thumbnails/"
+enabled = false
+directory = "./thumbnails"
 size = "200x200"
-thumbnailintervalscan = "1h"
-concurrency = 5
+thumbnailintervalscan = "24h"
 
 [iso]
 enabled = false
-size = "1TB"
-mountpoint = "/mnt/nfs_vol01/hmac-file-server/iso/"
+size = "1GB"
+mountpoint = "/mnt/iso"
 charset = "utf-8"
+containerfile = "/path/to/iso/container.iso"
 
 [timeouts]
-readtimeout = "3600s"
-writetimeout = "3600s"
-idletimeout = "3600s"
+readtimeout = "4800s"
+writetimeout = "4800s"
+idletimeout = "4800s"
 
 [security]
-secret = "hmac-file-server-is-the-win"
+secret = "changeme"
 
 [versioning]
 enableversioning = false
 maxversions = 1
 
 [uploads]
-resumableuploadsenabled = false
+resumableuploadsenabled = true
 chunkeduploadsenabled = true
-chunksize = "32MB"
+chunksize = "8192"
 allowedextensions = [
     ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
     ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
@@ -64,34 +67,39 @@ allowedextensions = [
 ]
 
 [downloads]
-chunkeddownloadsenabled = false
-chunksize = "32MB"
-allowedextensions = [
-    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
-    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
-    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
-    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
-]
+resumabledownloadsenabled = true
+chunkeddownloadsenabled = true
+chunksize = "8192"
+allowedextensions = [".jpg", ".png"] # Restricts downloads to specific types
 
 [clamav]
 clamavenabled = true
 clamavsocket = "/var/run/clamav/clamd.ctl"
-numscanworkers = 4
-scanfileextensions = [
-    ".exe", ".dll", ".bin", ".com", ".bat",
-    ".sh", ".php", ".js"
-]
+numscanworkers = 2
+scanfileextensions = [".exe", ".dll", ".pdf"]
 
 [redis]
 redisenabled = true
-redisdbindex = 0
 redisaddr = "localhost:6379"
 redispassword = ""
+redisdbindex = 0
 redishealthcheckinterval = "120s"
 
 [workers]
 numworkers = 4
-uploadqueuesize = 5000
+uploadqueuesize = 50
+max_concurrent_operations = 10
+network_event_buffer = 100
+performance_monitor_interval = "5m"
+metrics_update_interval = "10s"
 
 [file]
 filerevision = 1
+
+[precache]
+redisEnabled = true
+redisAddr = "localhost:6379"
+staticIndexFile = "./static_index.json"
+
+[build]
+version = "v2.4"
