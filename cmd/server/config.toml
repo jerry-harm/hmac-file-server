@@ -20,7 +20,7 @@ bind_ip = "127.0.0.1"
 
 [logging]
 level = "info"
-file = "/var/log/hmac-file-server.log"
+file = "./hmac-file-server.log"
 max_size = 100
 max_backups = 7
 max_age = 30
