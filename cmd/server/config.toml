@@ -1,5 +1,5 @@
 [server]
-#bind_ip = "127.0.0.1"
+bind_ip = "127.0.0.1"
 listenport = "8080"
 unixsocket = false
 storagepath = "./uploads"
@@ -13,7 +13,7 @@ temppath = "./tmp"
 loggingjson = false
 pidfilepath = "./hmacfileserver.pid"
 cleanuponexit = true
-precaching = true
+precaching = false
 filettlenabled = true
 deduplicationenabled = true
 globalextensions = ["*"]
@@ -100,7 +100,7 @@ filerevision = 1
 [precache]
 redisEnabled = true
 redisAddr = "localhost:6379"
-#staticIndexFile = "./static_index.json"
+staticIndexFile = "./static_index.json"
 
 [build]
 version = "v2.4"
