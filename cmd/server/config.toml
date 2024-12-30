@@ -15,8 +15,8 @@ cleanuponexit = true
 precaching = true
 filettlenabled = true
 deduplicationenabled = true
-globalextensions = ["*"] # Allows all file types globally
-bind_ip = "0.0.0.0" # New option: Specify the IP address to bind to (IPv4 or IPv6)
+globalextensions = ["*"]
+bind_ip = "0.0.0.0"
 
 [logging]
 level = "info"
