@@ -1,7 +1,7 @@
 [server]
 listenport = "8080"
 unixsocket = false
-storagepath = "./temp"
+storagepath = "cmd/server/uploads"
 metricsenabled = true
 metricsport = "9090"
 filettl = "8760h"
@@ -28,7 +28,7 @@ compress = true
 
 [deduplication]
 enabled = false
-directory = "./deduplication"
+directory = "cmd/server/deduplication"
 
 [thumbnails]
 enabled = false
