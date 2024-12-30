@@ -587,8 +587,9 @@ func main() {
 
 	listenAddress := conf.Server.BindIP + ":" + conf.Server.ListenPort
 	if net.ParseIP(conf.Server.BindIP) != nil && strings.Contains(conf.Server.BindIP, ":") {
-		// Enclose IPv6 in brackets
-		listenAddress = "[" + conf.Server.BindIP + "]:" + conf.Server.ListenPort
+		// Remove existing brackets to prevent duplication
+		cleanedIP := strings.Trim(conf.Server.BindIP, "[]")
+		listenAddress = "[" + cleanedIP + "]:" + conf.Server.ListenPort
 	}
 	server := &http.Server{
 		Addr:           listenAddress,
