@@ -1,5 +1,5 @@
 [server]
-bind_ip = "0.0.0.0"
+bind_ip = "[::]"
 listenport = "8080"
 unixsocket = false
 storagepath = "./uploads"
