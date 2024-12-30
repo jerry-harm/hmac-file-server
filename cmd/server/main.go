@@ -648,8 +648,9 @@ func main() {
 			log.Fatalf("Server failed: %v", err)
 		}
 	} else {
+		log.Infof("Server is listening on %s", listenAddress) // Added log statement
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			log.Fatalf("Could not listen on %s: %v\n", listenAddress, err)
 		}
 	}
 
