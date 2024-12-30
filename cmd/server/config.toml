@@ -50,7 +50,7 @@ writetimeout = "4800s"
 idletimeout = "4800s"
 
 [security]
-secret = "changeme"
+secret = "we-can-not-solve-any-math"
 
 [versioning]
 enableversioning = false
