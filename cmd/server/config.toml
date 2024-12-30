@@ -18,7 +18,6 @@ filettlenabled = true
 deduplicationenabled = true
 globalextensions = ["*"]
 
-
 [logging]
 level = "info"
 file = "./hmac-file-server.log"
