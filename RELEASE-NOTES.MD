@@ -90,7 +90,7 @@ The `precaching` feature allows the server to pre-cache storage paths for faster
 
 ### Thumbnail Support
 
-- New configuration option `thumbnail` in `[server]` to enable or disable generating image thumbnails.
+- New configuration options in `[thumbnails]` to enable or disable generating image thumbnails, set the thumbnail size, and configure concurrency for thumbnail generation.
 
 ---
 
@@ -115,6 +115,8 @@ The `precaching` feature allows the server to pre-cache storage paths for faster
   enabled = true
   directory = "/mnt/hmac-storage/thumbnails/"
   size = "200x200"
+  concurrency = 5
+  thumbnailintervalscan = "24h"
   ```
 
 ---
@@ -137,6 +139,7 @@ AutoAdjustWorkers = true  # Enable auto-adjustment for worker scaling
 NetworkEvents = false     # Disable logging and tracking of network-related events
 PIDFilePath = "./hmac_file_server.pid"  # Path to PID file
 Precaching = true  # Enable pre-caching of storage paths
+TempPath = "/tmp/uploads"  # Configurable temporary upload directory
 
 [deduplication]
 enabled = true
@@ -152,6 +155,8 @@ Charset = "utf-8"
 enabled = true
 directory = "/mnt/nfs_vol01/hmac-file-server/thumbnails/"
 size = "200x200"
+concurrency = 5
+thumbnailintervalscan = "24h"
 
 [iso]
 enabled = false
@@ -201,6 +206,14 @@ UploadQueueSize = 5000
 
 [file]
 FileRevision = 1  # Revision number for file handling
+
+[logging]
+level = "info"
+file = "/var/log/hmac-file-server.log"
+max_size = 100
+max_backups = 7
+max_age = 30
+compress = true
 ```
 
 ---
@@ -240,3 +253,66 @@ curl -X PUT -H "Authorization: Bearer <HMAC-TOKEN>" -F "file=@example.txt" http:
 ```
 
 Replace `<HMAC-TOKEN>` with a valid HMAC signature
+````
+
+## [2.3.0] - 2024-12-28
+
+### Changed
+- **Server:** Replaced the hardcoded temporary upload directory `/tmp/uploads` with a configurable `TempPath` parameter in `config.toml`. Ensure to set `tempPath` in your configuration file accordingly.
+
+#### Version 2.2.1 - 2024-12-27
+
+- **Enhancements:**
+  - Added detailed logging for file extensions and MIME types during file uploads to assist in diagnosing unsupported file type issues.
+  
+- **Configuration:**
+  - Updated `config.toml` to ensure necessary file extensions are allowed for uploads.
+
+#### Version 2.2.2 - 2024-12-27
+
+- **Bug Fixes:**
+  - Resolved issue where temporary `.tmp` files caused "Unsupported file type" warnings by adjusting MIME type detection to use the final file extension.
+  
+- **Enhancements:**
+  - Improved logging for file extension and MIME type during uploads.
+
+### Summary of Changes
+
+1. **Added Log Message Limitation:**
+   - Implemented `logMessages = logMessages[1:]` to remove the oldest log message once the `logMessages` slice exceeds 1000 entries, preventing unbounded memory growth.
+
+---
+
+### Additional Files
+
+2024-12-30 endpoint /thumbnails
+
+No changes are required for the other files (`RELEASE-NOTES.MD`, `README.MD`, `config.toml`).
+
+## [2.3.1] - 2025-01-15
+- Added metrics for deduplication and ISO container operations to improve observability.
+- Additional detail: Thumbnails now support a "concurrency" configuration parameter for parallel image processing.
+
+## [2.4.0] - 2025-02-20
+
+### Added
+- **Pre-Caching Support:** Introduced pre-caching of storage paths to improve access speeds.
+- **ISO Container Management:** Added functionality to create and mount ISO containers for specialized storage needs.
+- **Thumbnail Concurrency Parameter:** Users can now set the level of concurrency for thumbnail generation to optimize performance.
+
+### Changed
+- **Configuration Options:** Updated `config.toml` to include new settings for pre-caching and ISO management.
+- **Documentation:** Enhanced `README.MD` with detailed instructions on new features and best practices.
+
+### Fixed
+- **Bug Fixes:** Resolved minor issues related to file versioning and deduplication processes.
+
+### Summary of Changes
+1. **Pre-Caching:** Improved performance by allowing the server to pre-cache frequently accessed storage paths.
+2. **ISO Management:** Enabled the creation and mounting of ISO containers for better filesystem management.
+3. **Thumbnail Generation:** Added a concurrency setting to allow parallel processing of image thumbnails, speeding up the generation process.
+
+## [2.4.1] - 2025-03-10
+
+### Changed
+- **Configuration:** Updated `globalextensions` in `config.toml` to `["*"]`, allowing all file types globally for uploads. This change simplifies the configuration by removing the need to specify individual file extensions.

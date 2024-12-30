@@ -1,4 +1,5 @@
 # HMAC File Server
+A secure file server with HMAC authentication and configurable features.
 
 **HMAC File Server** is a secure, scalable, and feature-rich file server with advanced capabilities like HMAC authentication, resumable uploads, chunked uploads, file versioning, deduplication, optional ClamAV scanning for file integrity and security, and image thumbnail generation. This server is built with extensibility and operational monitoring in mind, including Prometheus metrics support and Redis integration.
 
@@ -53,6 +54,17 @@ cd hmac-file-server
 go build -o hmac-file-server main.go
 ```
 
+#### Build for `arm64`
+```bash
+cd /path/to/hmac-file-server
+GOOS=linux GOARCH=arm64 go build -o ~/Temp/hmac-file-server-2.3-stable_arm64 main.go
+```
+#### Build for `amd64`
+```bash
+cd /path/to/hmac-file-server
+GOOS=linux GOARCH=amd64 go build -o ~/Temp/hmac-file-server-2.3-stable_amd64 main.go
+```
+
 ---
 
 ## Configuration
@@ -100,6 +112,7 @@ autoadjustworkers = true # Automatically adjust worker threads based on load
 networkevents = false    # Enable detailed network event logging
 pidfilepath = "./hmac-file-server.pid" # Path to PID file
 precaching = true        # Pre-cache file structures on startup
+tempPath = "/tmp/hmac-file-server"  # Path for temporary file uploads
 
 # Deduplication settings
 [deduplication]
@@ -112,6 +125,7 @@ enabled = true
 directory = "/path/to/hmac-file-server/thumbnails/"  # Directory for storing thumbnails
 size = "200x200"  # Thumbnail dimensions
 thumbnailintervalscan = "1h"  # Interval for scheduled thumbnail generation
+concurrency = 5  # Number of concurrent thumbnail generation tasks
 
 # ISO settings
 [iso]
@@ -140,12 +154,7 @@ maxversions = 1  # Number of file versions to retain
 resumableuploadsenabled = false
 chunkeduploadsenabled = true
 chunksize = "32MB"  # Chunk size for uploads
-allowedextensions = [
-    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
-    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
-    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
-    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
-]
+allowedextensions = ["*"]  # All file types are allowed for uploads
 
 # Downloads settings
 [downloads]
@@ -179,7 +188,35 @@ uploadqueuesize = 5000
 # File settings
 [file]
 filerevision = 1  # Internal revision number for file handling logic
+
+# Logging settings
+[logging]
+level = "info"
+file = "/var/log/hmac-file-server.log"
+max_size = 100
+max_backups = 7
+max_age = 30
+compress = true
 ```
+
+---
+
+## Configuration Verification
+
+The application ensures that all configuration parameters defined in `config.toml` are correctly implemented and operational. During startup, the server performs the following verification steps:
+
+1. **Configuration Parsing:**
+   - Parses the `config.toml` file into the application's `Config` struct.
+   
+2. **Validation:**
+   - Checks that all required configuration parameters are set.
+   - Validates the correctness of configuration values (e.g., proper duration formats, non-empty directories).
+   
+3. **Service Initialization:**
+   - Initializes services like Redis and ClamAV based on the configuration.
+   - Ensures that conditional services (e.g., Thumbnails, ISO) are only started if enabled in the configuration.
+
+If any configuration parameter is missing or invalid, the server will log an error and terminate to prevent running with incorrect settings.
 
 ---
 
@@ -193,273 +230,21 @@ Run the server with a configuration file:
 ./hmac-file-server -config ./config.toml
 ```
 
+Ensure that the `config.toml` is correctly set up before running the server.
+
 ---
 
 ### Metrics Server
 
 If `metricsenabled` is set to `true`, the Prometheus metrics server will be available on the port specified in `metricsport` (e.g., `http://localhost:9090/metrics`).
 
----
-
-## Testing
-
-To run the server locally for development:
-
-```bash
-go run main.go -config ./config.toml
-```
-
-Use tools like **cURL** or **Postman** to test file uploads and downloads.
-
-### Example File Upload with HMAC Token
-
-```bash
-curl -X PUT -H "Authorization: Bearer <HMAC-TOKEN>" -F "file=@example.txt" http://localhost:8080/uploads/example.txt
-```
-
-Replace `<HMAC-TOKEN>` with a valid HMAC signature generated using the configured `secret`.
+Additional metrics for deduplication and ISO container operations are now available.
 
 ---
 
-## Monitoring
+## Health Checks
 
-Prometheus metrics include:
-
-- **File Operations:**
-  - File upload/download durations
-  - Uploaded/downloaded file sizes
-  - Total number of uploads/downloads
-  - Total number of upload/download errors
-
-- **System Metrics:**
-  - Memory usage
-  - CPU usage
-  - Number of goroutines
-  - Active connections
-
-- **HTTP Requests:**
-  - Total HTTP requests broken down by method and path
-
-Access the metrics at `http://localhost:9090/metrics` (assuming default `metricsport`).
-
----
-
-## Additional Features
-
-- **Deduplication:** Automatically remove duplicate files based on SHA256 hashing to save storage space.
-- **Versioning:** Store multiple versions of files and retain a configurable number of versions.
-- **ClamAV Integration:** Scan uploaded files for viruses using ClamAV to ensure file integrity and security.
-- **Redis Caching:** Utilize Redis for caching file metadata to improve access times and performance.
-- **Auto-Adjust Worker Scaling:** Optimize the number of workers dynamically based on system resources to maintain optimal performance.
-- **Precaching:** Pre-cache file structures on startup to reduce access times for frequently accessed files.
-- **Thumbnail Creation:** Generate image thumbnails for uploaded files to provide quick previews.
-
----
-
-### Overview of Other Projects (xep0363)
-
-| Feature/Project             | HMAC FS | mod_http_upload_ext | xmpp-http-upload (horazont) | Prosody Filer | ngx_http_upload | xmpp-http-upload (nyovaya) |
-|-----------------------------|---------|----------------------|-----------------------------|---------------|------------------|----------------------------|
-| **Language**                | Go      | PHP                  | Python                      | Go            | C (Nginx)         | Python                     |
-| **Environment**             | Standalone | Prosody module       | Standalone                 | Standalone    | Nginx            | Standalone                 |
-| **XMPP**                    | No      | Yes                  | Yes                         | Yes           | No               | Yes                        |
-| **External Storage**        | Yes     | No                   | Possible via plugins        | No            | No               | Yes                        |
-| **Authentication / Security** | HMAC    | Token-based          | Token-based                 | None          | Basic / None      | Token-based                |
-
----
-
-## Build & Run
-
-1. **Clone the Repository:**
-
-    ```bash
-    git clone https://github.com/PlusOne/hmac-file-server.git
-    cd hmac-file-server
-    ```
-
-2. **Build the Server:**
-
-    ```bash
-    go build -o hmac-file-server main.go
-    ```
-
-3. **Run the Server:**
-
-    ```bash
-    ./hmac-file-server -config ./config.toml
-    ```
-
----
-
-## Configuration Details
-
-### [server]
-
-- **listenport:** TCP port for incoming requests (e.g., `"8080"`).
-- **unixsocket:** Use a Unix domain socket (`true`/`false`) instead of TCP.
-- **storagepath:** Local directory to store uploaded files.
-- **loglevel:** Logging verbosity (`"debug"`, `"info"`, `"warn"`, `"error"`).
-- **logfile:** Path to a file for logging; empty uses stdout.
-- **metricsenabled:** Enable or disable Prometheus metrics endpoint.
-- **metricsport:** Port for metrics (e.g., `"9090"`).
-- **deduplicationenabled:** Enable or disable file deduplication.
-- **minfreebytes:** Minimum free space required on disk (e.g., `"5GB"`).
-- **filettl:** Default time-to-live for files (e.g., `"2Y"` for 2 years).
-- **filettlenabled:** Enable or disable TTL checks and cleanup.
-- **autoadjustworkers:** Dynamically adjust worker threads based on load.
-- **networkevents:** Enable detailed network event logging (may be verbose).
-- **pidfilepath:** Where the server writes its PID file.
-- **precaching:** Pre-cache file structures on startup for faster access.
-
-### [deduplication]
-
-- **enabled:** Turn file deduplication on or off.
-- **directory:** Path to a deduplication metadata store.
-
-### [thumbnails]
-
-- **enabled:** Generate thumbnails for uploaded images.
-- **directory:** Where thumbnail files are stored.
-- **size:** Dimensions for generated thumbnails (e.g., `"200x200"`).
-- **thumbnailintervalscan:** Interval for scheduled thumbnail generation (e.g., `"1h"`).
-
-> **Note:** The configuration key `thumbnailintervalscan` is used in the code. Ensure consistency in `config.toml` by using this key instead of `scanInterval`.
-
-### [iso]
-
-*(Only one `[iso]` block should be active if needed)*
-
-- **enabled:** Mount an ISO-based filesystem (for specialized use).
-- **size:** Maximum allowed size (e.g., `"1TB"`).
-- **mountpoint:** Path to mount the ISO.
-- **charset:** Filesystem character set encoding (e.g., `"utf-8"`).
-
-### [timeouts]
-
-- **readtimeout:** Maximum time to read a request (e.g., `"3600s"` for 1 hour).
-- **writetimeout:** Maximum time to write a response (e.g., `"3600s"` for 1 hour).
-- **idletimeout:** Maximum keep-alive time for idle connections (e.g., `"3600s"` for 1 hour).
-
-### [security]
-
-- **secret:** HMAC shared secret key for signing requests and operations.
-  > **Warning:** Change this to a secure, random string in production environments to ensure the security of HMAC operations.
-
-### [versioning]
-
-- **enableversioning:** Keep multiple versions of the same file (`true`/`false`).
-- **maxversions:** How many versions of a file to retain (e.g., `1`).
-
-### [uploads]
-
-- **resumableuploadsenabled:** Support for chunked/resumable file uploads (`true`/`false`).
-- **chunkeduploadsenabled:** Enable chunked uploads specifically (`true`/`false`).
-- **chunksize:** Default chunk size for chunked uploads (e.g., `"32MB"`).
-- **allowedextensions:** Restrict which file types are allowed.
-  
-  ```toml
-  allowedextensions = [
-      ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
-      ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
-      ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
-      ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
-  ]
-  ```
-
-### [downloads]
-
-- **resumabledownloadsenabled:** Support for chunked/resumable downloads (`true`/`false`).
-- **chunkeddownloadsenabled:** Enable chunk-by-chunk downloading (`true`/`false`).
-- **chunksize:** Default chunk size for chunked downloads (e.g., `"32MB"`).
-
-> **Note:** The `allowedextensions` key is **not** part of the `[downloads]` configuration based on the provided code. Ensure that this key is omitted to prevent configuration errors.
-
-### [clamav]
-
-- **clamavenabled:** Integrate ClamAV for virus scanning (`true`/`false`).
-- **clamavsocket:** Path to ClamAV socket (`.ctl` file, e.g., `"/path/to/clamav/clamd.ctl"`).
-- **numscanworkers:** Number of concurrent scan workers (e.g., `4`).
-- **scanfileextensions:** Extensions to scan for viruses.
-  
-  ```toml
-  scanfileextensions = [
-      ".exe", ".dll", ".bin", ".com", ".bat",
-      ".sh", ".php", ".js"
-  ]
-  ```
-
-### [redis]
-
-- **redisenabled:** Use Redis for caching or session tracking (`true`/`false`).
-- **redisaddr:** Address of the Redis server (e.g., `"localhost:6379"`).
-- **redispassword:** Redis authentication password, if needed.
-- **redisdbindex:** Redis database index (integer, e.g., `0`).
-- **redishealthcheckinterval:** Interval to check Redis connectivity (e.g., `"120s"`).
-
-### [workers]
-
-- **numworkers:** Number of worker threads for handling requests (e.g., `4`).
-- **uploadqueuesize:** Maximum queue length for incoming uploads (e.g., `5000`).
-
-### [file]
-
-- **filerevision:** Internal revision number for file handling logic (e.g., `1`).
-
----
-
-### **Important Notes**
-
-- **Secret Key:**  
-  - **Change the `secret` immediately** to a unique, strong string for production environments to ensure the security of HMAC operations.
-
-- **ISO Configuration:**  
-  - **Only use one `[iso]` block** in your `config.toml` to avoid conflicts. If ISO mounting is not required, ensure that `[iso].enabled` is set to `false`.
-
-- **Configuration Consistency:**  
-  - **Ensure all configuration keys in `config.toml` match those expected in the code.** For example, in the `[thumbnails]` section, use `thumbnailintervalscan` instead of `scanInterval` to align with the code.
-
-- **Directory Paths:**  
-  - Replace all placeholder paths (e.g., `"/path/to/hmac-file-server/data/"`) with actual paths relevant to your server environment.
-  - Ensure that directories specified in the configuration exist and have appropriate permissions.
-
-- **Allowed Extensions:**  
-  - The `[uploads].allowedextensions` restricts the types of files that can be uploaded. Adjust this list based on your security requirements.
-
-- **ClamAV Integration:**  
-  - Ensure that ClamAV is installed and properly configured on your system if `[clamav].clamavenabled` is set to `true`.
-  - The `clamavsocket` should point to the correct ClamAV socket file.
-
-- **Redis Usage:**  
-  - If Redis is enabled (`[redis].redisenabled = true`), ensure that the Redis server is running and accessible at the specified `redisaddr`.
-
-- **Resource Allocation:**  
-  - Adjust `numworkers` and `uploadqueuesize` in the `[workers]` section based on your server's hardware capabilities and expected traffic.
-  - The `autoadjustworkers` option can help dynamically manage worker threads based on system resources, but monitor its behavior to ensure optimal performance.
-
-- **Metrics Monitoring:**  
-  - Prometheus metrics are enabled by default. Access them at the specified `metricsport` (e.g., `http://localhost:9090/metrics`).
-  - Utilize these metrics to monitor server performance and identify potential bottlenecks.
-
-- **File TTL and Cleanup:**  
-  - The `[server].filettl` and `[server].filettlenabled` settings manage the automatic deletion of old files. Ensure these are configured according to your data retention policies.
-
----
-
-## Running the Server
-
-### Basic Usage
-
-Run the server with a configuration file:
-
-```bash
-./hmac-file-server -config ./config.toml
-```
-
----
-
-### Metrics Server
-
-If `metricsenabled` is set to `true`, the Prometheus metrics server will be available on the port specified in `metricsport` (e.g., `http://localhost:9090/metrics`).
+The server includes built-in health checks to verify that all configured services are operational. Logs will provide detailed information about the status of each service and any issues encountered during startup.
 
 ---
 
