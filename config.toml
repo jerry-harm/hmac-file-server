@@ -27,17 +27,17 @@ max_age = 30
 compress = true
 
 [deduplication]
-enabled = true
+enabled = false
 directory = "./deduplication"
 
 [thumbnails]
-enabled = true
+enabled = false
 directory = "./thumbnails"
 size = "200x200"
 thumbnailintervalscan = "24h"
 
 [iso]
-enabled = true
+enabled = false
 size = "1GB"
 mountpoint = "/mnt/iso"
 charset = "utf-8"
