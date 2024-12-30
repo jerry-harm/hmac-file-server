@@ -100,7 +100,7 @@ filerevision = 1
 [precache]
 redisEnabled = true
 redisAddr = "localhost:6379"
-staticIndexFile = "./static_index.json"
+#staticIndexFile = "./static_index.json"
 
 [build]
 version = "v2.4"
