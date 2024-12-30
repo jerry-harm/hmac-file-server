@@ -1,4 +1,5 @@
 [server]
+bind_ip = "127.0.0.1"
 listenport = "8080"
 unixsocket = false
 storagepath = "./uploads"
@@ -8,7 +9,7 @@ filettl = "8760h"
 minfreebytes = "100MB"
 autoadjustworkers = true
 networkevents = true
-temppath = "/tmp/hmac-file-server"
+temppath = "./tmp"
 loggingjson = false
 pidfilepath = "./hmacfileserver.pid"
 cleanuponexit = true
@@ -16,7 +17,7 @@ precaching = true
 filettlenabled = true
 deduplicationenabled = true
 globalextensions = ["*"]
-bind_ip = "0.0.0.0"
+
 
 [logging]
 level = "info"
