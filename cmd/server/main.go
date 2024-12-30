@@ -8,7 +8,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"           // Added for JSON handling
 	"flag"
 	"fmt"
 
@@ -34,7 +33,6 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
-	"github.com/fsnotify/fsnotify" // Added for directory monitoring
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
@@ -138,7 +136,6 @@ type ServerConfig struct {
 	DeduplicationEnabled bool          `mapstructure:"deduplicationenabled"`
 	Logging              LoggingConfig `mapstructure:"logging"`
 	GlobalExtensions     []string      `mapstructure:"globalextensions"`
-	BindIP               string        `mapstructure:"bind_ip"`
 }
 
 type DeduplicationConfig struct {
@@ -208,10 +205,6 @@ type RedisConfig struct {
 type WorkersConfig struct {
 	NumWorkers      int `mapstructure:"numworkers"`
 	UploadQueueSize int `mapstructure:"uploadqueuesize"`
-	MaxConcurrentOperations   int    `mapstructure:"max_concurrent_operations"`
-	NetworkEventBuffer        int    `mapstructure:"network_event_buffer"`
-	PerformanceMonitorInterval string `mapstructure:"performance_monitor_interval"`
-	MetricsUpdateInterval     string `mapstructure:"metrics_update_interval"`
 }
 
 type FileConfig struct {
@@ -222,14 +215,6 @@ type BuildConfig struct {
 	Version string `mapstructure:"version"`
 }
 
-// Step 1: Define PrecacheConfig
-type PrecacheConfig struct {
-	RedisEnabled    bool   `mapstructure:"redisEnabled"`
-	RedisAddr       string `mapstructure:"redisAddr"`
-	StaticIndexFile string `mapstructure:"staticIndexFile"`
-}
-
-// Step 2: Update Config struct to include Precache
 type Config struct {
 	Server        ServerConfig        `mapstructure:"server"`
 	Logging       LoggingConfig       `mapstructure:"logging"`
@@ -246,7 +231,6 @@ type Config struct {
 	Workers       WorkersConfig       `mapstructure:"workers"`
 	File          FileConfig          `mapstructure:"file"`
 	Build         BuildConfig         `mapstructure:"build"`
-	Precache      PrecacheConfig      `mapstructure:"precache"`
 }
 
 type UploadTask struct {
@@ -267,9 +251,7 @@ type NetworkEvent struct {
 
 // Add a new field to store the creation date of files
 type FileMetadata struct {
-	CreationDate time.Time
-	FilePath     string
-	FileInfo     os.FileInfo
+	CreationDate time.Time `json:"creationDate"`
 }
 
 var (
@@ -300,7 +282,7 @@ var (
 	downloadSizeBytes   prometheus.Histogram
 
 	scanQueue   chan ScanTask
-	ScanWorkers = 0
+	ScanWorkers = 5
 
 	thumbnailProcessedTotal   prometheus.Counter
 	thumbnailProcessingErrors prometheus.Counter
@@ -320,7 +302,9 @@ var bufferPool = sync.Pool{
 	},
 }
 
-var semaphore chan struct{}
+const maxConcurrentOperations = 10
+
+var semaphore = make(chan struct{}, maxConcurrentOperations)
 
 var logMessages []string
 var logMu sync.Mutex
@@ -438,7 +422,7 @@ func main() {
 
 	// Set log level based on configuration
 	level, err := logrus.ParseLevel(conf.Logging.Level)
-	if (err != nil) {
+	if err != nil {
 		log.Warnf("Invalid log level '%s', defaulting to 'info'", conf.Logging.Level)
 		level = logrus.InfoLevel
 	}
@@ -527,8 +511,7 @@ func main() {
 
 	uploadQueue = make(chan UploadTask, conf.Workers.UploadQueueSize)
 	scanQueue = make(chan ScanTask, conf.Workers.UploadQueueSize)
-	networkEvents = make(chan NetworkEvent, conf.Workers.NetworkEventBuffer)
-	semaphore = make(chan struct{}, conf.Workers.MaxConcurrentOperations)
+	networkEvents = make(chan NetworkEvent, 100)
 	log.Info("Upload, scan, and network event channels initialized.")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -585,24 +568,8 @@ func main() {
 		log.Fatalf("Invalid IdleTimeout: %v", err)
 	}
 
-	// Log the BindIP from configuration
-	log.Infof("Server BindIP: %s", conf.Server.BindIP)
-
-	// Construct the listen address
-	listenAddress := conf.Server.BindIP + ":" + conf.Server.ListenPort
-
-	// Check if the IP is IPv6 and enclose it in brackets if necessary
-	if net.ParseIP(conf.Server.BindIP) != nil && strings.Contains(conf.Server.BindIP, ":") {
-		// Remove existing brackets to prevent duplication
-		cleanedIP := strings.Trim(conf.Server.BindIP, "[]")
-		listenAddress = "[" + cleanedIP + "]:" + conf.Server.ListenPort
-	}
-
-	// Log the constructed listen address
-	log.Infof("Listen address: %s", listenAddress)
-
 	server := &http.Server{
-		Addr:           listenAddress,
+		Addr:           ":" + conf.Server.ListenPort,
 		Handler:        router,
 		ReadTimeout:    readTimeout,
 		WriteTimeout:   writeTimeout,
@@ -634,7 +601,7 @@ func main() {
 	versionString = conf.Build.Version
 	log.Infof("Running version: %s", versionString)
 
-	log.Infof("Starting HMAC file server %s on %s...", versionString, listenAddress)
+	log.Infof("Starting HMAC file server %s...", versionString)
 	if conf.Server.UnixSocket {
 		if err := os.RemoveAll(conf.Server.ListenPort); err != nil {
 			log.Fatalf("Failed to remove existing Unix socket: %v", err)
@@ -648,9 +615,8 @@ func main() {
 			log.Fatalf("Server failed: %v", err)
 		}
 	} else {
-		log.Infof("Server is listening on %s", listenAddress) // Added log statement
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Could not listen on %s: %v\n", listenAddress, err)
+			log.Fatalf("Server failed: %v", err)
 		}
 	}
 
@@ -697,7 +663,7 @@ func initializeWorkerSettings(server *ServerConfig, workers *WorkersConfig, clam
 }
 
 func monitorWorkerPerformance(ctx context.Context, server *ServerConfig, w *WorkersConfig, clamav *ClamAVConfig) {
-	ticker := time.NewTicker(parseDuration(conf.Workers.PerformanceMonitorInterval))
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -728,33 +694,9 @@ func readConfig(configFilename string, conf *Config) error {
 	if err := viper.Unmarshal(conf); err != nil {
 		return fmt.Errorf("unable to decode config into struct: %v", err)
 	}
-	if conf.Server.BindIP == "" {
-		conf.Server.BindIP = "0.0.0.0"
-		log.Warn("bind_ip not set. Defaulting to 0.0.0.0")
-	} else {
-		if net.ParseIP(conf.Server.BindIP) == nil {
-			return fmt.Errorf("invalid bind_ip '%s'", conf.Server.BindIP)
-		}
-	}
-
-	// If uploads.allowedextensions is empty, inherit from server.globalextensions
-	if len(conf.Uploads.AllowedExtensions) == 0 {
-		conf.Uploads.AllowedExtensions = conf.Server.GlobalExtensions
-	} else if len(conf.Uploads.AllowedExtensions) == 1 && conf.Uploads.AllowedExtensions[0] == "*" {
-		conf.Uploads.AllowedExtensions = nil // nil signals all extensions allowed
-	}
-
-	// If downloads.allowedextensions is empty, inherit from server.globalextensions
-	if len(conf.Downloads.AllowedExtensions) == 0 {
-		conf.Downloads.AllowedExtensions = conf.Server.GlobalExtensions
-	} else if len(conf.Downloads.AllowedExtensions) == 1 && conf.Downloads.AllowedExtensions[0] == "*" {
-		conf.Downloads.AllowedExtensions = nil // nil signals all extensions allowed
-	}
-
 	return nil
 }
 
-// Step 3: Set default values for precache in setDefaults
 func setDefaults() {
 	viper.SetDefault("server.listenport", "8080")
 	viper.SetDefault("server.unixsocket", false)
@@ -770,7 +712,6 @@ func setDefaults() {
 	viper.SetDefault("server.loggingjson", false)
 	viper.SetDefault("server.filettlenabled", true)
 	viper.SetDefault("server.deduplicationenabled", true)
-	viper.SetDefault("server.bind_ip", "0.0.0.0")
 
 	viper.SetDefault("timeouts.readtimeout", "4800s")
 	viper.SetDefault("timeouts.writetimeout", "4800s")
@@ -802,10 +743,6 @@ func setDefaults() {
 
 	viper.SetDefault("workers.numworkers", 4)
 	viper.SetDefault("workers.uploadqueuesize", 50)
-	viper.SetDefault("workers.max_concurrent_operations", 10)
-	viper.SetDefault("workers.network_event_buffer", 100)
-	viper.SetDefault("workers.performance_monitor_interval", "5m")
-	viper.SetDefault("workers.metrics_update_interval", "10s")
 
 	viper.SetDefault("deduplication.enabled", true)
 
@@ -823,11 +760,6 @@ func setDefaults() {
 	viper.SetDefault("logging.max_backups", 7)
 	viper.SetDefault("logging.max_age", 30)
 	viper.SetDefault("logging.compress", true)
-
-	// Step 3: Set default values for precache in setDefaults
-	viper.SetDefault("precache.redisEnabled", true)
-	viper.SetDefault("precache.redisAddr", "localhost:6379")
-	viper.SetDefault("precache.staticIndexFile", "./static_index.json")
 }
 
 func validateConfig(conf *Config) error {
@@ -885,7 +817,7 @@ func validateConfig(conf *Config) error {
 	// Validate Uploads Configuration
 	if conf.Uploads.ResumableUploadsEnabled {
 		if conf.Uploads.ChunkSize == "" {
-			return fmt.Errorf("uploads.chunksize must be set when resumable uploads are enabled")
+			return fmt.Errorf("uploads.chunkSize must be set when resumable uploads are enabled")
 		}
 		if len(conf.Uploads.AllowedExtensions) == 0 {
 			return fmt.Errorf("uploads.allowedextensions must have at least one extension")
@@ -898,18 +830,6 @@ func validateConfig(conf *Config) error {
 	}
 	if conf.Workers.UploadQueueSize <= 0 {
 		return fmt.Errorf("workers.uploadQueueSize must be greater than 0")
-	}
-	if conf.Workers.MaxConcurrentOperations <= 0 {
-		return fmt.Errorf("invalid max_concurrent_operations")
-	}
-	if conf.Workers.NetworkEventBuffer <= 0 {
-		return fmt.Errorf("invalid network_event_buffer")
-	}
-	if conf.Workers.PerformanceMonitorInterval == "" {
-		return fmt.Errorf("invalid performance_monitor_interval")
-	}
-	if conf.Workers.MetricsUpdateInterval == "" {
-		return fmt.Errorf("invalid metrics_update_interval")
 	}
 
 	// Validate ClamAV Configuration
@@ -1060,48 +980,6 @@ func validateConfig(conf *Config) error {
 	}
 
 	// Additional configuration validations can be added here
-
-	validateAllowedExtensions := func(exts []string) error {
-		if exts == nil {
-			return nil // All extensions allowed
-		}
-		for _, ext := range exts {
-			if ext != "*" && !strings.HasPrefix(ext, ".") {
-				return fmt.Errorf("invalid extension '%s' (must start with '.' or be '*')", ext)
-			}
-		}
-		return nil
-	}
-
-	// Validate global, uploads, and downloads extensions
-	if err := validateAllowedExtensions(conf.Server.GlobalExtensions); err != nil {
-		return err
-	}
-	if err := validateAllowedExtensions(conf.Uploads.AllowedExtensions); err != nil {
-		return err
-	}
-	if err := validateAllowedExtensions(conf.Downloads.AllowedExtensions); err != nil {
-		return err
-	}
-
-	// Prevent '*' mixed with other extensions
-	hasWildcard := func(exts []string) bool {
-		for _, e := range exts {
-			if e == "*" {
-				return true
-			}
-		}
-		return false
-	}
-	if len(conf.Server.GlobalExtensions) > 1 && hasWildcard(conf.Server.GlobalExtensions) {
-		return fmt.Errorf("server.globalextensions cannot mix '*' with other entries")
-	}
-	if len(conf.Uploads.AllowedExtensions) > 1 && hasWildcard(conf.Uploads.AllowedExtensions) {
-		return fmt.Errorf("uploads.allowedextensions cannot mix '*' with other entries")
-	}
-	if len(conf.Downloads.AllowedExtensions) > 1 && hasWildcard(conf.Downloads.AllowedExtensions) {
-		return fmt.Errorf("downloads.allowedextensions cannot mix '*' with other entries")
-	}
 
 	return nil
 }
@@ -1282,7 +1160,7 @@ func initMetrics() {
 }
 
 func updateSystemMetrics(ctx context.Context) {
-	ticker := time.NewTicker(parseDuration(conf.Workers.MetricsUpdateInterval))
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -1321,13 +1199,21 @@ func fileExists(filePath string) (bool, int64) {
 	return !fileInfo.IsDir(), fileInfo.Size()
 }
 
-func isExtensionAllowed(filename string, allowedExts []string) bool {
-	if allowedExts == nil {
-		return true // all allowed
+func isExtensionAllowed(filename string) bool {
+	var allowedExtensions []string
+	if len(conf.Server.GlobalExtensions) > 0 {
+		allowedExtensions = conf.Server.GlobalExtensions
+	} else {
+		allowedExtensions = append(conf.Uploads.AllowedExtensions, conf.Downloads.AllowedExtensions...)
 	}
+
+	if len(allowedExtensions) == 0 {
+		return true
+	}
+
 	ext := strings.ToLower(filepath.Ext(filename))
-	for _, allowed := range allowedExts {
-		if strings.EqualFold(ext, allowed) {
+	for _, allowedExt := range allowedExtensions {
+		if strings.ToLower(allowedExt) == ext {
 			return true
 		}
 	}
@@ -1619,14 +1505,8 @@ func initializeScanWorkerPool(ctx context.Context) {
 
 func setupRouter() http.Handler {
 	mux := http.NewServeMux()
-
-	// Thumbnails endpoint
-	mux.HandleFunc("/thumbnails", handleThumbnails)
-
-	// Existing handlers
 	mux.HandleFunc("/", handleRequest)
-
-	if conf.Server.MetricsEnabled {
+	if (conf.Server.MetricsEnabled) {
 		mux.Handle("/metrics", promhttp.Handler())
 	}
 	handler := loggingMiddleware(mux)
@@ -1790,7 +1670,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		return
 	}
 
-	if !isExtensionAllowed(fileStorePath, conf.Uploads.AllowedExtensions) {
+	if !isExtensionAllowed(fileStorePath) {
 		log.Warn("Invalid file extension")
 		http.Error(w, "Invalid file extension", http.StatusBadRequest)
 		uploadErrorsTotal.Inc()
@@ -2425,7 +2305,7 @@ func handleMultipartUpload(w http.ResponseWriter, r *http.Request, absFilename s
 	}
 	defer file.Close()
 
-	if !isExtensionAllowed(handler.Filename, conf.Uploads.AllowedExtensions) {
+	if !isExtensionAllowed(handler.Filename) {
 		log.WithFields(logrus.Fields{"filename": handler.Filename, "extension": filepath.Ext(handler.Filename)}).Warn("Attempted upload with disallowed file extension")
 		http.Error(w, "Disallowed file extension. Allowed: "+strings.Join(conf.Uploads.AllowedExtensions, ", "), http.StatusForbidden)
 		uploadErrorsTotal.Inc()
@@ -2690,156 +2570,25 @@ func handleISOContainer(absFilename string) error {
 	return nil
 }
 
-// Step 4: Implement precacheStoragePath function
 func precacheStoragePath(dir string) error {
-	// Attempt to load directory index from Redis
-	if conf.Precache.RedisEnabled && redisConnected {
-		data, err := redisClient.Get(context.Background(), "directory_index").Result()
-		if err == nil {
-			var index []FileMetadata
-			err = json.Unmarshal([]byte(data), &index) // Added the target variable
-			if err == nil {
-				for _, metadata := range index {
-					fileInfoCache.Set(metadata.FilePath, metadata.FileInfo, cache.DefaultExpiration)
-					fileMetadataCache.Set(metadata.FilePath, metadata, cache.DefaultExpiration)
-				}
-				log.Info("Loaded directory index from Redis")
-				return nil
-			}
-			log.Warn("Failed to unmarshal directory index from Redis")
-		} else {
-			log.Warn("Failed to load directory index from Redis:", err)
-		}
-	}
-
-	// Attempt to load directory index from static index file
-	staticIndexFile := conf.Precache.StaticIndexFile
-	file, err := os.Open(staticIndexFile)
-	if err == nil {
-		defer file.Close()
-		var index []FileMetadata
-		decoder := json.NewDecoder(file)
-		err = decoder.Decode(&index)
-		if err == nil {
-			for _, metadata := range index {
-				fileInfoCache.Set(metadata.FilePath, metadata.FileInfo, cache.DefaultExpiration)
-				fileMetadataCache.Set(metadata.FilePath, metadata, cache.DefaultExpiration)
-			}
-			log.Info("Loaded directory index from static index file")
-			return nil
-		}
-		log.Warn("Failed to decode static index file:", err)
-	} else {
-		log.Warn("Static index file not found:", err)
-	}
-
-	// Perform full directory scan
-	var index []FileMetadata
-	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			log.Warnf("Error accessing path %s: %v", path, err)
+			return nil // Continue walking
 		}
 		if !info.IsDir() {
-			metadata := FileMetadata{
-				FilePath: path,
-				FileInfo: info,
-			}
-			index = append(index, metadata)
 			fileInfoCache.Set(path, info, cache.DefaultExpiration)
-			fileMetadataCache.Set(path, metadata, cache.DefaultExpiration)
+			fileMetadataCache.Set(path, FileMetadata{CreationDate: info.ModTime()}, cache.DefaultExpiration)
+			log.Debugf("Cached file info and metadata for %s", path)
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	log.Info("Performed full directory scan and populated caches")
-
-	// Save index to Redis
-	if conf.Precache.RedisEnabled && redisConnected {
-		data, err := json.Marshal(index)
-		if err == nil {
-			err = redisClient.Set(context.Background(), "directory_index", data, 0).Err()
-			if err == nil {
-				log.Info("Saved directory index to Redis")
-			} else {
-				log.Warn("Failed to save directory index to Redis:", err)
-			}
-		} else {
-			log.Warn("Failed to marshal directory index for Redis:", err)
-		}
-	}
-
-	// Save index to static index file
-	file, err = os.Create(staticIndexFile)
-	if err == nil {
-		defer file.Close()
-		encoder := json.NewEncoder(file)
-		err = encoder.Encode(index)
-		if err == nil {
-			log.Info("Saved directory index to static index file")
-		} else {
-			log.Warn("Failed to encode directory index to static index file:", err)
-		}
-	} else {
-		log.Warn("Failed to create static index file:", err)
-	}
-
-	// Monitor directory for changes
-	go monitorDirectoryChanges(dir)
-
-	return nil
 }
 
-// Step 5: Implement monitorDirectoryChanges function
-func monitorDirectoryChanges(dir string) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Error("Failed to create directory watcher:", err)
-		return
-	}
-	defer watcher.Close()
-
-	err = watcher.Add(dir)
-	if err != nil {
-		log.Error("Failed to add directory to watcher:", err)
-		return
-	}
-
-	for {
-		select {
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			if event.Op&fsnotify.Create == fsnotify.Create || event.Op&fsnotify.Remove == fsnotify.Remove {
-				log.Infof("Directory change detected: %s", event.String())
-				// Update caches and indices
-				err := precacheStoragePath(dir)
-				if err != nil {
-					log.Error("Failed to update precache after directory change:", err)
-				}
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			log.Error("Directory watcher error:", err)
-		}
-	}
-}
-
+// generateThumbnail exclusively uses imaging and logs additional details
 func generateThumbnail(originalPath, thumbnailDir, size string) error {
-	// Check if thumbnail generation is enabled
-	if (!conf.Thumbnails.Enabled) {
-		return nil
-	}
-
-	// Check if the file is an image
-	if !isImageFile(originalPath) {
-		log.Infof("File %s is not an image. Skipping thumbnail generation.", originalPath)
-		return nil
-	}
+	log.Infof("Starting thumbnail generation for: %s; target directory: %s; requested size: %s",
+		originalPath, thumbnailDir, size)
 
 	// Parse the size (e.g., "200x200")
 	dimensions := strings.Split(size, "x")
@@ -2855,53 +2604,22 @@ func generateThumbnail(originalPath, thumbnailDir, size string) error {
 		return fmt.Errorf("invalid height: %v", err)
 	}
 
-	// Define the thumbnail file path
 	thumbnailPath := filepath.Join(thumbnailDir, filepath.Base(originalPath))
+	log.Infof("Thumbnail will be saved at: %s", thumbnailPath)
 
-	// Check if thumbnail already exists
-	if _, err := os.Stat(thumbnailPath); err == nil {
-		log.Infof("Thumbnail already exists for %s. Skipping generation.", originalPath)
-		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("error checking thumbnail existence: %v", err)
-	}
-
-	// Check if ffmpeg is installed
-	if isFFmpegInstalled() {
-		// Use ffmpeg to generate the thumbnail
-		err := generateThumbnailWithFFmpeg(originalPath, thumbnailPath, width, height)
-		if err != nil {
-			return fmt.Errorf("failed to generate thumbnail with ffmpeg: %v", err)
-		}
-	} else {
-		// Use Go internal imaging function to generate the thumbnail
-		err := generateThumbnailWithImaging(originalPath, thumbnailPath, width, height)
-		if err != nil {
-			return fmt.Errorf("failed to generate thumbnail with imaging: %v", err)
-		}
-	}
-
-	log.Infof("Generated thumbnail for %s at %s", originalPath, thumbnailPath)
-	thumbnailProcessedTotal.Inc()
-	return nil
-}
-
-func isFFmpegInstalled() bool {
-	_, err := exec.LookPath("ffmpeg")
-	return err == nil
-}
-
-func generateThumbnailWithFFmpeg(originalPath, thumbnailPath string, width, height int) error {
-	cmd := exec.Command("ffmpeg", "-i", originalPath, "-vf", fmt.Sprintf("thumbnail,scale=%d:%d", width, height), "-frames:v", "1", thumbnailPath)
-	output, err := cmd.CombinedOutput()
+	err = generateThumbnailWithImaging(originalPath, thumbnailPath, width, height)
 	if err != nil {
-		log.Errorf("ffmpeg output: %s", string(output))
+		log.Errorf("Thumbnail generation failed for %s -> %s: %v", originalPath, thumbnailPath, err)
 		return err
 	}
+	log.Infof("Thumbnail generation completed successfully for: %s -> %s", originalPath, thumbnailPath)
 	return nil
 }
 
+// enhance logging in generateThumbnailWithImaging
 func generateThumbnailWithImaging(originalPath, thumbnailPath string, width, height int) error {
+	log.Infof("Using imaging to generate thumbnail: original=%s, thumbnail=%s, size=%dx%d",
+		originalPath, thumbnailPath, width, height)
 	// Open the original image
 	img, err := imaging.Open(originalPath)
 	if err != nil {
@@ -2916,6 +2634,7 @@ func generateThumbnailWithImaging(originalPath, thumbnailPath string, width, hei
 	if err != nil {
 		return fmt.Errorf("failed to save thumbnail: %v", err)
 	}
+	log.Infof("Thumbnail saved successfully at: %s", thumbnailPath)
 	return nil
 }
 
@@ -3028,67 +2747,4 @@ func isImageFile(path string) bool {
 	default:
 		return false
 	}
-}
-
-// Add or replace the function to authenticate requests
-func authenticateRequest(r *http.Request) bool {
-    // Placeholder logic; replace with your own authentication method
-    apiKey := r.Header.Get("X-API-Key")
-    expectedAPIKey := "your-secure-api-key"
-    return hmac.Equal([]byte(apiKey), []byte(expectedAPIKey))
-}
-
-// Add or replace the handler for /thumbnails
-func handleThumbnails(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodGet {
-        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-        return
-    }
-
-    userID := r.URL.Query().Get("user_id")
-    if userID == "" {
-        http.Error(w, "Missing user_id parameter", http.StatusBadRequest)
-        return
-    }
-
-    // Authenticate the request
-    if !authenticateRequest(r) {
-        http.Error(w, "Unauthorized", http.StatusUnauthorized)
-        return
-    }
-
-    // Construct the thumbnail file path (assuming JPEG)
-    thumbnailPath := filepath.Join(conf.Thumbnails.Directory, fmt.Sprintf("%s.jpg", userID))
-
-    fileInfo, err := os.Stat(thumbnailPath)
-    if os.IsNotExist(err) {
-        http.Error(w, "Thumbnail not found", http.StatusNotFound)
-        return
-    } else if err != nil {
-        log.WithError(err).Errorf("Error accessing thumbnail for user_id: %s", userID)
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
-    }
-
-    file, err := os.Open(thumbnailPath)
-    if err != nil {
-        log.WithError(err).Errorf("Failed to open thumbnail for user_id: %s", userID)
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
-    }
-    defer file.Close()
-
-    // Determine the Content-Type based on file extension
-    ext := strings.ToLower(filepath.Ext(thumbnailPath))
-    contentType := mime.TypeByExtension(ext)
-    if contentType == "" {
-        contentType = "application/octet-stream"
-    }
-
-    w.Header().Set("Content-Type", contentType)
-    w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
-
-    if _, err := io.Copy(w, file); err != nil {
-        log.WithError(err).Errorf("Failed to serve thumbnail for user_id: %s", userID)
-    }
 }
