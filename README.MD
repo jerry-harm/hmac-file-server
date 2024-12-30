@@ -69,25 +69,161 @@ GOOS=linux GOARCH=amd64 go build -o ~/Temp/hmac-file-server-2.3-stable_amd64 mai
 
 ## Configuration
 
-The server configuration is managed through a `config.toml` file. Below are the supported configuration options:
+The HMAC File Server is configured using a `config.toml` file. Below are the available configuration options:
 
-### Auto-Adjust Feature
+### Server Configuration
 
-When `AutoAdjustWorkers` is enabled, the number of workers for HMAC operations and ClamAV scans is dynamically determined based on system resources. This ensures efficient resource utilization.
+```toml
+[server]
+listenport = "8080"
+unixsocket = false
+storagepath = "./uploads"
+metricsenabled = true
+metricsport = "9090"
+filettl = "8760h"
+minfreebytes = "100MB"
+autoadjustworkers = true
+networkevents = true
+temppath = "/tmp/hmac-file-server"
+loggingjson = false
+pidfilepath = "/var/run/hmacfileserver.pid"
+cleanuponexit = true
+precaching = true
+filettlenabled = true
+deduplicationenabled = true
+globalextensions = ["*"] # Allows all file types globally
+bind_ip = "0.0.0.0" # New option: Specify the IP address to bind to (IPv4 or IPv6)
+```
 
-If `AutoAdjustWorkers = true`, the values for `NumWorkers` and `NumScanWorkers` in the configuration file will be ignored, and the server will automatically adjust these values.
+### Logging Settings
 
-### Network Events Monitoring
+```toml
+[logging]
+level = "info"
+file = "/var/log/hmac-file-server.log"
+max_size = 100
+max_backups = 7
+max_age = 30
+compress = true
+```
 
-Setting `NetworkEvents = false` in the server configuration disables the logging and tracking of network-related events within the application. This means that functionalities such as monitoring IP changes or recording network activity will be turned off.
+### Deduplication Settings
 
-### Precaching
+```toml
+[deduplication]
+enabled = false
+directory = "./deduplication"
+```
 
-The `precaching` feature allows the server to pre-cache storage paths for faster access. This can improve performance by reducing the time needed to access frequently used storage paths.
+### Thumbnails Settings
 
-### Thumbnail Creation
+```toml
+[thumbnails]
+enabled = false
+directory = "./thumbnails"
+size = "200x200"
+thumbnailintervalscan = "24h"
+```
 
-Set `enabled = true` in the `[thumbnails]` section of `config.toml` to enable image thumbnail generation.
+### ISO Settings
+
+```toml
+[iso]
+enabled = false
+size = "1GB"
+mountpoint = "/mnt/iso"
+charset = "utf-8"
+containerfile = "/path/to/iso/container.iso"
+```
+
+### Timeout Settings
+
+```toml
+[timeouts]
+readtimeout = "4800s"
+writetimeout = "4800s"
+idletimeout = "4800s"
+```
+
+### Security Settings
+
+```toml
+[security]
+secret = "changeme"
+```
+
+### Versioning Settings
+
+```toml
+[versioning]
+enableversioning = false
+maxversions = 1
+```
+
+### Uploads Settings
+
+```toml
+[uploads]
+resumableuploadsenabled = true
+chunkeduploadsenabled = true
+chunksize = "8192"
+allowedextensions = [
+    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
+    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
+    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
+    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
+]
+```
+
+### Downloads Settings
+
+```toml
+[downloads]
+resumabledownloadsenabled = true
+chunkeddownloadsenabled = true
+chunksize = "8192"
+allowedextensions = [".jpg", ".png"] # Restricts downloads to specific types
+```
+
+### ClamAV Settings
+
+```toml
+[clamav]
+clamavenabled = true
+clamavsocket = "/var/run/clamav/clamd.ctl"
+numscanworkers = 2
+scanfileextensions = [".exe", ".dll", ".pdf"]
+```
+
+### Redis Settings
+
+```toml
+[redis]
+redisenabled = true
+redisaddr = "localhost:6379"
+redispassword = ""
+redisdbindex = 0
+redishealthcheckinterval = "120s"
+```
+
+### Worker Settings
+
+```toml
+[workers]
+numworkers = 4
+uploadqueuesize = 50
+max_concurrent_operations = 10
+network_event_buffer = 100
+performance_monitor_interval = "5m"
+metrics_update_interval = "10s"
+```
+
+### File Settings
+
+```toml
+[file]
+filerevision = 1
+```
 
 ---
 
