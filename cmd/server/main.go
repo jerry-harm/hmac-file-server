@@ -513,6 +513,14 @@ func main() {
 		if err := os.MkdirAll(conf.Thumbnails.Directory, os.ModePerm); err != nil {
 			log.Fatalf("Failed to create thumbnail directory: %v", err)
 		}
+
+		// Verify and repair thumbnails
+		thumbnailPaths, err := filepath.Glob(filepath.Join(conf.Thumbnails.Directory, "*"))
+		if err != nil {
+			log.Errorf("Error listing thumbnail files: %v", err)
+		} else {
+			go verifyAndRepairThumbnails(thumbnailPaths, redisClient, conf.Server.StoragePath)
+		}
 	}
 
 	err = checkFreeSpaceWithRetry(storagePath, 3, 5*time.Second)
@@ -3078,5 +3086,85 @@ func handleThumbnails(w http.ResponseWriter, r *http.Request) {
 
     if _, err := io.Copy(w, file); err != nil {
         log.WithError(err).Errorf("Failed to serve thumbnail for user_id: %s", userID)
+    }
+}
+
+// verifyAndRepairThumbnails verifies the integrity of thumbnail files and repairs them if necessary
+func verifyAndRepairThumbnails(thumbnailPaths []string, redisClient *redis.Client, originalDir string) {
+    // Check if redisClient is nil
+    if redisClient == nil {
+        log.Error("Redis client is nil. Cannot verify and repair thumbnails.")
+        return
+    }
+
+    // Check if thumbnailPaths is nil or empty
+	if len(thumbnailPaths) == 0 {
+        log.Error("Thumbnail paths are nil or empty. Nothing to verify or repair.")
+        return
+    }
+
+    for _, thumbPath := range thumbnailPaths {
+        // Compute SHA-256 hash of the thumbnail file
+        file, err := os.Open(thumbPath)
+        if err != nil {
+            log.Warnf("Error opening thumbnail %s: %v", thumbPath, err)
+            continue
+        }
+        hasher := sha256.New()
+        if _, err := io.Copy(hasher, file); err != nil {
+            log.Warnf("Error hashing thumbnail %s: %v", thumbPath, err)
+            file.Close()
+            continue
+        }
+        file.Close()
+        computedHash := hex.EncodeToString(hasher.Sum(nil))
+
+        // Get stored hash from Redis
+        storedHash, err := redisClient.Get(context.Background(), thumbPath).Result()
+        if err == redis.Nil || storedHash != computedHash {
+            log.Warnf("Thumbnail %s is corrupted or missing. Regenerating...", thumbPath)
+
+            // Assume original image is in originalDir with the same base name
+            originalPath := filepath.Join(originalDir, filepath.Base(thumbPath))
+            origImage, err := imaging.Open(originalPath)
+            if err != nil {
+                log.Warnf("Error opening original image %s: %v", originalPath, err)
+                continue
+            }
+
+            // Generate thumbnail (e.g., 200x200 pixels)
+            thumbnail := imaging.Thumbnail(origImage, 200, 200, imaging.Lanczos)
+
+            // Save the regenerated thumbnail
+            err = imaging.Save(thumbnail, thumbPath)
+            if err != nil {
+                log.Warnf("Error saving regenerated thumbnail %s: %v", thumbPath, err)
+                continue
+            }
+
+            // Compute new hash
+            file, err := os.Open(thumbPath)
+            if err != nil {
+                log.Warnf("Error opening regenerated thumbnail %s: %v", thumbPath, err)
+                continue
+            }
+            hasher.Reset()
+            if _, err := io.Copy(hasher, file); err != nil {
+                log.Warnf("Error hashing regenerated thumbnail %s: %v", thumbPath, err)
+                file.Close()
+                continue
+            }
+            file.Close()
+            newHash := hex.EncodeToString(hasher.Sum(nil))
+
+            // Store new hash in Redis
+            err = redisClient.Set(context.Background(), thumbPath, newHash, 0).Err()
+            if err != nil {
+                log.Warnf("Error storing new hash for thumbnail %s in Redis: %v", thumbPath, err)
+                continue
+            }
+
+            log.Infof("Successfully regenerated and updated thumbnail %s", thumbPath)
+        }
     }
 }
