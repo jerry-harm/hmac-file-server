@@ -1508,6 +1508,14 @@ func processUpload(task UploadTask) error {
 		}
 	}
 
+	// Generate thumbnail after deduplication
+	thumbnailDir := conf.Thumbnails.Directory
+	err = generateThumbnail(task.AbsFilename, thumbnailDir, conf.Thumbnails.Size)
+	if err != nil {
+		log.Errorf("Thumbnail generation failed for %s: %v", task.AbsFilename, err)
+		return err // Return early to avoid logging processing completion
+	}
+
 	log.WithFields(logrus.Fields{"file": absFilename}).Info("File uploaded and processed successfully")
 
 	uploadDuration.Observe(time.Since(startTime).Seconds())
