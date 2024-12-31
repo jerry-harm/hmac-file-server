@@ -1648,7 +1648,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
 	} else {
 		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-		if contentType == "" {
+		if (contentType == "") {
 			contentType = "application/octet-stream"
 		}
 		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
@@ -1700,15 +1700,35 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		return
 	}
 
-	// Move temp file to final destination
+	if conf.ClamAV.ClamAVEnabled && shouldScanFile(absFilename) {
+		scanErr := scanFileWithClamAV(tempFilename)
+		if scanErr != nil {
+			os.Remove(tempFilename)
+			http.Error(w, "File failed virus scan", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Optional: verify it's a valid image if needed
+	if isImageFile(absFilename) {
+		// Attempt to open temp file with imaging
+		_, imgErr := imaging.Open(tempFilename)
+		if imgErr != nil {
+			os.Remove(tempFilename)
+			http.Error(w, "Corrupted or invalid image", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Finalize only if all checks passed
 	err = os.Rename(tempFilename, absFilename)
 	if err != nil {
-		log.Errorf("Rename failed for %s: %v", absFilename, err)
 		os.Remove(tempFilename)
-		http.Error(w, "Error moving file to final destination", http.StatusInternalServerError)
+		http.Error(w, "Could not finalize upload", http.StatusInternalServerError)
 		return
 	}
 
+	w.WriteHeader(http.StatusCreated)
 	// Respond with 201 Created immediately
 	w.WriteHeader(http.StatusCreated)
 	if f, ok := w.(http.Flusher); ok {
