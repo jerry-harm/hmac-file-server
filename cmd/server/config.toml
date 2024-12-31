@@ -1,35 +1,35 @@
 [server]
-bind_ip = "127.0.0.1"
+#bind_ip = "127.0.0.1"
 listenport = "8080"
 unixsocket = false
-storagepath = "/mnt/nfs_vol01/hmac-file-server/data/"
+storagepath = "./uploads/"
 metricsenabled = true
 metricsport = "9090"
 deduplicationenabled = true
 minfreebytes = "5GB"
 filettl = "2y"
-filettlenabled = true
+filettlenabled = false
 autoadjustworkers = true
 networkevents = false
 pidfilepath = "./hmac-file-server.pid"
-precaching = true
+precaching = false
 #globalextensions = ["*"]
 
 [deduplication]
 enabled = true
-directory = "/mnt/nfs_vol01/hmac-file-server/deduplication/"
+directory = "./deduplication/"
 
 [logging]
 level = "debug"
-file = "/var/log/hmac-file-server.log"
+file = "./hmac-file-server.log"
 max_size = 100
 max_backups = 7
 max_age = 30
 compress = true
 
 [thumbnails]
-enabled = true
-directory = "/mnt/nfs_vol01/hmac-file-server/thumbnails/"
+enabled = false
+directory = "./thumbnails/"
 size = "200x200"
 thumbnailintervalscan = "1h"
 concurrency = 5
@@ -74,7 +74,7 @@ allowedextensions = [
 ]
 
 [clamav]
-clamavenabled = true
+clamavenabled = false
 clamavsocket = "/var/run/clamav/clamd.ctl"
 numscanworkers = 4
 scanfileextensions = [
@@ -83,7 +83,7 @@ scanfileextensions = [
 ]
 
 [redis]
-redisenabled = true
+redisenabled = false
 redisdbindex = 0
 redisaddr = "localhost:6379"
 redispassword = ""
