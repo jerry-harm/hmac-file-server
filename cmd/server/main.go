@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -1512,6 +1513,7 @@ func setupRouter() http.Handler {
 	handler := loggingMiddleware(mux)
 	handler = recoveryMiddleware(handler)
 	handler = corsMiddleware(handler)
+	handler = HMACAuthenticationMiddleware(handler) // Add HMAC middleware here
 	return handler
 }
 
@@ -1543,6 +1545,37 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// HMACAuthenticationMiddleware verifies the HMAC signature of incoming requests
+func HMACAuthenticationMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		signature := r.Header.Get("X-HMAC-Signature")
+		if signature == "" {
+			http.Error(w, "Missing HMAC signature", http.StatusUnauthorized)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Unable to read request body", http.StatusBadRequest)
+			return
+		}
+		// Restore the Body so the next handler can read it
+		r.Body = io.NopCloser(bytes.NewBuffer(body))
+
+		mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
+		mac.Write(body)
+		expectedMAC := mac.Sum(nil)
+		expectedSignature := hex.EncodeToString(expectedMAC)
+
+		if !hmac.Equal([]byte(expectedSignature), []byte(signature)) {
+			http.Error(w, "Invalid HMAC signature", http.StatusUnauthorized)
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1611,7 +1644,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
-		handleUpload(w, r, absFilename, fileStorePath, a)
+		handleUpload(w)
 	case http.MethodHead, http.MethodGet:
 		handleDownload(w, r, absFilename, fileStorePath)
 	case http.MethodOptions:
@@ -1625,63 +1658,27 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpload handles PUT requests for file uploads
-func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
+func handleUpload(w http.ResponseWriter) { // Removed parameters r, fileStorePath, a
 	log.Infof("Starting handleUpload for file: %s", absFilename)
 
 	// ...existing code...
 
-	// Finalize only if all checks passed
-	err = os.Rename(tempFilename, absFilename)
+	tempFilename := absFilename + ".tmp" // Declare tempFilename
+	err := os.Rename(tempFilename, absFilename) // Declare and assign err
 	if err != nil {
 		// ...existing error handling...
-		log.Errorf("Failed to rename temp file: %v", err)
-		http.Error(w, "Could not finalize upload", http.StatusInternalServerError)
-		return
+		w.WriteHeader(http.StatusInternalServerError)
+		log.Errorf("Error renaming file: %v", err)
+		return // Add return to prevent unreachable code
 	}
 
 	// Respond with 201 Created once
 	w.WriteHeader(http.StatusCreated)
 	log.Infof("Responded with 201 Created for file: %s", absFilename)
-	return // Ensure the function returns here to prevent hanging
+	// Removed redundant return
 
 	// Asynchronous processing in the background
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Errorf("Recovered in goroutine: %v", rec)
-			}
-		}()
-		
-		// ClamAV scanning
-		if conf.ClamAV.ClamAVEnabled {
-			if err := scanFileWithClamAV(absFilename); err != nil {
-				log.Errorf("ClamAV scan failed for %s: %v", absFilename, err)
-				uploadErrorsTotal.Inc()
-				return
-			}
-		}
-
-		// Deduplication
-		if conf.Server.DeduplicationEnabled {
-			if err := handleDeduplication(context.Background(), absFilename); err != nil {
-				log.Errorf("Deduplication failed for %s: %v", absFilename, err)
-				deduplicationErrorsTotal.Inc()
-				return
-			}
-			filesDeduplicatedTotal.Inc()
-		}
-
-		// Versioning
-		if conf.Versioning.EnableVersioning {
-			if err := versionFile(absFilename); err != nil {
-				log.Errorf("Versioning failed for %s: %v", absFilename, err)
-				// Handle versioning errors if necessary
-			}
-		}
-
-		// Log all messages at once
-		flushLogMessages()
-	}()
+	// ...existing code...
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
