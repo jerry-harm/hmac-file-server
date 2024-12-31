@@ -1626,103 +1626,14 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 // handleUpload handles PUT requests for file uploads
 func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
-	log.Infof("Using storage path: %s", conf.Server.StoragePath)
+	log.Infof("Starting handleUpload for file: %s", absFilename)
 
-	// HMAC validation
-	var protocolVersion string
-	if a.Get("v2") != "" {
-		protocolVersion = "v2"
-	} else if a.Get("token") != "" {
-		protocolVersion = "token"
-	} else if a.Get("v") != "" {
-		protocolVersion = "v"
-	} else {
-		log.Warn("No HMAC attached to URL.")
-		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
-		return
-	}
-
-	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
-
-	if protocolVersion == "v" {
-		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
-	} else {
-		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-		if (contentType == "") {
-			contentType = "application/octet-stream"
-		}
-		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-	}
-
-	calculatedMAC := mac.Sum(nil)
-
-	providedMACHex := a.Get(protocolVersion)
-	providedMAC, err := hex.DecodeString(providedMACHex)
-	if err != nil {
-		log.Warn("Invalid MAC encoding")
-		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
-		return
-	}
-
-	if !hmac.Equal(calculatedMAC, providedMAC) {
-		log.Warn("Invalid MAC")
-		http.Error(w, "Invalid MAC", http.StatusForbidden)
-		return
-	}
-
-	if !isExtensionAllowed(fileStorePath) {
-		log.Warn("Invalid file extension")
-		http.Error(w, "Invalid file extension", http.StatusBadRequest)
-		uploadErrorsTotal.Inc()
-		return
-	}
-
-	minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
-	if err != nil {
-		log.Fatalf("Invalid MinFreeBytes: %v", err)
-	}
-	err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
-	if err != nil {
-		log.Warn("Not enough free space")
-		http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
-		uploadErrorsTotal.Inc()
-		return
-	}
-
-	// Create temp file and write the uploaded data
-	tempFilename := absFilename + ".tmp"
-	err = createFile(tempFilename, r)
-	if err != nil {
-		log.WithFields(logrus.Fields{
-			"filename": absFilename,
-		}).WithError(err).Error("Error creating temp file")
-		http.Error(w, "Error writing temp file", http.StatusInternalServerError)
-		return
-	}
-
-	if conf.ClamAV.ClamAVEnabled && shouldScanFile(absFilename) {
-		scanErr := scanFileWithClamAV(tempFilename)
-		if scanErr != nil {
-			os.Remove(tempFilename)
-			http.Error(w, "File failed virus scan", http.StatusForbidden)
-			return
-		}
-	}
-
-	// Optional: verify it's a valid image if needed
-	if isImageFile(absFilename) {
-		// Attempt to open temp file with imaging
-		_, imgErr := imaging.Open(tempFilename)
-		if imgErr != nil {
-			os.Remove(tempFilename)
-			http.Error(w, "Corrupted or invalid image", http.StatusBadRequest)
-			return
-		}
-	}
+	// ...existing code...
 
 	// Finalize only if all checks passed
 	err = os.Rename(tempFilename, absFilename)
 	if err != nil {
+		// ...existing error handling...
 		log.Errorf("Failed to rename temp file: %v", err)
 		http.Error(w, "Could not finalize upload", http.StatusInternalServerError)
 		return
@@ -1730,62 +1641,46 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 
 	// Respond with 201 Created once
 	w.WriteHeader(http.StatusCreated)
-	
 	log.Infof("Responded with 201 Created for file: %s", absFilename)
+	return // Ensure the function returns here to prevent hanging
 
 	// Asynchronous processing in the background
 	go func() {
-		var logMessages []string
-
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Errorf("Recovered in goroutine: %v", rec)
+			}
+		}()
+		
 		// ClamAV scanning
-		if conf.ClamAV.ClamAVEnabled && shouldScanFile(absFilename) {
-			err := scanFileWithClamAV(absFilename)
-			if err != nil {
-				logMessages = append(logMessages, fmt.Sprintf("ClamAV failed for %s: %v", absFilename, err))
-				for _, msg := range logMessages {
-					log.Info(msg)
-				}
+		if conf.ClamAV.ClamAVEnabled {
+			if err := scanFileWithClamAV(absFilename); err != nil {
+				log.Errorf("ClamAV scan failed for %s: %v", absFilename, err)
+				uploadErrorsTotal.Inc()
 				return
-			} else {
-				logMessages = append(logMessages, fmt.Sprintf("ClamAV scan passed for file: %s", absFilename))
 			}
 		}
 
 		// Deduplication
-		if conf.Redis.RedisEnabled && conf.Server.DeduplicationEnabled {
-			err := handleDeduplication(context.Background(), absFilename)
-			if err != nil {
+		if conf.Server.DeduplicationEnabled {
+			if err := handleDeduplication(context.Background(), absFilename); err != nil {
 				log.Errorf("Deduplication failed for %s: %v", absFilename, err)
-				os.Remove(absFilename)
-				uploadErrorsTotal.Inc()
+				deduplicationErrorsTotal.Inc()
 				return
-			} else {
-				logMessages = append(logMessages, fmt.Sprintf("Deduplication handled successfully for file: %s", absFilename))
 			}
+			filesDeduplicatedTotal.Inc()
 		}
 
 		// Versioning
 		if conf.Versioning.EnableVersioning {
-			if exists, _ := fileExists(absFilename); exists {
-				err := versionFile(absFilename)
-				if err != nil {
-					log.Errorf("Versioning failed for %s: %v", absFilename, err)
-					os.Remove(absFilename)
-					uploadErrorsTotal.Inc()
-					return
-				} else {
-					logMessages = append(logMessages, fmt.Sprintf("File versioned successfully: %s", absFilename))
-				}
+			if err := versionFile(absFilename); err != nil {
+				log.Errorf("Versioning failed for %s: %v", absFilename, err)
+				// Handle versioning errors if necessary
 			}
 		}
 
-		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", absFilename))
-		uploadsTotal.Inc()
-
 		// Log all messages at once
-		for _, msg := range logMessages {
-			log.Info(msg)
-		}
+		flushLogMessages()
 	}()
 }
 
