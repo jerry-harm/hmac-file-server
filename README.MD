@@ -439,4 +439,8 @@ This project is licensed under the [MIT License](LICENSE).
 
 ---
 
+## Changelog
+
+For a detailed list of changes, please refer to the [Changelog](./Changelog.md).
+
 By following this updated `README.md`, you can ensure that users and contributors have a clear understanding of the **HMAC File Server**'s capabilities, configuration options, and best practices for deployment and maintenance.
