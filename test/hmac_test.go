@@ -12,43 +12,17 @@ import (
 	"path/filepath" // Added this import for filepath usage
 	"strconv"
 	"testing"
-	"time"
-	"context" // Added for context management
 )
 
 const (
-	serverURL    = "http://127.0.0.1:8080"          // Replace with your actual server URL
-	secret       = "we-can-not-solve-any-math" // Replace with your HMAC secret key
-	uploadPath   = "hmac_icon.png"             // Test file to upload
-	protocolType = "v2"                        // Use v2, v, or token as needed
+	serverURL    = "http://[::1]:8080"				// Replace with your actual server URL
+	secret       = "a-orc-and-a-humans-is-drinking-ale"             // Replace with your HMAC secret key
+	uploadPath   = "hmac_icon.png"                 			// Test file to upload
+	protocolType = "v2"						// Use v2, v, or token as needed
 )
-
-// Step 1: Refactor startServer to accept a context for shutdown
-func startServer(ctx context.Context, done chan<- struct{}) {
-	go func() {
-		runServer(ctx) // Ensure runServer() listens to context for shutdown
-		done <- struct{}{}
-	}()
-}
-
-func runServer(ctx context.Context) {
-	// Simulate server running and listening for context cancellation
-	<-ctx.Done()
-		fmt.Println("Server shutting down...")
-}
 
 // TestUpload performs a basic HMAC validation and upload test.
 func TestUpload(t *testing.T) {
-	// Create a context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	startServer(ctx, done) // Start server with context
-
-	// Allow the server some time to start
-	time.Sleep(2 * time.Second)
-
 	// File setup for testing
 	file, err := os.Open(uploadPath)
 	if err != nil {
@@ -82,10 +56,6 @@ func TestUpload(t *testing.T) {
 	defer resp.Body.Close()
 
 	t.Logf("Response status: %s", resp.Status)
-
-	// After test completes, cancel the context to shut down the server
-	cancel()
-	<-done // Wait for server to shutdown
 }
 
 // Generates the HMAC based on your protocol version

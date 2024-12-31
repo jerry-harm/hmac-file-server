@@ -69,161 +69,25 @@ GOOS=linux GOARCH=amd64 go build -o ~/Temp/hmac-file-server-2.3-stable_amd64 mai
 
 ## Configuration
 
-The HMAC File Server is configured using a `config.toml` file. Below are the available configuration options:
+The server configuration is managed through a `config.toml` file. Below are the supported configuration options:
 
-### Server Configuration
+### Auto-Adjust Feature
 
-```toml
-[server]
-listenport = "8080"
-unixsocket = false
-storagepath = "./uploads"
-metricsenabled = true
-metricsport = "9090"
-filettl = "8760h"
-minfreebytes = "100MB"
-autoadjustworkers = true
-networkevents = true
-temppath = "/tmp/hmac-file-server"
-loggingjson = false
-pidfilepath = "/var/run/hmacfileserver.pid"
-cleanuponexit = true
-precaching = true
-filettlenabled = true
-deduplicationenabled = true
-globalextensions = ["*"] # Allows all file types globally
-bind_ip = "0.0.0.0" # New option: Specify the IP address to bind to (IPv4 or IPv6)
-```
+When `AutoAdjustWorkers` is enabled, the number of workers for HMAC operations and ClamAV scans is dynamically determined based on system resources. This ensures efficient resource utilization.
 
-### Logging Settings
+If `AutoAdjustWorkers = true`, the values for `NumWorkers` and `NumScanWorkers` in the configuration file will be ignored, and the server will automatically adjust these values.
 
-```toml
-[logging]
-level = "info"
-file = "/var/log/hmac-file-server.log"
-max_size = 100
-max_backups = 7
-max_age = 30
-compress = true
-```
+### Network Events Monitoring
 
-### Deduplication Settings
+Setting `NetworkEvents = false` in the server configuration disables the logging and tracking of network-related events within the application. This means that functionalities such as monitoring IP changes or recording network activity will be turned off.
 
-```toml
-[deduplication]
-enabled = false
-directory = "./deduplication"
-```
+### Precaching
 
-### Thumbnails Settings
+The `precaching` feature allows the server to pre-cache storage paths for faster access. This can improve performance by reducing the time needed to access frequently used storage paths.
 
-```toml
-[thumbnails]
-enabled = false
-directory = "./thumbnails"
-size = "200x200"
-thumbnailintervalscan = "24h"
-```
+### Thumbnail Creation
 
-### ISO Settings
-
-```toml
-[iso]
-enabled = false
-size = "1GB"
-mountpoint = "/mnt/iso"
-charset = "utf-8"
-containerfile = "/path/to/iso/container.iso"
-```
-
-### Timeout Settings
-
-```toml
-[timeouts]
-readtimeout = "4800s"
-writetimeout = "4800s"
-idletimeout = "4800s"
-```
-
-### Security Settings
-
-```toml
-[security]
-secret = "changeme"
-```
-
-### Versioning Settings
-
-```toml
-[versioning]
-enableversioning = false
-maxversions = 1
-```
-
-### Uploads Settings
-
-```toml
-[uploads]
-resumableuploadsenabled = true
-chunkeduploadsenabled = true
-chunksize = "8192"
-allowedextensions = [
-    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
-    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
-    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
-    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
-]
-```
-
-### Downloads Settings
-
-```toml
-[downloads]
-resumabledownloadsenabled = true
-chunkeddownloadsenabled = true
-chunksize = "8192"
-allowedextensions = [".jpg", ".png"] # Restricts downloads to specific types
-```
-
-### ClamAV Settings
-
-```toml
-[clamav]
-clamavenabled = true
-clamavsocket = "/var/run/clamav/clamd.ctl"
-numscanworkers = 2
-scanfileextensions = [".exe", ".dll", ".pdf"]
-```
-
-### Redis Settings
-
-```toml
-[redis]
-redisenabled = true
-redisaddr = "localhost:6379"
-redispassword = ""
-redisdbindex = 0
-redishealthcheckinterval = "120s"
-```
-
-### Worker Settings
-
-```toml
-[workers]
-numworkers = 4
-uploadqueuesize = 50
-max_concurrent_operations = 10
-network_event_buffer = 100
-performance_monitor_interval = "5m"
-metrics_update_interval = "10s"
-```
-
-### File Settings
-
-```toml
-[file]
-filerevision = 1
-```
+Set `enabled = true` in the `[thumbnails]` section of `config.toml` to enable image thumbnail generation.
 
 ---
 
@@ -518,38 +382,25 @@ Access the metrics at `http://localhost:9090/metrics` (assuming default `metrics
 
 ## Troubleshooting
 
-### IP Binding Issues
+- **Cannot Connect to Redis:**
+  - Ensure Redis is running and accessible at the address specified in `redisaddr`.
+  - Verify that the `redispassword` is correct if authentication is enabled.
+  
+- **ClamAV Scanning Fails:**
+  - Check if ClamAV is installed and the `clamavsocket` path is correct.
+  - Ensure that the ClamAV daemon (`clamd`) is running.
 
-If the server is not listening on the specified `bind_ip`, follow these steps:
+- **Insufficient Disk Space:**
+  - Monitor the disk space and adjust `minfreebytes` in the configuration as needed.
+  - Enable file TTL and cleanup to automatically remove old files.
 
-1. **Verify Configuration:**
-   Ensure that `bind_ip` is correctly set in `config.toml`:
-   ```toml
-   [server]
-   bind_ip = "127.0.0.1"
-   listenport = "8080"
-   ```
+- **Metrics Not Available:**
+  - Ensure that `metricsenabled` is set to `true` and the server is running without errors.
+  - Check if the specified `metricsport` is not blocked by a firewall.
 
-2. **Check Logs:**
-   The server now logs the `bind_ip` and the constructed listen address. Check the logs to confirm:
-   ```
-   INFO[0000] Server BindIP: 127.0.0.1
-   INFO[0000] Listen address: 127.0.0.1:8080
-   ```
-
-3. **Ensure No Conflicting Processes:**
-   Make sure no other process is using the specified port:
-   ```sh
-   netstat -tuln | grep 8080
-   ```
-
-4. **Firewall Settings:**
-   Verify that the firewall allows traffic on the specified port.
-
-5. **Restart the Server:**
-   After making changes, restart the server to apply the new configuration.
-
-By following these steps, you can identify and resolve issues related to IP binding in the **HMAC File Server**.
+- **Thumbnail Generation Not Working:**
+  - Verify that the `[thumbnails].enabled` is set to `true` and the `directory` exists with appropriate permissions.
+  - Check the logs for any errors related to image processing.
 
 ---
 

@@ -2,61 +2,58 @@
 bind_ip = "127.0.0.1"
 listenport = "8080"
 unixsocket = false
-storagepath = "./uploads"
+storagepath = "/mnt/nfs_vol01/hmac-file-server/data/"
 metricsenabled = true
 metricsport = "9090"
-filettl = "8760h"
-minfreebytes = "100MB"
-autoadjustworkers = true
-networkevents = true
-temppath = "./tmp"
-loggingjson = false
-pidfilepath = "./hmacfileserver.pid"
-cleanuponexit = true
-precaching = false
-filettlenabled = true
 deduplicationenabled = true
-globalextensions = ["*"]
+minfreebytes = "5GB"
+filettl = "2y"
+filettlenabled = true
+autoadjustworkers = true
+networkevents = false
+pidfilepath = "./hmac-file-server.pid"
+precaching = true
+#globalextensions = ["*"]
+
+[deduplication]
+enabled = true
+directory = "/mnt/nfs_vol01/hmac-file-server/deduplication/"
 
 [logging]
-level = "info"
-file = "./hmac-file-server.log"
+level = "debug"
+file = "/var/log/hmac-file-server.log"
 max_size = 100
 max_backups = 7
 max_age = 30
 compress = true
 
-[deduplication]
-enabled = false
-directory = "./deduplication"
-
 [thumbnails]
-enabled = false
-directory = "./thumbnails"
+enabled = true
+directory = "/mnt/nfs_vol01/hmac-file-server/thumbnails/"
 size = "200x200"
-thumbnailintervalscan = "24h"
+thumbnailintervalscan = "1h"
+concurrency = 5
 
 [iso]
 enabled = false
-size = "1GB"
-mountpoint = "/mnt/iso"
+size = "1TB"
+mountpoint = "/mnt/nfs_vol01/hmac-file-server/iso/"
 charset = "utf-8"
-containerfile = "/path/to/iso/container.iso"
 
 [timeouts]
-readtimeout = "4800s"
-writetimeout = "4800s"
-idletimeout = "4800s"
+readtimeout = "3600s"
+writetimeout = "3600s"
+idletimeout = "3600s"
 
 [security]
-secret = "we-can-not-solve-any-math"
+secret = "hmac-file-server-is-the-win"
 
 [versioning]
 enableversioning = false
 maxversions = 1
 
 [uploads]
-resumableuploadsenabled = true
+resumableuploadsenabled = false
 chunkeduploadsenabled = true
 chunksize = "32MB"
 allowedextensions = [
@@ -67,39 +64,34 @@ allowedextensions = [
 ]
 
 [downloads]
-resumabledownloadsenabled = true
-chunkeddownloadsenabled = true
+chunkeddownloadsenabled = false
 chunksize = "32MB"
-allowedextensions = [".jpg", ".png"] # Restricts downloads to specific types
+allowedextensions = [
+    ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif",
+    ".bmp", ".tiff", ".svg", ".webp", ".wav", ".mp4",
+    ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
+    ".mpeg", ".mpg", ".m4v", ".3gp", ".3g2", ".mp3", ".ogg"
+]
 
 [clamav]
 clamavenabled = true
 clamavsocket = "/var/run/clamav/clamd.ctl"
-numscanworkers = 2
-scanfileextensions = [".exe", ".dll", ".pdf"]
+numscanworkers = 4
+scanfileextensions = [
+    ".exe", ".dll", ".bin", ".com", ".bat",
+    ".sh", ".php", ".js"
+]
 
 [redis]
 redisenabled = true
+redisdbindex = 0
 redisaddr = "localhost:6379"
 redispassword = ""
-redisdbindex = 0
 redishealthcheckinterval = "120s"
 
 [workers]
 numworkers = 4
-uploadqueuesize = 50
-max_concurrent_operations = 10
-network_event_buffer = 100
-performance_monitor_interval = "5m"
-metrics_update_interval = "10s"
+uploadqueuesize = 5000
 
 [file]
 filerevision = 1
-
-[precache]
-redisEnabled = true
-redisAddr = "localhost:6379"
-staticIndexFile = "./static_index.json"
-
-[build]
-version = "v2.4"
