@@ -1644,7 +1644,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
-		handleUpload(w)
+		handleUpload(w, r, absFilename, fileStorePath, a)
 	case http.MethodHead, http.MethodGet:
 		handleDownload(w, r, absFilename, fileStorePath)
 	case http.MethodOptions:
@@ -1658,7 +1658,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpload handles PUT requests for file uploads
-func handleUpload(w http.ResponseWriter) { // Removed parameters r, fileStorePath, a
+func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
 	log.Infof("Starting handleUpload for file: %s", absFilename)
 
 	// ...existing code...
@@ -1675,7 +1675,7 @@ func handleUpload(w http.ResponseWriter) { // Removed parameters r, fileStorePat
 	// Respond with 201 Created once
 	w.WriteHeader(http.StatusCreated)
 	log.Infof("Responded with 201 Created for file: %s", absFilename)
-	// Removed redundant return
+	return // Ensure the function returns here to prevent hanging
 
 	// Asynchronous processing in the background
 	// ...existing code...
