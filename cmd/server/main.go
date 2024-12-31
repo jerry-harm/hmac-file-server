@@ -1723,17 +1723,14 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	// Finalize only if all checks passed
 	err = os.Rename(tempFilename, absFilename)
 	if err != nil {
-		os.Remove(tempFilename)
+		log.Errorf("Failed to rename temp file: %v", err)
 		http.Error(w, "Could not finalize upload", http.StatusInternalServerError)
 		return
 	}
 
+	// Respond with 201 Created once
 	w.WriteHeader(http.StatusCreated)
-	// Respond with 201 Created immediately
-	w.WriteHeader(http.StatusCreated)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
+	
 	log.Infof("Responded with 201 Created for file: %s", absFilename)
 
 	// Asynchronous processing in the background
