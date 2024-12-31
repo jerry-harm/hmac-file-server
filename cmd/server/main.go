@@ -8,7 +8,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"           // Added for JSON handling
+	"encoding/json" // Added for JSON handling
 	"flag"
 	"fmt"
 
@@ -34,7 +34,7 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
-	"github.com/fsnotify/fsnotify" // Added for directory monitoring
+	"github.com/fsnotify/fsnotify"    // Added for directory monitoring
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
@@ -154,10 +154,10 @@ type ThumbnailsConfig struct {
 }
 
 type ISOConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	Size       string `mapstructure:"size"`
-	MountPoint string `mapstructure:"mountpoint"`
-	Charset    string `mapstructure:"charset"`
+	Enabled       bool   `mapstructure:"enabled"`
+	Size          string `mapstructure:"size"`
+	MountPoint    string `mapstructure:"mountpoint"`
+	Charset       string `mapstructure:"charset"`
 	ContainerFile string `mapstructure:"containerfile"`
 }
 
@@ -206,12 +206,12 @@ type RedisConfig struct {
 }
 
 type WorkersConfig struct {
-	NumWorkers      int `mapstructure:"numworkers"`
-	UploadQueueSize int `mapstructure:"uploadqueuesize"`
-	MaxConcurrentOperations   int    `mapstructure:"max_concurrent_operations"`
-	NetworkEventBuffer        int    `mapstructure:"network_event_buffer"`
+	NumWorkers                 int    `mapstructure:"numworkers"`
+	UploadQueueSize            int    `mapstructure:"uploadqueuesize"`
+	MaxConcurrentOperations    int    `mapstructure:"max_concurrent_operations"`
+	NetworkEventBuffer         int    `mapstructure:"network_event_buffer"`
 	PerformanceMonitorInterval string `mapstructure:"performance_monitor_interval"`
-	MetricsUpdateInterval     string `mapstructure:"metrics_update_interval"`
+	MetricsUpdateInterval      string `mapstructure:"metrics_update_interval"`
 }
 
 type FileConfig struct {
@@ -275,9 +275,9 @@ type FileMetadata struct {
 var (
 	conf              Config
 	versionString     string
-	log                      = logrus.New()
-	uploadQueue              = make(chan UploadTask, 100)
-	networkEvents            = make(chan NetworkEvent, 100)
+	log               = logrus.New()
+	uploadQueue       = make(chan UploadTask, 100)
+	networkEvents     = make(chan NetworkEvent, 100)
 	fileInfoCache     *cache.Cache
 	fileMetadataCache *cache.Cache
 	clamClient        *clamd.Clamd
@@ -438,32 +438,32 @@ func main() {
 
 	// Set log level based on configuration
 	level, err := logrus.ParseLevel(conf.Logging.Level)
-	if (err != nil) {
+	if err != nil {
 		log.Warnf("Invalid log level '%s', defaulting to 'info'", conf.Logging.Level)
 		level = logrus.InfoLevel
 	}
 	log.SetLevel(level)
 	log.Infof("Log level set to: %s", level.String())
 
-	// Log configuration settings using [logging] section
-	log.Infof("Server ListenPort: %s", conf.Server.ListenPort)
-	log.Infof("Server UnixSocket: %v", conf.Server.UnixSocket)
-	log.Infof("Server StoragePath: %s", conf.Server.StoragePath)
-	log.Infof("Logging Level: %s", conf.Logging.Level)
-	log.Infof("Logging File: %s", conf.Logging.File)
-	log.Infof("Server MetricsEnabled: %v", conf.Server.MetricsEnabled)
-	log.Infof("Server MetricsPort: %s", conf.Server.MetricsPort)
-	log.Infof("Server FileTTL: %s", conf.Server.FileTTL)
-	log.Infof("Server MinFreeBytes: %s", conf.Server.MinFreeBytes)
-	log.Infof("Server AutoAdjustWorkers: %v", conf.Server.AutoAdjustWorkers)
-	log.Infof("Server NetworkEvents: %v", conf.Server.NetworkEvents)
-	log.Infof("Server TempPath: %s", conf.Server.TempPath)
-	log.Infof("Server LoggingJSON: %v", conf.Server.LoggingJSON)
-	log.Infof("Server PIDFilePath: %s", conf.Server.PIDFilePath)
-	log.Infof("Server CleanUponExit: %v", conf.Server.CleanUponExit)
-	log.Infof("Server PreCaching: %v", conf.Server.PreCaching)
-	log.Infof("Server FileTTLEnabled: %v", conf.Server.FileTTLEnabled)
-	log.Infof("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
+	// Change Info logs to Debug to reduce production log noise
+	log.Debugf("Server ListenPort: %s", conf.Server.ListenPort)
+	log.Debugf("Server UnixSocket: %v", conf.Server.UnixSocket)
+	log.Debugf("Server StoragePath: %s", conf.Server.StoragePath)
+	log.Debugf("Logging Level: %s", conf.Logging.Level)
+	log.Debugf("Logging File: %s", conf.Logging.File)
+	log.Debugf("Server MetricsEnabled: %v", conf.Server.MetricsEnabled)
+	log.Debugf("Server MetricsPort: %s", conf.Server.MetricsPort)
+	log.Debugf("Server FileTTL: %s", conf.Server.FileTTL)
+	log.Debugf("Server MinFreeBytes: %s", conf.Server.MinFreeBytes)
+	log.Debugf("Server AutoAdjustWorkers: %v", conf.Server.AutoAdjustWorkers)
+	log.Debugf("Server NetworkEvents: %v", conf.Server.NetworkEvents)
+	log.Debugf("Server TempPath: %s", conf.Server.TempPath)
+	log.Debugf("Server LoggingJSON: %v", conf.Server.LoggingJSON)
+	log.Debugf("Server PIDFilePath: %s", conf.Server.PIDFilePath)
+	log.Debugf("Server CleanUponExit: %v", conf.Server.CleanUponExit)
+	log.Debugf("Server PreCaching: %v", conf.Server.PreCaching)
+	log.Debugf("Server FileTTLEnabled: %v", conf.Server.FileTTLEnabled)
+	log.Debugf("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
 
 	err = writePIDFile(conf.Server.PIDFilePath) // Write PID file after config is loaded
 	if err != nil {
@@ -557,8 +557,13 @@ func main() {
 		}
 	}
 
-	if conf.Redis.RedisEnabled {
-		initRedis()
+	initRedis()
+
+	if conf.Redis.RedisEnabled && redisConnected {
+		log.Info("Redis is enabled and connected. Thumbnail verification will be performed.")
+		scheduleThumbnailGeneration(ctx)
+	} else if conf.Redis.RedisEnabled && !redisConnected {
+		log.Warn("Redis is enabled but connection failed. Thumbnail verification will be skipped.")
 	}
 
 	initializeUploadWorkerPool(ctx, &conf.Workers)
@@ -1099,6 +1104,16 @@ func validateConfig(conf *Config) error {
 		return fmt.Errorf("downloads.allowedextensions cannot mix '*' with other entries")
 	}
 
+	// Add validation for PrecacheConfig
+	if conf.Server.PreCaching {
+		if conf.Precache.RedisEnabled && conf.Precache.RedisAddr == "" {
+			return fmt.Errorf("precache.redisAddr must be set when precache.redisEnabled is true")
+		}
+		if conf.Precache.StaticIndexFile == "" {
+			return fmt.Errorf("precache.staticIndexFile must be set when precache is enabled")
+		}
+	}
+
 	return nil
 }
 
@@ -1156,7 +1171,7 @@ func setupLogging() {
 		FullTimestamp: true,
 	})
 
-	log.Infof("Logging initialized with level: %s, file: %s", conf.Logging.Level, conf.Logging.File)
+	log.Debugf("Logging initialized with level: %s, file: %s", conf.Logging.Level, conf.Logging.File)
 }
 
 func logSystemInfo() {
@@ -1168,40 +1183,38 @@ func logSystemInfo() {
 	log.Info("Features: Prometheus Metrics, Chunked Uploads, ClamAV Scanning")
 	log.Info("Build Date: 2024-12-27")
 
-	log.Infof("Operating System: %s", runtime.GOOS)
-	log.Infof("Architecture: %s", runtime.GOARCH)
-	log.Infof("Number of CPUs: %d", runtime.NumCPU())
-	log.Infof("Go Version: %s", runtime.Version())
+	log.Debugf("Operating System: %s", runtime.GOOS)
+	log.Debugf("Architecture: %s", runtime.GOARCH)
+	log.Debugf("Number of CPUs: %d", runtime.NumCPU())
+	log.Debugf("Go Version: %s", runtime.Version())
 
 	v, _ := mem.VirtualMemory()
-	log.Infof("Total Memory: %v MB", v.Total/1024/1024)
-	log.Infof("Free Memory: %v MB", v.Free/1024/1024)
-	log.Infof("Used Memory: %v MB", v.Used/1024/1024)
+	log.Debugf("Total Memory: %v MB", v.Total/1024/1024)
+	log.Debugf("Free Memory: %v MB", v.Free/1024/1024)
+	log.Debugf("Used Memory: %v MB", v.Used/1024/1024)
 
 	cpuInfo, _ := cpu.Info()
 	uniqueCPUModels := make(map[string]bool)
 	for _, info := range cpuInfo {
-		if !uniqueCPUModels[info.ModelName] {
-			log.Infof("CPU Model: %s, Cores: %d, Mhz: %f", info.ModelName, info.Cores, info.Mhz)
-			uniqueCPUModels[info.ModelName] = true
-		}
+		uniqueCPUModels[info.ModelName] = true
+	}
+	for model := range uniqueCPUModels {
+		log.Debugf("CPU Model: %s", model)
 	}
 
 	partitions, _ := disk.Partitions(false)
 	for _, partition := range partitions {
-		usage, _ := disk.Usage(partition.Mountpoint)
-		log.Infof("Disk Mountpoint: %s, Total: %v GB, Free: %v GB, Used: %v GB",
-			partition.Mountpoint, usage.Total/1024/1024/1024, usage.Free/1024/1024/1024, usage.Used/1024/1024/1024)
+		log.Debugf("Disk Partition: %s on device %s", partition.Mountpoint, partition.Device)
 	}
 
 	hInfo, _ := host.Info()
-	log.Infof("Hostname: %s", hInfo.Hostname)
-	log.Infof("Uptime: %v seconds", hInfo.Uptime)
-	log.Infof("Boot Time: %v", time.Unix(int64(hInfo.BootTime), 0))
-	log.Infof("Platform: %s", hInfo.Platform)
-	log.Infof("Platform Family: %s", hInfo.PlatformFamily)
-	log.Infof("Platform Version: %s", hInfo.PlatformVersion)
-	log.Infof("Kernel Version: %s", hInfo.KernelVersion)
+	log.Debugf("Hostname: %s", hInfo.Hostname)
+	log.Debugf("Uptime: %v seconds", hInfo.Uptime)
+	log.Debugf("Boot Time: %v", time.Unix(int64(hInfo.BootTime), 0))
+	log.Debugf("Platform: %s", hInfo.Platform)
+	log.Debugf("Platform Family: %s", hInfo.PlatformFamily)
+	log.Debugf("Platform Version: %s", hInfo.PlatformVersion)
+	log.Debugf("Kernel Version: %s", hInfo.KernelVersion)
 }
 
 func initMetrics() {
@@ -1267,6 +1280,7 @@ func initMetrics() {
 	})
 
 	if conf.Server.MetricsEnabled {
+		log.Debug("Prometheus metrics are enabled")
 		prometheus.MustRegister(uploadDuration, uploadErrorsTotal, uploadsTotal)
 		prometheus.MustRegister(downloadDuration, downloadsTotal, downloadErrorsTotal)
 		prometheus.MustRegister(memoryUsage, cpuUsage, activeConnections, requestsTotal, goroutines, uploadSizeBytes, downloadSizeBytes)
@@ -1307,13 +1321,15 @@ func fileExists(filePath string) (bool, int64) {
 
 	fileInfo, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
+		log.Debugf("File does not exist: %s", filePath)
 		return false, 0
 	} else if err != nil {
-		log.Error("Error checking file existence:", err)
+		log.Errorf("Error checking file %s: %v", filePath, err)
 		return false, 0
 	}
 
 	fileInfoCache.Set(filePath, fileInfo, cache.DefaultExpiration)
+	log.Debugf("File exists: %s, Size: %d bytes", filePath, fileInfo.Size())
 	return !fileInfo.IsDir(), fileInfo.Size()
 }
 
@@ -1374,7 +1390,7 @@ func cleanupOldVersions(versionDir string) error {
 }
 
 func processUpload(task UploadTask) error {
-	log.Infof("Started processing upload for file: %s", task.AbsFilename)
+	log.Debugf("Started processing upload for file: %s", task.AbsFilename)
 	semaphore <- struct{}{}
 	defer func() { <-semaphore }()
 
@@ -1382,10 +1398,11 @@ func processUpload(task UploadTask) error {
 	tempFilename := absFilename + ".tmp"
 	r := task.Request
 
-	log.Infof("Processing upload for file: %s", absFilename)
+	log.Debugf("Processing upload for file: %s", absFilename)
 	startTime := time.Now()
 
 	if conf.Uploads.ChunkedUploadsEnabled {
+		log.Debug("Handling chunked uploads")
 		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
 		if err != nil {
 			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error parsing chunk size")
@@ -1399,6 +1416,7 @@ func processUpload(task UploadTask) error {
 			return err
 		}
 	} else {
+		log.Debug("Handling standard uploads")
 		err := createFile(tempFilename, r)
 		if err != nil {
 			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error creating file")
@@ -1408,6 +1426,7 @@ func processUpload(task UploadTask) error {
 	}
 
 	if clamClient != nil && shouldScanFile(absFilename) {
+		log.Debugf("Scanning file with ClamAV: %s", absFilename)
 		err := scanFileWithClamAV(tempFilename)
 		if err != nil {
 			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Warn("ClamAV detected a virus or scan failed")
@@ -1417,10 +1436,11 @@ func processUpload(task UploadTask) error {
 		}
 		log.Infof("ClamAV scan passed for file: %s", tempFilename)
 	} else {
-		log.Warn("ClamAV is not available or file extension not in scan list. Proceeding without virus scan.")
+		log.Debug("Skipping ClamAV scan")
 	}
 
 	if conf.Versioning.EnableVersioning {
+		log.Debug("Versioning is enabled")
 		existing, _ := fileExists(absFilename)
 		if existing {
 			log.Infof("File %s exists. Initiating versioning.", absFilename)
@@ -1437,15 +1457,15 @@ func processUpload(task UploadTask) error {
 	// Compute file hash first:
 	hashVal, err := computeSHA256(context.Background(), tempFilename)
 	if err != nil {
-		log.Errorf("Could not compute hash: %v", err)
-		return err
+		log.Errorf("Failed to compute SHA256 for %s: %v", absFilename, err)
+		return fmt.Errorf("failed to compute SHA256: %w", err)
 	}
-	log.Infof("Computed hash for %s: %s", absFilename, hashVal)
+	log.Debugf("Computed hash for %s: %s", absFilename, hashVal)
 
 	// Check Redis for existing entry:
 	existingPath, redisErr := redisClient.Get(context.Background(), hashVal).Result()
 	if redisErr == nil && existingPath != "" {
-		log.Warnf("Duplicate upload detected. Using existing file at: %s", existingPath)
+		log.Infof("Deduplication: Found existing file for hash %s at %s", hashVal, existingPath)
 		return nil
 	}
 
@@ -1460,7 +1480,7 @@ func processUpload(task UploadTask) error {
 		os.Remove(tempFilename)
 		return fmt.Errorf("failed to move file to final destination: %w", err)
 	}
-	log.Infof("File moved to final destination: %s", absFilename)
+	log.Debugf("File moved to final destination: %s", absFilename)
 
 	// Store file creation date in metadata cache
 	fileMetadataCache.Set(absFilename, FileMetadata{CreationDate: time.Now()}, cache.DefaultExpiration)
@@ -1472,11 +1492,12 @@ func processUpload(task UploadTask) error {
 	// Gajim and Dino do not require a callback or acknowledgement beyond HTTP success.
 	callbackURL := r.Header.Get("Callback-URL")
 	if callbackURL != "" {
-		log.Warnf("Callback-URL provided (%s) but not needed. Ignoring.", callbackURL)
+		log.Debugf("Triggering callback for upload: %s", callbackURL)
 		// We do not block or wait, just ignore.
 	}
 
 	if conf.Server.DeduplicationEnabled {
+		log.Debug("Deduplication is enabled")
 		log.Debugf("Performing deduplication check for %s", task.AbsFilename)
 		log.Debugf("Dedup check: Using hash %s to find existing path", hashVal)
 		log.Debugf("Existing path found in Redis: %s", existingPath)
@@ -1490,6 +1511,7 @@ func processUpload(task UploadTask) error {
 	}
 
 	if conf.ISO.Enabled {
+		log.Debug("ISO handling is enabled")
 		err = handleISOContainer(absFilename)
 		if err != nil {
 			log.WithError(err).Error("ISO container handling failed")
@@ -1500,6 +1522,7 @@ func processUpload(task UploadTask) error {
 	}
 
 	if redisClient != nil {
+		log.Debug("Interacting with Redis client")
 		errSet := redisClient.Set(context.Background(), hashVal, absFilename, 0).Err()
 		if errSet != nil {
 			log.Warnf("Failed storing hash reference: %v", errSet)
@@ -1509,18 +1532,16 @@ func processUpload(task UploadTask) error {
 	}
 
 	// Generate thumbnail after deduplication
-	thumbnailDir := conf.Thumbnails.Directory
-	err = generateThumbnail(task.AbsFilename, thumbnailDir, conf.Thumbnails.Size)
+	err = generateThumbnail(task.AbsFilename, conf.Thumbnails.Size)
 	if err != nil {
-		log.Errorf("Thumbnail generation failed for %s: %v", task.AbsFilename, err)
-		return err // Return early to avoid logging processing completion
+		log.Errorf("Failed to generate thumbnail for %s: %v", task.AbsFilename, err)
+		return fmt.Errorf("failed to generate thumbnail: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{"file": absFilename}).Info("File uploaded and processed successfully")
-
+	log.Infof("File uploaded and processed successfully: %s", absFilename)
 	uploadDuration.Observe(time.Since(startTime).Seconds())
 	uploadsTotal.Inc()
-	log.Infof("Finished processing upload for file: %s", task.AbsFilename)
+	log.Debugf("Finished processing upload for file: %s", absFilename)
 	return nil
 }
 
@@ -1735,7 +1756,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
-		handleUpload(w, r, absFilename, fileStorePath, a)
+		var _ url.Values = a
+		handleUpload(r, absFilename)
 	case http.MethodHead, http.MethodGet:
 		handleDownload(w, r, absFilename, fileStorePath)
 	case http.MethodOptions:
@@ -1749,151 +1771,157 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpload handles PUT requests for file uploads
-func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string, a url.Values) {
-	log.Infof("Using storage path: %s", conf.Server.StoragePath)
+func handleUpload(r *http.Request, absFilename string) {
+	log.Debugf("Started processing upload for file: %s", absFilename)
+	semaphore <- struct{}{}
+	defer func() { <-semaphore }()
 
-	// HMAC validation
-	var protocolVersion string
-	if a.Get("v2") != "" {
-		protocolVersion = "v2"
-	} else if a.Get("token") != "" {
-		protocolVersion = "token"
-	} else if a.Get("v") != "" {
-		protocolVersion = "v"
-	} else {
-		log.Warn("No HMAC attached to URL.")
-		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
-		return
-	}
-
-	mac := hmac.New(sha256.New, []byte(conf.Security.Secret))
-
-	if protocolVersion == "v" {
-		mac.Write([]byte(fileStorePath + "\x20" + strconv.FormatInt(r.ContentLength, 10)))
-	} else {
-		contentType := mime.TypeByExtension(filepath.Ext(fileStorePath))
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-		mac.Write([]byte(fileStorePath + "\x00" + strconv.FormatInt(r.ContentLength, 10) + "\x00" + contentType))
-	}
-
-	calculatedMAC := mac.Sum(nil)
-
-	providedMACHex := a.Get(protocolVersion)
-	providedMAC, err := hex.DecodeString(providedMACHex)
-	if err != nil {
-		log.Warn("Invalid MAC encoding")
-		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
-		return
-	}
-
-	if !hmac.Equal(calculatedMAC, providedMAC) {
-		log.Warn("Invalid MAC")
-		http.Error(w, "Invalid MAC", http.StatusForbidden)
-		return
-	}
-
-	if !isExtensionAllowed(fileStorePath, conf.Uploads.AllowedExtensions) {
-		log.Warn("Invalid file extension")
-		http.Error(w, "Invalid file extension", http.StatusBadRequest)
-		uploadErrorsTotal.Inc()
-		return
-	}
-
-	minFreeBytes, err := parseSize(conf.Server.MinFreeBytes)
-	if err != nil {
-		log.Fatalf("Invalid MinFreeBytes: %v", err)
-	}
-	err = checkStorageSpace(conf.Server.StoragePath, minFreeBytes)
-	if err != nil {
-		log.Warn("Not enough free space")
-		http.Error(w, "Not enough free space", http.StatusInsufficientStorage)
-		uploadErrorsTotal.Inc()
-		return
-	}
-
-	// Create temp file and write the uploaded data
 	tempFilename := absFilename + ".tmp"
-	err = createFile(tempFilename, r)
+
+	log.Debugf("Processing upload for file: %s", absFilename)
+	startTime := time.Now()
+
+	if conf.Uploads.ChunkedUploadsEnabled {
+		log.Debug("Handling chunked uploads")
+		chunkSize, err := parseSize(conf.Uploads.ChunkSize)
+		if err != nil {
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error parsing chunk size")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return
+		}
+		err = handleChunkedUpload(tempFilename, r, int(chunkSize))
+		if err != nil {
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Failed to handle chunked upload")
+			return
+		}
+	} else {
+		log.Debug("Handling standard uploads")
+		err := createFile(tempFilename, r)
+		if err != nil {
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Error("Error creating file")
+			uploadDuration.Observe(time.Since(startTime).Seconds())
+			return
+		}
+	}
+
+	if clamClient != nil && shouldScanFile(absFilename) {
+		log.Debugf("Scanning file with ClamAV: %s", absFilename)
+		err := scanFileWithClamAV(tempFilename)
+		if err != nil {
+			log.WithFields(logrus.Fields{"file": tempFilename, "error": err}).Warn("ClamAV detected a virus or scan failed")
+			os.Remove(tempFilename)
+			uploadErrorsTotal.Inc()
+			return
+		}
+		log.Infof("ClamAV scan passed for file: %s", tempFilename)
+	} else {
+		log.Debug("Skipping ClamAV scan")
+	}
+
+	if conf.Versioning.EnableVersioning {
+		log.Debug("Versioning is enabled")
+		existing, _ := fileExists(absFilename)
+		if existing {
+			log.Infof("File %s exists. Initiating versioning.", absFilename)
+			err := versionFile(absFilename)
+			if err != nil {
+				log.WithFields(logrus.Fields{"file": absFilename, "error": err}).Error("Error versioning file")
+				os.Remove(tempFilename)
+				return
+			}
+			log.Infof("File versioned successfully: %s", absFilename)
+		}
+	}
+
+	// Compute file hash first:
+	hashVal, err := computeSHA256(context.Background(), tempFilename)
 	if err != nil {
-		log.WithFields(logrus.Fields{
-			"filename": absFilename,
-		}).WithError(err).Error("Error creating temp file")
-		http.Error(w, "Error writing temp file", http.StatusInternalServerError)
+		log.Errorf("Failed to compute SHA256 for %s: %v", absFilename, err)
+		return
+	}
+	log.Debugf("Computed hash for %s: %s", absFilename, hashVal)
+
+	// Check Redis for existing entry:
+	existingPath, redisErr := redisClient.Get(context.Background(), hashVal).Result()
+	if redisErr == nil && existingPath != "" {
+		log.Infof("Deduplication: Found existing file for hash %s at %s", hashVal, existingPath)
 		return
 	}
 
-	// Move temp file to final destination
+	log.Debugf("Renaming temp file %s -> %s", tempFilename, absFilename)
 	err = os.Rename(tempFilename, absFilename)
-	if err != nil {
-		log.Errorf("Rename failed for %s: %v", absFilename, err)
-		os.Remove(tempFilename)
-		http.Error(w, "Error moving file to final destination", http.StatusInternalServerError)
-		return
-	}
-
-	// Respond with 201 Created immediately
-	w.WriteHeader(http.StatusCreated)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-	log.Infof("Responded with 201 Created for file: %s", absFilename)
-
-	// Asynchronous processing in the background
-	go func() {
-		var logMessages []string
-
-		// ClamAV scanning
-		if conf.ClamAV.ClamAVEnabled && shouldScanFile(absFilename) {
-			err := scanFileWithClamAV(absFilename)
-			if err != nil {
-				logMessages = append(logMessages, fmt.Sprintf("ClamAV failed for %s: %v", absFilename, err))
-				for _, msg := range logMessages {
-					log.Info(msg)
-				}
-				return
-			} else {
-				logMessages = append(logMessages, fmt.Sprintf("ClamAV scan passed for file: %s", absFilename))
-			}
-		}
-
-		// Deduplication
-		if conf.Redis.RedisEnabled && conf.Server.DeduplicationEnabled {
-			err := handleDeduplication(context.Background(), absFilename)
-			if err != nil {
-				log.Errorf("Deduplication failed for %s: %v", absFilename, err)
-				os.Remove(absFilename)
-				uploadErrorsTotal.Inc()
-				return
-			} else {
-				logMessages = append(logMessages, fmt.Sprintf("Deduplication handled successfully for file: %s", absFilename))
-			}
-		}
-
-		// Versioning
-		if conf.Versioning.EnableVersioning {
-			if exists, _ := fileExists(absFilename); exists {
-				err := versionFile(absFilename)
-				if err != nil {
-					log.Errorf("Versioning failed for %s: %v", absFilename, err)
-					os.Remove(absFilename)
-					uploadErrorsTotal.Inc()
-					return
-				} else {
-					logMessages = append(logMessages, fmt.Sprintf("File versioned successfully: %s", absFilename))
-				}
-			}
-		}
-
-		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", absFilename))
-		uploadsTotal.Inc()
-
-		// Log all messages at once
-		for _, msg := range logMessages {
-			log.Info(msg)
+	defer func() {
+		if err != nil {
+			os.Remove(tempFilename)
 		}
 	}()
+	if err != nil {
+		os.Remove(tempFilename)
+		return
+	}
+	log.Debugf("File moved to final destination: %s", absFilename)
+
+	// Store file creation date in metadata cache
+	fileMetadataCache.Set(absFilename, FileMetadata{CreationDate: time.Now()}, cache.DefaultExpiration)
+
+	log.Debugf("Verifying existence immediately after rename: %s", absFilename)
+	exists, size := fileExists(absFilename)
+	log.Debugf("Exists? %v, Size: %d", exists, size)
+
+	// Gajim and Dino do not require a callback or acknowledgement beyond HTTP success.
+	callbackURL := r.Header.Get("Callback-URL")
+	if callbackURL != "" {
+		log.Debugf("Triggering callback for upload: %s", callbackURL)
+		// We do not block or wait, just ignore.
+	}
+
+	if conf.Server.DeduplicationEnabled {
+		log.Debug("Deduplication is enabled")
+		log.Debugf("Performing deduplication check for %s", absFilename)
+		log.Debugf("Dedup check: Using hash %s to find existing path", hashVal)
+		log.Debugf("Existing path found in Redis: %s", existingPath)
+		err = handleDeduplication(context.Background(), absFilename)
+		if err != nil {
+			log.WithError(err).Error("Deduplication failed")
+			uploadErrorsTotal.Inc()
+			return
+		}
+		log.Infof("Deduplication handled successfully for file: %s", absFilename)
+	}
+
+	if conf.ISO.Enabled {
+		log.Debug("ISO handling is enabled")
+		err = handleISOContainer(absFilename)
+		if err != nil {
+			log.WithError(err).Error("ISO container handling failed")
+			uploadErrorsTotal.Inc()
+			return
+		}
+		log.Infof("ISO container handled successfully for file: %s", absFilename)
+	}
+
+	if redisClient != nil {
+		log.Debug("Interacting with Redis client")
+		errSet := redisClient.Set(context.Background(), hashVal, absFilename, 0).Err()
+		if errSet != nil {
+			log.Warnf("Failed storing hash reference: %v", errSet)
+		} else {
+			log.Infof("Hash reference stored: %s -> %s", hashVal, absFilename)
+		}
+	}
+
+	// Generate thumbnail after deduplication
+	err = generateThumbnail(absFilename, conf.Thumbnails.Size)
+	if err != nil {
+		log.Errorf("Failed to generate thumbnail for %s: %v", absFilename, err)
+		return
+	}
+
+	log.Infof("File uploaded and processed successfully: %s", absFilename)
+	uploadDuration.Observe(time.Since(startTime).Seconds())
+	uploadsTotal.Inc()
+	log.Debugf("Finished processing upload for file: %s", absFilename)
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileStorePath string) {
@@ -2219,10 +2247,11 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 			log.Info("Server gracefully stopped")
 		}
 	}()
+	log.Debug("Graceful shutdown setup complete")
 }
 
 func initRedis() {
-	if (!conf.Redis.RedisEnabled) {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -2233,18 +2262,15 @@ func initRedis() {
 		DB:       conf.Redis.RedisDBIndex,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := redisClient.Ping(ctx).Result()
+	_, err := redisClient.Ping(context.Background()).Result()
 	if err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
+		log.Errorf("Failed to connect to Redis: %v", err)
+		redisClient = nil
+		return
 	}
-	log.Info("Connected to Redis successfully")
 
-	mu.Lock()
 	redisConnected = true
-	mu.Unlock()
+	log.Info("Connected to Redis successfully.")
 }
 
 func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval time.Duration) {
@@ -2265,7 +2291,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
@@ -2833,9 +2859,16 @@ func monitorDirectoryChanges(dir string) {
 	}
 }
 
-func generateThumbnail(originalPath, thumbnailDir, size string) error {
+func generateThumbnail(originalPath, size string) error {
 	// Check if thumbnail generation is enabled
-	if (!conf.Thumbnails.Enabled) {
+	if !conf.Thumbnails.Enabled {
+		log.Debug("Thumbnail generation is disabled")
+		return nil
+	}
+
+	log.Debugf("Generating thumbnail for: %s with size: %s", originalPath, size)
+
+	if !conf.Thumbnails.Enabled {
 		return nil
 	}
 
@@ -2860,7 +2893,7 @@ func generateThumbnail(originalPath, thumbnailDir, size string) error {
 	}
 
 	// Define the thumbnail file path
-	thumbnailPath := filepath.Join(thumbnailDir, filepath.Base(originalPath))
+	thumbnailPath := filepath.Join(conf.Thumbnails.Directory, filepath.Base(originalPath))
 
 	// Check if thumbnail already exists
 	if _, err := os.Stat(thumbnailPath); err == nil {
@@ -2885,7 +2918,7 @@ func generateThumbnail(originalPath, thumbnailDir, size string) error {
 		}
 	}
 
-	log.Infof("Generated thumbnail for %s at %s", originalPath, thumbnailPath)
+	log.Debugf("Thumbnail generated at: %s", thumbnailPath)
 	thumbnailProcessedTotal.Inc()
 	return nil
 }
@@ -2980,7 +3013,7 @@ func deleteOldFiles(conf *Config, ttl time.Duration) {
 }
 
 func scheduleThumbnailGeneration(ctx context.Context) {
-	if (!conf.Thumbnails.Enabled) {
+	if !conf.Thumbnails.Enabled {
 		log.Info("Thumbnail generation is disabled.")
 		return
 	}
@@ -3008,7 +3041,7 @@ func scheduleThumbnailGeneration(ctx context.Context) {
 						return err
 					}
 					if !info.IsDir() && isImageFile(path) {
-						generateThumbnail(path, conf.Thumbnails.Directory, conf.Thumbnails.Size)
+						generateThumbnail(path, conf.Thumbnails.Size)
 					}
 					return nil
 				})
@@ -3036,143 +3069,142 @@ func isImageFile(path string) bool {
 
 // Add or replace the function to authenticate requests
 func authenticateRequest(r *http.Request) bool {
-    // Placeholder logic; replace with your own authentication method
-    apiKey := r.Header.Get("X-API-Key")
-    expectedAPIKey := "your-secure-api-key"
-    return hmac.Equal([]byte(apiKey), []byte(expectedAPIKey))
+	// Placeholder logic; replace with your own authentication method
+	apiKey := r.Header.Get("X-API-Key")
+	expectedAPIKey := "your-secure-api-key"
+	return hmac.Equal([]byte(apiKey), []byte(expectedAPIKey))
 }
 
 // Add or replace the handler for /thumbnails
 func handleThumbnails(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodGet {
-        http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-        return
-    }
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-    userID := r.URL.Query().Get("user_id")
-    if userID == "" {
-        http.Error(w, "Missing user_id parameter", http.StatusBadRequest)
-        return
-    }
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		http.Error(w, "Missing user_id parameter", http.StatusBadRequest)
+		return
+	}
 
-    // Authenticate the request
-    if !authenticateRequest(r) {
-        http.Error(w, "Unauthorized", http.StatusUnauthorized)
-        return
-    }
+	// Authenticate the request
+	if !authenticateRequest(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-    // Construct the thumbnail file path (assuming JPEG)
-    thumbnailPath := filepath.Join(conf.Thumbnails.Directory, fmt.Sprintf("%s.jpg", userID))
+	// Construct the thumbnail file path (assuming JPEG)
+	thumbnailPath := filepath.Join(conf.Thumbnails.Directory, fmt.Sprintf("%s.jpg", userID))
 
-    fileInfo, err := os.Stat(thumbnailPath)
-    if os.IsNotExist(err) {
-        http.Error(w, "Thumbnail not found", http.StatusNotFound)
-        return
-    } else if err != nil {
-        log.WithError(err).Errorf("Error accessing thumbnail for user_id: %s", userID)
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
-    }
+	fileInfo, err := os.Stat(thumbnailPath)
+	if os.IsNotExist(err) {
+		http.Error(w, "Thumbnail not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		log.WithError(err).Errorf("Error accessing thumbnail for user_id: %s", userID)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-    file, err := os.Open(thumbnailPath)
-    if err != nil {
-        log.WithError(err).Errorf("Failed to open thumbnail for user_id: %s", userID)
-        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-        return
-    }
-    defer file.Close()
+	file, err := os.Open(thumbnailPath)
+	if err != nil {
+		log.WithError(err).Errorf("Failed to open thumbnail for user_id: %s", userID)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
 
-    // Determine the Content-Type based on file extension
-    ext := strings.ToLower(filepath.Ext(thumbnailPath))
-    contentType := mime.TypeByExtension(ext)
-    if contentType == "" {
-        contentType = "application/octet-stream"
-    }
+	// Determine the Content-Type based on file extension
+	ext := strings.ToLower(filepath.Ext(thumbnailPath))
+	contentType := mime.TypeByExtension(ext)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
 
-    w.Header().Set("Content-Type", contentType)
-    w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 
-    if _, err := io.Copy(w, file); err != nil {
-        log.WithError(err).Errorf("Failed to serve thumbnail for user_id: %s", userID)
-    }
+	if _, err := io.Copy(w, file); err != nil {
+		log.WithError(err).Errorf("Failed to serve thumbnail for user_id: %s", userID)
+	}
 }
 
 // verifyAndRepairThumbnails verifies the integrity of thumbnail files and repairs them if necessary
 func verifyAndRepairThumbnails(thumbnailPaths []string, redisClient *redis.Client, originalDir string) {
-    // Check if redisClient is nil
-    if redisClient == nil {
-        log.Error("Redis client is nil. Cannot verify and repair thumbnails.")
-        return
-    }
+	// Check if redisClient is nil
+	if redisClient == nil {
+		log.Error("Redis client is nil. Cannot verify and repair thumbnails.")
+		return
+	}
 
-    // Check if thumbnailPaths is nil or empty
+	// Check if thumbnailPaths is nil or empty
 	if len(thumbnailPaths) == 0 {
-        log.Error("Thumbnail paths are nil or empty. Nothing to verify or repair.")
-        return
-    }
+		log.Error("Thumbnail paths are nil or empty. Nothing to verify or repair.")
+		return
+	}
 
-    for _, thumbPath := range thumbnailPaths {
-        // Compute SHA-256 hash of the thumbnail file
-        file, err := os.Open(thumbPath)
-        if err != nil {
-            log.Warnf("Error opening thumbnail %s: %v", thumbPath, err)
-            continue
-        }
-        hasher := sha256.New()
-        if _, err := io.Copy(hasher, file); err != nil {
-            log.Warnf("Error hashing thumbnail %s: %v", thumbPath, err)
-            file.Close()
-            continue
-        }
-        file.Close()
-        computedHash := hex.EncodeToString(hasher.Sum(nil))
+	for _, thumbPath := range thumbnailPaths {
+		// Compute SHA-256 hash of the thumbnail file
+		file, err := os.Open(thumbPath)
+		if err != nil {
+			log.Warnf("Error opening thumbnail %s: %v", thumbPath, err)
+			continue
+		}
+		hasher := sha256.New()
+		if _, err := io.Copy(hasher, file); err != nil {
+			log.Warnf("Error hashing thumbnail %s: %v", thumbPath, err)
+			file.Close()
+			continue
+		}
+		file.Close()
+		computedHash := hex.EncodeToString(hasher.Sum(nil))
 
-        // Get stored hash from Redis
-        storedHash, err := redisClient.Get(context.Background(), thumbPath).Result()
-        if err == redis.Nil || storedHash != computedHash {
-            log.Warnf("Thumbnail %s is corrupted or missing. Regenerating...", thumbPath)
+		// Get stored hash from Redis
+		storedHash, err := redisClient.Get(context.Background(), thumbPath).Result()
+		if err == redis.Nil || storedHash != computedHash {
+			log.Warnf("Thumbnail %s is corrupted or missing. Regenerating...", thumbPath)
 
-            // Assume original image is in originalDir with the same base name
-            originalPath := filepath.Join(originalDir, filepath.Base(thumbPath))
-            origImage, err := imaging.Open(originalPath)
-            if err != nil {
-                log.Warnf("Error opening original image %s: %v", originalPath, err)
-                continue
-            }
+			// Assume original image is in originalDir with the same base name
+			originalPath := filepath.Join(originalDir, filepath.Base(thumbPath))
+			origImage, err := imaging.Open(originalPath)
+			if err != nil {
+				log.Warnf("Error opening original image %s: %v", originalPath, err)
+				continue
+			}
 
-            // Generate thumbnail (e.g., 200x200 pixels)
-            thumbnail := imaging.Thumbnail(origImage, 200, 200, imaging.Lanczos)
+			// Generate thumbnail (e.g., 200x200 pixels)
+			thumbnail := imaging.Thumbnail(origImage, 200, 200, imaging.Lanczos)
 
-            // Save the regenerated thumbnail
-            err = imaging.Save(thumbnail, thumbPath)
-            if err != nil {
-                log.Warnf("Error saving regenerated thumbnail %s: %v", thumbPath, err)
-                continue
-            }
+			// Save the regenerated thumbnail
+			err = imaging.Save(thumbnail, thumbPath)
+			if err != nil {
+				log.Warnf("Error saving regenerated thumbnail %s: %v", thumbPath, err)
+				continue
+			}
 
-            // Compute new hash
-            file, err := os.Open(thumbPath)
-            if err != nil {
-                log.Warnf("Error opening regenerated thumbnail %s: %v", thumbPath, err)
-                continue
-            }
-            hasher.Reset()
-            if _, err := io.Copy(hasher, file); err != nil {
-                log.Warnf("Error hashing regenerated thumbnail %s: %v", thumbPath, err)
-                file.Close()
-                continue
-            }
-            file.Close()
-            newHash := hex.EncodeToString(hasher.Sum(nil))
+			// Compute new hash
+			file, err := os.Open(thumbPath)
+			if err != nil {
+				log.Warnf("Error opening regenerated thumbnail %s: %v", thumbPath, err)
+				continue
+			}
+			hasher.Reset()
+			if _, err := io.Copy(hasher, file); err != nil {
+				log.Warnf("Error hashing regenerated thumbnail %s: %v", thumbPath, err)
+				file.Close()
+				continue
+			}
+			file.Close()
+			newHash := hex.EncodeToString(hasher.Sum(nil))
 
-            // Store new hash in Redis
-            err = redisClient.Set(context.Background(), thumbPath, newHash, 0).Err()
-            if err != nil {
-                log.Warnf("Error storing new hash for thumbnail %s in Redis: %v", thumbPath, err)
-                continue
-            }
-
-            log.Infof("Successfully regenerated and updated thumbnail %s", thumbPath)
-        }
-    }
+			// Store new hash in Redis
+			err = redisClient.Set(context.Background(), thumbPath, newHash, 0).Err()
+			if err != nil {
+				log.Warnf("Error storing new hash for thumbnail %s in Redis: %v", thumbPath, err)
+				continue
+			}
+			log.Infof("Successfully regenerated and updated thumbnail %s", thumbPath)
+		}
+	}
 }
