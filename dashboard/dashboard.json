@@ -39,7 +39,7 @@
           "showLineNumbers": false,
           "showMiniMap": false
         },
-        "content": "<div style=\"text-align: center; background-color: transparent; padding: 20px;\">\n    <h3 style=\"color: white; font-family: 'Arial', sans-serif; font-weight: bold;\">HMAC Dashboard</h3>\n    <img src=\"https://block.uuxo.net/hmac_icon.png\" alt=\"HMAC Icon\" style=\"width: 50px; height: 50px; display: block; margin: 10px auto;\">\n    <p style=\"font-family: 'Verdana', sans-serif; color: white;\">\n        This dashboard monitors <strong style=\"color: #FF5733;\">key metrics</strong> for the \n        <span style=\"font-style: italic; color: #007BFF;\">HMAC File Server</span>.\n    </p>\n</div>\n",
+        "content": "<div style=\"text-align: center; background-color: transparent; padding: 20px;\">\n    <h3 style=\"color: white; font-family: 'Arial', sans-serif; font-weight: bold;\">HMAC Dashboard</h3>\n    <img src=\"https://git.uuxo.net/uuxo/hmac-file-server/raw/branch/main/dashboard/hmac_icon.png\" alt=\"HMAC Icon\" style=\"width: 50px; height: 50px; display: block; margin: 10px auto;\">\n    <p style=\"font-family: 'Verdana', sans-serif; color: white;\">\n        This dashboard monitors <strong style=\"color: #FF5733;\">key metrics</strong> for the \n        <span style=\"font-style: italic; color: #007BFF;\">HMAC File Server</span>.\n    </p>\n</div>\n",
         "mode": "html"
       },
       "pluginVersion": "11.4.0",
@@ -821,6 +821,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 142,
+  "version": 144,
   "weekStart": ""
 }
