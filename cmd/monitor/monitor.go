@@ -421,8 +421,9 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 		err       error
 	})
 	hmacInfoCh := make(chan struct {
-		info *ProcessInfo
-		err  error
+		info    *ProcessInfo
+		metrics map[string]float64
+		err     error
 	})
 
 	// Goroutine zur Datenbeschaffung
@@ -472,10 +473,15 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 				// hmac-file-server Informationen abrufen asynchron
 				go func() {
 					hmacInfo, err := fetchHmacFileServerInfo()
+					var metrics map[string]float64
+					if metricsEnabled {
+						metrics, err = fetchMetrics()
+					}
 					hmacInfoCh <- struct {
-						info *ProcessInfo
-						err  error
-					}{hmacInfo, err}
+						info    *ProcessInfo
+						metrics map[string]float64
+						err     error
+					}{hmacInfo, metrics, err}
 				}()
 			}
 		}
@@ -550,7 +556,7 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 				if currentPage, _ := pages.GetFrontPage(); currentPage == "hmac" && data.info != nil {
 					hmacFlex := hmacPage.(*tview.Flex)
 					hmacTable := hmacFlex.GetItem(0).(*tview.Table)
-					updateHmacTable(hmacTable, data.info, nil) // Metriken können separat behandelt werden
+					updateHmacTable(hmacTable, data.info, data.metrics)
 				}
 			})
 		}
