@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"context"
+	"io"
+	"sync"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/pelletier/go-toml"
@@ -179,7 +181,7 @@ func fetchSystemData() (float64, float64, int, error) {
 	return v.UsedPercent, cpuUsage, cores, nil
 }
 
-// Function to fetch process list
+// Funktion zum Abrufen der Prozessliste mit paralleler Verarbeitung
 func fetchProcessList() ([]ProcessInfo, error) {
 	processes, err := process.Processes()
 	if err != nil {
@@ -187,37 +189,55 @@ func fetchProcessList() ([]ProcessInfo, error) {
 	}
 
 	var processList []ProcessInfo
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Begrenzung der gleichzeitigen Goroutinen auf 10
+	sem := make(chan struct{}, 10)
 
 	for _, p := range processes {
-		cpuPercent, err := p.CPUPercent()
-		if err != nil {
-			continue
-		}
+		wg.Add(1)
+		sem <- struct{}{} // Eintritt in semaphor
 
-		memPercent, err := p.MemoryPercent()
-		if err != nil {
-			continue
-		}
+		go func(p *process.Process) {
+			defer wg.Done()
+			defer func() { <-sem }() // Austritt aus semaphor
 
-		name, err := p.Name()
-		if err != nil {
-			continue
-		}
+			cpuPercent, err := p.CPUPercent()
+			if err != nil {
+				return
+			}
 
-		cmdline, err := p.Cmdline()
-		if err != nil {
-			cmdline = ""
-		}
+			memPercent, err := p.MemoryPercent()
+			if err != nil {
+				return
+			}
 
-		processList = append(processList, ProcessInfo{
-			PID:         p.Pid,
-			Name:        name,
-			CPUPercent:  cpuPercent,
-			MemPercent:  memPercent,
-			CommandLine: cmdline,
-		})
+			name, err := p.Name()
+			if err != nil {
+				return
+			}
+
+			cmdline, err := p.Cmdline()
+			if err != nil {
+				cmdline = ""
+			}
+
+			info := ProcessInfo{
+				PID:         p.Pid,
+				Name:        name,
+				CPUPercent:  cpuPercent,
+				MemPercent:  memPercent,
+				CommandLine: cmdline,
+			}
+
+			mu.Lock()
+			processList = append(processList, info)
+			mu.Unlock()
+		}(p)
 	}
 
+	wg.Wait()
 	return processList, nil
 }
 
@@ -263,62 +283,161 @@ func fetchHmacFileServerInfo() (*ProcessInfo, error) {
 	return nil, fmt.Errorf("hmac-file-server process not found")
 }
 
-// Function to update the UI with the latest data
-func updateUI(app *tview.Application, pages *tview.Pages, sysPage, hmacPage tview.Primitive) {
+// Funktion zur Aktualisierung der UI mit paralleler Datenbeschaffung
+func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, sysPage, hmacPage tview.Primitive) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		// Fetch data for both views
-		memUsage, cpuUsage, cores, err := fetchSystemData()
-		if err != nil {
-			log.Printf("Error fetching system data: %v\n", err)
-			continue
-		}
+	// Einführung von Channels für verschiedene Daten
+	systemDataCh := make(chan struct {
+		memUsage float64
+		cpuUsage float64
+		cores    int
+		err      error
+	})
+	metricsCh := make(chan struct {
+		metrics map[string]float64
+		err     error
+	})
+	processListCh := make(chan struct {
+		processes []ProcessInfo
+		err       error
+	})
+	hmacInfoCh := make(chan struct {
+		info *ProcessInfo
+		err  error
+	})
 
-		metrics, err := fetchMetrics()
-		if err != nil {
-			log.Printf("Error fetching metrics: %v\n", err)
-			continue
-		}
+	// Goroutine zur Datenbeschaffung
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				close(systemDataCh)
+				close(metricsCh)
+				close(processListCh)
+				close(hmacInfoCh)
+				return
+			case <-ticker.C:
+				// Systemdaten abrufen asynchron
+				go func() {
+					memUsage, cpuUsage, cores, err := fetchSystemData()
+					systemDataCh <- struct {
+						memUsage float64
+						cpuUsage float64
+						cores    int
+						err      error
+					}{memUsage, cpuUsage, cores, err}
+				}()
 
-		processes, err := fetchProcessList()
-		if err != nil {
-			log.Printf("Error fetching process list: %v\n", err)
-			continue
-		}
+				// Metriken abrufen asynchron
+				go func() {
+					metrics, err := fetchMetrics()
+					metricsCh <- struct {
+						metrics map[string]float64
+						err     error
+					}{metrics, err}
+				}()
 
-		hmacInfo, err := fetchHmacFileServerInfo()
-		if err != nil {
-			log.Printf("Error fetching hmac-file-server info: %v\n", err)
-		}
+				// Prozessliste abrufen asynchron
+				go func() {
+					processes, err := fetchProcessList()
+					processListCh <- struct {
+						processes []ProcessInfo
+						err       error
+					}{processes, err}
+				}()
 
-		// Update the UI
-		app.QueueUpdateDraw(func() {
-			// Update system page
-			if currentPage, _ := pages.GetFrontPage(); currentPage == "system" {
-				sysFlex := sysPage.(*tview.Flex)
-
-				// Update system data table
-				sysTable := sysFlex.GetItem(0).(*tview.Table)
-				updateSystemTable(sysTable, memUsage, cpuUsage, cores)
-
-				// Update metrics table
-				metricsTable := sysFlex.GetItem(1).(*tview.Table)
-				updateMetricsTable(metricsTable, metrics)
-
-				// Update process table
-				processTable := sysFlex.GetItem(2).(*tview.Table)
-				updateProcessTable(processTable, processes)
+				// hmac-file-server Informationen abrufen asynchron
+				go func() {
+					hmacInfo, err := fetchHmacFileServerInfo()
+					hmacInfoCh <- struct {
+						info *ProcessInfo
+						err  error
+					}{hmacInfo, err}
+				}()
 			}
+		}
+	}()
 
-			// Update hmac-file-server page
-			if currentPage, _ := pages.GetFrontPage(); currentPage == "hmac" && hmacInfo != nil {
-				hmacFlex := hmacPage.(*tview.Flex)
-				hmacTable := hmacFlex.GetItem(0).(*tview.Table)
-				updateHmacTable(hmacTable, hmacInfo, metrics)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case data, ok := <-systemDataCh:
+			if !ok {
+				systemDataCh = nil
+				continue
 			}
-		})
+			if data.err != nil {
+				log.Printf("Error fetching system data: %v\n", data.err)
+				continue
+			}
+			// UI aktualisieren mit Systemdaten
+			app.QueueUpdateDraw(func() {
+				if currentPage, _ := pages.GetFrontPage(); currentPage == "system" {
+					sysFlex := sysPage.(*tview.Flex)
+					sysTable := sysFlex.GetItem(0).(*tview.Table)
+					updateSystemTable(sysTable, data.memUsage, data.cpuUsage, data.cores)
+				}
+			})
+		case data, ok := <-metricsCh:
+			if !ok {
+				metricsCh = nil
+				continue
+			}
+			if data.err != nil {
+				log.Printf("Error fetching metrics: %v\n", data.err)
+				continue
+			}
+			// UI aktualisieren mit Metriken
+			app.QueueUpdateDraw(func() {
+				if currentPage, _ := pages.GetFrontPage(); currentPage == "system" {
+					sysFlex := sysPage.(*tview.Flex)
+					metricsTable := sysFlex.GetItem(1).(*tview.Table)
+					updateMetricsTable(metricsTable, data.metrics)
+				}
+			})
+		case data, ok := <-processListCh:
+			if !ok {
+				processListCh = nil
+				continue
+			}
+			if data.err != nil {
+				log.Printf("Error fetching process list: %v\n", data.err)
+				continue
+			}
+			// UI aktualisieren mit Prozessliste
+			app.QueueUpdateDraw(func() {
+				if currentPage, _ := pages.GetFrontPage(); currentPage == "system" {
+					sysFlex := sysPage.(*tview.Flex)
+					processTable := sysFlex.GetItem(2).(*tview.Table)
+					updateProcessTable(processTable, data.processes)
+				}
+			})
+		case data, ok := <-hmacInfoCh:
+			if !ok {
+				hmacInfoCh = nil
+				continue
+			}
+			if data.err != nil {
+				log.Printf("Error fetching hmac-file-server info: %v\n", data.err)
+				continue
+			}
+			// UI aktualisieren mit hmac-file-server Informationen
+			app.QueueUpdateDraw(func() {
+				if currentPage, _ := pages.GetFrontPage(); currentPage == "hmac" && data.info != nil {
+					hmacFlex := hmacPage.(*tview.Flex)
+					hmacTable := hmacFlex.GetItem(0).(*tview.Table)
+					updateHmacTable(hmacTable, data.info, nil) // metrics können separat behandelt werden
+				}
+			})
+		}
+
+		// Abbruchbedingung, wenn alle Channels geschlossen sind
+		if systemDataCh == nil && metricsCh == nil && processListCh == nil && hmacInfoCh == nil {
+			break
+		}
 	}
 }
 
@@ -469,71 +588,116 @@ func createHmacPage() tview.Primitive {
 	return hmacFlex
 }
 
-func createLogsPage(logFilePath string) tview.Primitive {
-    logsTextView := tview.NewTextView().
-        SetDynamicColors(true).
-        SetRegions(true).
-        SetWordWrap(true)
-    logsTextView.SetTitle(" [::b]Logs ").SetBorder(true)
+func createLogsPage(ctx context.Context, app *tview.Application, logFilePath string) tview.Primitive {
+	logsTextView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetRegions(true).
+		SetWordWrap(true)
+	logsTextView.SetTitle(" [::b]Logs ").SetBorder(true)
 
-    const numLines = 100 // Number of lines to read from the end of the log file
+	const numLines = 100 // Number of lines to read from the end of the log file
 
-    // Read logs periodically
-    go func() {
-        for {
-            content, err := readLastNLines(logFilePath, numLines)
-            if err != nil {
-                logsTextView.SetText(fmt.Sprintf("[red]Error reading log file: %v[white]", err))
-            } else {
-                // Process the log content to add colors
-                lines := strings.Split(content, "\n")
-                var coloredLines []string
-                for _, line := range lines {
-                    if strings.Contains(line, "level=info") {
-                        coloredLines = append(coloredLines, "[green]"+line+"[white]")
-                    } else if strings.Contains(line, "level=warn") {
-                        coloredLines = append(coloredLines, "[yellow]"+line+"[white]")
-                    } else if strings.Contains(line, "level=error") {
-                        coloredLines = append(coloredLines, "[red]"+line+"[white]")
-                    } else {
-                        // Default color
-                        coloredLines = append(coloredLines, line)
-                    }
-                }
-                logsTextView.SetText(strings.Join(coloredLines, "\n"))
-            }
-            time.Sleep(2 * time.Second) // Refresh interval for logs
-        }
-    }()
+	// Read logs periodically
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				content, err := readLastNLines(logFilePath, numLines)
+				if err != nil {
+					app.QueueUpdateDraw(func() {
+						logsTextView.SetText(fmt.Sprintf("[red]Error reading log file: %v[white]", err))
+					})
+				} else {
+					// Process the log content to add colors
+					lines := strings.Split(content, "\n")
+					var coloredLines []string
+					for _, line := range lines {
+						if strings.Contains(line, "level=info") {
+							coloredLines = append(coloredLines, "[green]"+line+"[white]")
+						} else if strings.Contains(line, "level=warn") {
+							coloredLines = append(coloredLines, "[yellow]"+line+"[white]")
+						} else if strings.Contains(line, "level=error") {
+							coloredLines = append(coloredLines, "[red]"+line+"[white]")
+						} else {
+							// Default color
+							coloredLines = append(coloredLines, line)
+						}
+					}
+					app.QueueUpdateDraw(func() {
+						logsTextView.SetText(strings.Join(coloredLines, "\n"))
+					})
+				}
+				time.Sleep(2 * time.Second) // Refresh interval for logs
+			}
+		}
+	}()
 
-    return logsTextView
+	return logsTextView
 }
 
+// Optimized readLastNLines to handle large files efficiently
 func readLastNLines(filePath string, n int) (string, error) {
-    file, err := os.Open(filePath)
-    if err != nil {
-        return "", err
-    }
-    defer file.Close()
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
 
-    var lines []string
-    scanner := bufio.NewScanner(file)
-    for scanner.Scan() {
-        lines = append(lines, scanner.Text())
-        if len(lines) > n {
-            lines = lines[1:]
-        }
-    }
+	const bufferSize = 1024
+	buffer := make([]byte, bufferSize)
+	var content []byte
+	var fileSize int64
 
-    if err := scanner.Err(); err != nil {
-        return "", err
-    }
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	fileSize = fileInfo.Size()
 
-    return strings.Join(lines, "\n"), nil
+	var offset int64 = 0
+	for {
+		if fileSize-offset < bufferSize {
+			offset = fileSize
+		} else {
+			offset += bufferSize
+		}
+
+		_, err := file.Seek(-offset, io.SeekEnd)
+		if err != nil {
+			return "", err
+		}
+
+		bytesRead, err := file.Read(buffer)
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+
+		content = append(buffer[:bytesRead], content...)
+
+		if bytesRead < bufferSize || len(strings.Split(string(content), "\n")) > n+1 {
+			break
+		}
+
+		if offset >= fileSize {
+			break
+		}
+	}
+
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func main() {
 	app := tview.NewApplication()
+
+	// Create a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Create pages
 	pages := tview.NewPages()
@@ -547,14 +711,15 @@ func main() {
 	pages.AddPage("hmac", hmacPage, true, false)
 
 	// Logs page mit dem gelesenen logFilePath
-	logsPage := createLogsPage(logFilePath)
+	logsPage := createLogsPage(ctx, app, logFilePath)
 	pages.AddPage("logs", logsPage, true, false)
 
-	// Add key binding to switch views
+	// Add key binding to switch views and handle exit
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyRune {
 			switch event.Rune() {
 			case 'q', 'Q':
+				cancel()
 				app.Stop()
 				return nil
 			case 's', 'S':
@@ -572,10 +737,11 @@ func main() {
 	})
 
 	// Start the UI update loop in a separate goroutine
-	go updateUI(app, pages, sysPage, hmacPage)
+	go updateUI(ctx, app, pages, sysPage, hmacPage)
 
 	// Set the root and run the application
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
+		log.Fatalf("Error running application: %v", err)
 		log.Fatalf("Error running application: %v", err)
 	}
 }
