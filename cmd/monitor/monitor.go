@@ -22,9 +22,13 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-var prometheusURL string
-var configFilePath string // Pfad der gefundenen Konfiguration
-var logFilePath string    // Pfad der Logdatei aus der Konfiguration
+var (
+	prometheusURL   string
+	configFilePath  string // Pfad der gefundenen Konfiguration
+	logFilePath     string // Pfad der Logdatei aus der Konfiguration
+	metricsEnabled  bool   // Neue Variable für die Aktivierung von Metriken
+	bindIP          string // Neue Variable für die gebundene IP-Adresse
+)
 
 func init() {
 	configPaths := []string{
@@ -71,7 +75,35 @@ func init() {
 		log.Fatalf("Error: 'server.metricsport' is not of type int64 or string, got %T", v)
 	}
 
-	prometheusURL = fmt.Sprintf("http://localhost:%d/metrics", port)
+	// Lesen von 'metricsenabled' aus der Konfiguration
+	metricsEnabledValue := config.Get("server.metricsenabled")
+	if metricsEnabledValue == nil {
+		log.Println("Warning: 'server.metricsenabled' ist in der Konfiguration nicht gesetzt. Standardmäßig deaktiviert.")
+		metricsEnabled = false
+	} else {
+		var ok bool
+		metricsEnabled, ok = metricsEnabledValue.(bool)
+		if !ok {
+			log.Fatalf("Konfigurationsfehler: 'server.metricsenabled' sollte ein boolescher Wert sein, aber %T wurde gefunden.", metricsEnabledValue)
+		}
+	}
+
+	// Lesen von 'bind_ip' aus der Konfiguration
+	bindIPValue := config.Get("server.bind_ip")
+	if bindIPValue == nil {
+		log.Println("Warning: 'server.bind_ip' ist in der Konfiguration nicht gesetzt. Standardmäßig auf 'localhost' gesetzt.")
+		bindIP = "localhost"
+	} else {
+		var ok bool
+		bindIP, ok = bindIPValue.(string)
+		if !ok {
+			log.Fatalf("Konfigurationsfehler: 'server.bind_ip' sollte ein String sein, aber %T wurde gefunden.", bindIPValue)
+		}
+	}
+
+	// Konstruktion der prometheusURL basierend auf 'bind_ip' und 'metricsport'
+	prometheusURL = fmt.Sprintf("http://%s:%d/metrics", bindIP, port)
+	log.Printf("Metrics URL gesetzt auf: %s", prometheusURL)
 
 	// Log-Datei auslesen über server.logfile
 	logFileValue := config.Get("server.logfile")
@@ -295,10 +327,16 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 		cores    int
 		err      error
 	})
-	metricsCh := make(chan struct {
+	var metricsCh chan struct {
 		metrics map[string]float64
 		err     error
-	})
+	}
+	if metricsEnabled {
+		metricsCh = make(chan struct {
+			metrics map[string]float64
+			err     error
+		})
+	}
 	processListCh := make(chan struct {
 		processes []ProcessInfo
 		err       error
@@ -314,7 +352,9 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 			select {
 			case <-ctx.Done():
 				close(systemDataCh)
-				close(metricsCh)
+				if metricsEnabled {
+					close(metricsCh)
+				}
 				close(processListCh)
 				close(hmacInfoCh)
 				return
@@ -330,14 +370,16 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 					}{memUsage, cpuUsage, cores, err}
 				}()
 
-				// Metriken abrufen asynchron
-				go func() {
-					metrics, err := fetchMetrics()
-					metricsCh <- struct {
-						metrics map[string]float64
-						err     error
-					}{metrics, err}
-				}()
+				if metricsEnabled {
+					// Metriken abrufen asynchron
+					go func() {
+						metrics, err := fetchMetrics()
+						metricsCh <- struct {
+							metrics map[string]float64
+							err     error
+						}{metrics, err}
+					}()
+				}
 
 				// Prozessliste abrufen asynchron
 				go func() {
@@ -370,7 +412,7 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 				continue
 			}
 			if data.err != nil {
-				log.Printf("Error fetching system data: %v\n", data.err)
+				log.Printf("Fehler beim Abrufen der Systemdaten: %v\n", data.err)
 				continue
 			}
 			// UI aktualisieren mit Systemdaten
@@ -387,7 +429,7 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 				continue
 			}
 			if data.err != nil {
-				log.Printf("Error fetching metrics: %v\n", data.err)
+				log.Printf("Fehler beim Abrufen der Metriken: %v\n", data.err)
 				continue
 			}
 			// UI aktualisieren mit Metriken
@@ -404,7 +446,7 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 				continue
 			}
 			if data.err != nil {
-				log.Printf("Error fetching process list: %v\n", data.err)
+				log.Printf("Fehler beim Abrufen der Prozessliste: %v\n", data.err)
 				continue
 			}
 			// UI aktualisieren mit Prozessliste
@@ -421,7 +463,7 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 				continue
 			}
 			if data.err != nil {
-				log.Printf("Error fetching hmac-file-server info: %v\n", data.err)
+				log.Printf("Fehler beim Abrufen der hmac-file-server Informationen: %v\n", data.err)
 				continue
 			}
 			// UI aktualisieren mit hmac-file-server Informationen
@@ -429,13 +471,13 @@ func updateUI(ctx context.Context, app *tview.Application, pages *tview.Pages, s
 				if currentPage, _ := pages.GetFrontPage(); currentPage == "hmac" && data.info != nil {
 					hmacFlex := hmacPage.(*tview.Flex)
 					hmacTable := hmacFlex.GetItem(0).(*tview.Table)
-					updateHmacTable(hmacTable, data.info, nil) // metrics können separat behandelt werden
+					updateHmacTable(hmacTable, data.info, nil) // Metriken können separat behandelt werden
 				}
 			})
 		}
 
 		// Abbruchbedingung, wenn alle Channels geschlossen sind
-		if systemDataCh == nil && metricsCh == nil && processListCh == nil && hmacInfoCh == nil {
+		if systemDataCh == nil && (!metricsEnabled || metricsCh == nil) && processListCh == nil && hmacInfoCh == nil {
 			break
 		}
 	}
