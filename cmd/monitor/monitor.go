@@ -128,14 +128,17 @@ const (
 
 // ProcessInfo holds information about a process
 type ProcessInfo struct {
-	PID         int32
-	Name        string
-	CPUPercent  float64
-	MemPercent  float32
-	CommandLine string
-	Uptime      string // Neues Feld für die Uptime
-	Status      string // Neues Feld für den Status
-	ErrorCount  int    // Neues Feld für die Anzahl der Fehler
+	PID                   int32
+	Name                  string
+	CPUPercent            float64
+	MemPercent            float32
+	CommandLine           string
+	Uptime                string // Neues Feld für die Uptime
+	Status                string // Neues Feld für den Status
+	ErrorCount            int    // Neues Feld für die Anzahl der Fehler
+	TotalRequests         int64  // Neues Feld für die Gesamtanzahl der Anfragen
+	ActiveConnections     int    // Neues Feld für aktive Verbindungen
+	AverageResponseTime   float64 // Neues Feld für die durchschnittliche Antwortzeit in Millisekunden
 }
 
 // Function to fetch and parse Prometheus metrics
@@ -159,7 +162,9 @@ func fetchMetrics() (map[string]float64, error) {
 			name == "memory_usage_bytes" ||
 			name == "cpu_usage_percent" ||
 			name == "active_connections_total" ||
-			name == "goroutines_count" {
+			name == "goroutines_count" ||
+			name == "total_requests" ||
+			name == "average_response_time_ms" {
 
 			for _, m := range mf.GetMetric() {
 				var value float64
@@ -325,15 +330,38 @@ func fetchHmacFileServerInfo() (*ProcessInfo, error) {
 				errorCount = 0
 			}
 
+			metrics, err := fetchMetrics()
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch metrics: %w", err)
+			}
+
+			totalRequests, ok := metrics["total_requests"]
+			if !ok {
+				totalRequests = 0
+			}
+
+			activeConnections, ok := metrics["active_connections_total"]
+			if !ok {
+				activeConnections = 0
+			}
+
+			averageResponseTime, ok := metrics["average_response_time_ms"]
+			if !ok {
+				averageResponseTime = 0.0
+			}
+
 			return &ProcessInfo{
-				PID:         p.Pid,
-				Name:        name,
-				CPUPercent:  cpuPercent,
-				MemPercent:  memPercent,
-				CommandLine: cmdline,
-				Uptime:      uptime.String(),
-				Status:      status,
-				ErrorCount:  errorCount,
+				PID:                 p.Pid,
+				Name:                name,
+				CPUPercent:          cpuPercent,
+				MemPercent:          memPercent,
+				CommandLine:         cmdline,
+				Uptime:              uptime.String(),
+				Status:              status,
+				ErrorCount:          errorCount,
+				TotalRequests:       int64(totalRequests),
+				ActiveConnections:   int(activeConnections),
+				AverageResponseTime: averageResponseTime,
 			}, nil
 		}
 	}
@@ -641,8 +669,17 @@ func updateHmacTable(hmacTable *tview.Table, hmacInfo *ProcessInfo, metrics map[
 	hmacTable.SetCell(7, 0, tview.NewTableCell("Error Count"))
 	hmacTable.SetCell(7, 1, tview.NewTableCell(fmt.Sprintf("%d", hmacInfo.ErrorCount))) // Neue Zeile für Error Count
 
+	hmacTable.SetCell(8, 0, tview.NewTableCell("Total Requests"))
+	hmacTable.SetCell(8, 1, tview.NewTableCell(fmt.Sprintf("%d", hmacInfo.TotalRequests))) // Neue Zeile für Total Requests
+
+	hmacTable.SetCell(9, 0, tview.NewTableCell("Active Connections"))
+	hmacTable.SetCell(9, 1, tview.NewTableCell(fmt.Sprintf("%d", hmacInfo.ActiveConnections))) // Neue Zeile für Active Connections
+
+	hmacTable.SetCell(10, 0, tview.NewTableCell("Avg. Response Time (ms)"))
+	hmacTable.SetCell(10, 1, tview.NewTableCell(fmt.Sprintf("%.2f", hmacInfo.AverageResponseTime))) // Neue Zeile für Average Response Time
+
 	// Metrics related to hmac-file-server
-	row := 9
+	row := 12
 	hmacTable.SetCell(row, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
 	hmacTable.SetCell(row, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
 	row++
