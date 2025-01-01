@@ -12,6 +12,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"bufio"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/pelletier/go-toml"
@@ -132,6 +133,9 @@ type ProcessInfo struct {
 	CPUPercent  float64
 	MemPercent  float32
 	CommandLine string
+	Uptime      string // Neues Feld für die Uptime
+	Status      string // Neues Feld für den Status
+	ErrorCount  int    // Neues Feld für die Anzahl der Fehler
 }
 
 // Function to fetch and parse Prometheus metrics
@@ -302,17 +306,64 @@ func fetchHmacFileServerInfo() (*ProcessInfo, error) {
 				cmdline = ""
 			}
 
+			createTime, err := p.CreateTime()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get process start time: %w", err)
+			}
+			uptime := time.Since(time.Unix(0, createTime*int64(time.Millisecond)))
+
+			status := "Running" // Standardstatus
+
+			// Überprüfung, ob der Prozess aktiv ist
+			isRunning, err := p.IsRunning()
+			if err != nil || !isRunning {
+				status = "Stopped"
+			}
+
+			errorCount, err := countHmacErrors()
+			if err != nil {
+				errorCount = 0
+			}
+
 			return &ProcessInfo{
 				PID:         p.Pid,
 				Name:        name,
 				CPUPercent:  cpuPercent,
 				MemPercent:  memPercent,
 				CommandLine: cmdline,
+				Uptime:      uptime.String(),
+				Status:      status,
+				ErrorCount:  errorCount,
 			}, nil
 		}
 	}
 
 	return nil, fmt.Errorf("hmac-file-server process not found")
+}
+
+// Neue Funktion zur Zählung der Fehler in den Logs
+func countHmacErrors() (int, error) {
+	logFilePath := "/var/log/hmac-file-server.log" // Pfad zur Logdatei
+	file, err := os.Open(logFilePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	errorCount := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "level=error") {
+			errorCount++
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+
+	return errorCount, nil
 }
 
 // Funktion zur Aktualisierung der UI mit paralleler Datenbeschaffung
@@ -580,9 +631,18 @@ func updateHmacTable(hmacTable *tview.Table, hmacInfo *ProcessInfo, metrics map[
 
 	hmacTable.SetCell(4, 0, tview.NewTableCell("Command"))
 	hmacTable.SetCell(4, 1, tview.NewTableCell(hmacInfo.CommandLine))
+	
+	hmacTable.SetCell(5, 0, tview.NewTableCell("Uptime"))
+	hmacTable.SetCell(5, 1, tview.NewTableCell(hmacInfo.Uptime)) // Neue Zeile für Uptime
+	
+	hmacTable.SetCell(6, 0, tview.NewTableCell("Status"))
+	hmacTable.SetCell(6, 1, tview.NewTableCell(hmacInfo.Status)) // Neue Zeile für Status
+	
+	hmacTable.SetCell(7, 0, tview.NewTableCell("Error Count"))
+	hmacTable.SetCell(7, 1, tview.NewTableCell(fmt.Sprintf("%d", hmacInfo.ErrorCount))) // Neue Zeile für Error Count
 
 	// Metrics related to hmac-file-server
-	row := 6
+	row := 9
 	hmacTable.SetCell(row, 0, tview.NewTableCell("Metric").SetAttributes(tcell.AttrBold))
 	hmacTable.SetCell(row, 1, tview.NewTableCell("Value").SetAttributes(tcell.AttrBold))
 	row++
