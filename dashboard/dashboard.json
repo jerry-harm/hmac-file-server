@@ -451,7 +451,7 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
+        "w": 3,
         "x": 6,
         "y": 11
       },
@@ -515,8 +515,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 12,
+        "w": 3,
+        "x": 9,
         "y": 11
       },
       "id": 19,
@@ -578,7 +578,7 @@
       "gridPos": {
         "h": 5,
         "w": 3,
-        "x": 18,
+        "x": 12,
         "y": 11
       },
       "id": 2,
@@ -619,251 +619,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 3,
-        "x": 21,
-        "y": 11
-      },
-      "id": 13,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "hmac_file_server_download_errors_total",
-          "legendFormat": "Download Errors",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "HMAC Download Errors",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 0,
-        "y": 16
-      },
-      "id": 22,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "hmac_thumbnails_processed_total",
-          "legendFormat": "Upload Errors",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Thumbnails Processed",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 5,
-        "y": 16
-      },
-      "id": 23,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "hmac_thumbnail_processing_errors_total",
-          "legendFormat": "Upload Errors",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Thumbnails Processed Errors",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 10,
-        "y": 16
-      },
-      "id": 24,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "pluginVersion": "11.4.0",
-      "targets": [
-        {
-          "editorMode": "code",
-          "expr": "hmac_thumbnail_processing_time_seconds_count",
-          "legendFormat": "Upload Errors",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Thumbnails Process Time",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "default": true,
-        "type": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
           "color": {
             "mode": "thresholds"
           },
@@ -889,7 +644,7 @@
         "h": 5,
         "w": 3,
         "x": 15,
-        "y": 16
+        "y": 11
       },
       "id": 15,
       "options": {
@@ -956,12 +711,12 @@
         "h": 5,
         "w": 3,
         "x": 18,
-        "y": 16
+        "y": 11
       },
-      "id": 20,
+      "id": 13,
       "options": {
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
         "percentChangeColorMode": "standard",
@@ -973,21 +728,20 @@
           "values": false
         },
         "showPercentChange": false,
-        "textMode": "value",
+        "textMode": "auto",
         "wideLayout": true
       },
       "pluginVersion": "11.4.0",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hmac_cache_misses_total",
-          "format": "table",
-          "legendFormat": "{{hmac-file-server}}",
+          "expr": "hmac_file_server_download_errors_total",
+          "legendFormat": "Download Errors",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "HMAC Cache Misses",
+      "title": "HMAC Download Errors",
       "type": "stat"
     },
     {
@@ -1018,7 +772,7 @@
         "h": 5,
         "w": 3,
         "x": 21,
-        "y": 16
+        "y": 11
       },
       "id": 21,
       "options": {
@@ -1067,6 +821,6 @@
   "timezone": "",
   "title": "HMAC File Server Metrics",
   "uid": "de0ye5t0hzq4ge",
-  "version": 137,
+  "version": 142,
   "weekStart": ""
 }
