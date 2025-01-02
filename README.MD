@@ -51,7 +51,6 @@ Special thanks to **Thomas Leister** for inspiration drawn from [[prosody-filer]
    ```bash
    mkdir -p /path/to/hmac-file-server/data/
    mkdir -p /path/to/hmac-file-server/deduplication/
-   mkdir -p /path/to/hmac-file-server/thumbnails/
    mkdir -p /path/to/hmac-file-server/iso/
    ```
 
@@ -73,7 +72,7 @@ The server is configured via a `config.toml` file. Key settings include:
 - **Server Settings**: Port, logging, metrics
 - **Security**: HMAC secret, TLS options
 - **File Management**: TTL, deduplication, uploads, and downloads
-- **Thumbnails and ISO**: Generation and mounting settings
+- **ISO**: Generation and mounting settings
 - **Workers**: Adjust thread management
 
 For detailed configuration options, refer to the [Wiki](./wiki.md).
