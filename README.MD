@@ -1,7 +1,7 @@
 # HMAC File Server 2.5-Stable
 
 ## Overview
-The **HMAC File Server** is a secure and efficient file management solution designed for handling file uploads, downloads, deduplication, and more. With a strong focus on security, scalability, and performance, it integrates seamlessly with various tools to provide a comprehensive file-handling experience.
+The **HMAC File Server** ensures secure file uploads and downloads using HMAC authentication. It incorporates rate limiting, CORS support, retries, file versioning, and Unix socket support for enhanced flexibility. Redis integration provides efficient caching and session management. Prometheus metrics and a graceful shutdown mechanism ensure reliable and efficient file handling.
 
 ## Features
 - File deduplication
