@@ -131,6 +131,7 @@ type ServerConfig struct {
 	DeduplicationEnabled bool          `mapstructure:"deduplicationenabled"`
 	Logging              LoggingConfig `mapstructure:"logging"`
 	GlobalExtensions     []string      `mapstructure:"globalextensions"`
+	BindIP               string        `mapstructure:"bind_ip"` // Hinzugefügt: bind_ip
 }
 
 type DeduplicationConfig struct {
@@ -449,6 +450,7 @@ func main() {
 	log.Infof("Server PreCaching: %v", conf.Server.PreCaching)
 	log.Infof("Server FileTTLEnabled: %v", conf.Server.FileTTLEnabled)
 	log.Infof("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
+	log.Infof("Server BindIP: %s", conf.Server.BindIP) // Hinzugefügt: Logging für BindIP
 
 	err = writePIDFile(conf.Server.PIDFilePath) // Write PID file after config is loaded
 	if err != nil {
@@ -569,7 +571,7 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:           ":" + conf.Server.ListenPort,
+		Addr:           conf.Server.BindIP + ":" + conf.Server.ListenPort, // Geändert: Nutzung von BindIP
 		Handler:        router,
 		ReadTimeout:    readTimeout,
 		WriteTimeout:   writeTimeout,
@@ -1338,7 +1340,7 @@ func processUpload(task UploadTask) error {
 	exists, size := fileExists(absFilename)
 	log.Debugf("Exists? %v, Size: %d", exists, size)
 
-	// Gajim and Dino do not require a callback or acknowledgement beyond HTTP success.
+	// Gajim und Dino benötigen keinen Callback oder eine Bestätigung über HTTP-Erfolg hinaus.
 	callbackURL := r.Header.Get("Callback-URL")
 	if callbackURL != "" {
 		log.Warnf("Callback-URL provided (%s) but not needed. Ignoring.", callbackURL)
