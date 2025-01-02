@@ -38,7 +38,7 @@ Special thanks to **Thomas Leister** for inspiration drawn from [[prosody-filer]
 ### Steps
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-repo/hmac-file-server.git
+   git clone https://github.com/PlusOne/hmac-file-server.git
    cd hmac-file-server
    ```
 
