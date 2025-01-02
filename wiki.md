@@ -498,14 +498,6 @@ numworkers = 10  # Number of worker threads
 
 ---
 
-### File Settings
-
-```toml
-# File settings
-[file]
-maxfilesize = "10GB"  # Maximum file size for uploads
-```
-
 #### Configuration Options
 
 - **maxfilesize**:  
@@ -613,10 +605,6 @@ redishealthcheckinterval = "120s"
 # Worker settings
 [worker]
 numworkers = 10
-
-# File settings
-[file]
-maxfilesize = "10GB"
 ```
 
 ---
