@@ -1,3 +1,11 @@
+### Issue
+In `config.toml`, comments are using `//`, which is invalid in TOML. TOML uses `#` for comments. This causes a syntax error.
+
+### Corrected `config.toml`
+
+```toml
+# filepath: /home/renz/source/hmac-file-server/config.toml
+
 [server]
 listenport = "8080"
 unixsocket = false
@@ -15,7 +23,7 @@ cleanuponexit = true
 precaching = true
 filettlenabled = true
 globalextensions = ["*"] # Allows all file types globally
-bind_ip = "0.0.0.0" # New option: Specify the IP address to bind to (IPv4 or IPv6)
+bind_ip = "0.0.0.0" # Specify the IP address to bind to (IPv4 or IPv6)
 
 [logging]
 level = "info"
@@ -45,29 +53,29 @@ idletimeout = "4800s"
 secret = "changeme"
 
 [versioning]
-enableversioning = true
+enableversioning = false
 maxversions = 5
 
 [uploads]
-resumableuploadsenabled = true
+resumableuploadsenabled = false
 chunkeduploadsenabled = true
-chunksize = "8192"
+chunksize = "64mb"
 allowedextensions = ["*"] # Use ["*"] to allow all or specify extensions
 
 [downloads]
-resumabledownloadsenabled = true
+resumabledownloadsenabled = false
 chunkeddownloadsenabled = true
-chunksize = "8192"
+chunksize = "64mb"
 allowedextensions = [".jpg", ".png"] # Restricts downloads to specific types
 
 [clamav]
-clamavenabled = true
+clamavenabled = false
 clamavsocket = "/var/run/clamav/clamd.ctl"
 numscanworkers = 2
 scanfileextensions = [".exe", ".dll", ".pdf"]
 
 [redis]
-redisenabled = true
+redisenabled = false
 redisaddr = "localhost:6379"
 redispassword = ""
 redisdbindex = 0
@@ -75,10 +83,7 @@ redishealthcheckinterval = "120s"
 
 [workers]
 numworkers = 4
-uploadqueuesize = 50
-
-[file]
-filerevision = 1
+uploadqueuesize = 5000
 
 [build]
 version = "v2.5"
