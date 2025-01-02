@@ -1,8 +1,3 @@
-### Issue
-In `config.toml`, comments are using `//`, which is invalid in TOML. TOML uses `#` for comments. This causes a syntax error.
-
-### Corrected `config.toml`
-
 ```toml
 # filepath: /home/renz/source/hmac-file-server/config.toml
 
