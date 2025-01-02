@@ -681,67 +681,71 @@ To set up a reverse proxy for the HMAC File Server, you can use either Apache2 o
     sudo systemctl restart nginx
     ```
 
-### 3. ejabberd Configuration
+You're correct—my statement included unnecessary comments about the configuration. Here's the fully revised configuration without comments or meta-discussion:
 
-To configure ejabberd for use with the HMAC File Server, follow these steps:
+---
 
-1. Install ejabberd:
-    ```sh
-    sudo apt-get update
-    sudo apt-get install ejabberd
-    ```
+### ejabberd Configuration
 
-2. Edit the ejabberd configuration file:
-    ```sh
-    sudo nano /etc/ejabberd/ejabberd.yml
-    ```
+```yaml
+hosts:
+  - "your-domain.com"
 
-3. Add the following configuration to the file:
-    ```yaml
-    hosts:
-      - "your-domain.com"
+listen:
+  -
+    port: 5222
+    module: ejabberd_c2s
+    certfile: "/etc/ejabberd/ejabberd.pem"
+    starttls: true
+    starttls_required: true
+    protocol_options:
+      - "no_sslv3"
+      - "no_tlsv1"
+      - "no_tlsv1_1"
+    ciphers: "HIGH:!aNULL:!eNULL:!3DES:@STRENGTH"
+    dhfile: "/etc/ejabberd/dhparams.pem"
+    max_stanza_size: 65536
+    shaper: c2s_shaper
+    access: c2s
 
-    listen:
-      -
-        port: 5222
-        module: ejabberd_c2s
-        certfile: "/etc/ejabberd/ejabberd.pem"
-        starttls: true
-        starttls_required: true
-        protocol_options:
-          - "no_sslv3"
-          - "no_tlsv1"
-          - "no_tlsv1_1"
-        ciphers: "HIGH:!aNULL:!eNULL:!3DES:@STRENGTH"
-        dhfile: "/etc/ejabberd/dhparams.pem"
-        max_stanza_size: 65536
-        shaper: c2s_shaper
-        access: c2s
+  -
+    port: 5269
+    module: ejabberd_s2s_in
+    certfile: "/etc/ejabberd/ejabberd.pem"
+    starttls: true
+    starttls_required: true
+    protocol_options:
+      - "no_sslv3"
+      - "no_tlsv1"
+      - "no_tlsv1_1"
+    ciphers: "HIGH:!aNULL:!eNULL:!3DES:@STRENGTH"
+    dhfile: "/etc/ejabberd/dhparams.pem"
+    max_stanza_size: 131072
+    shaper: s2s_shaper
+    access: s2s
 
-      -
-        port: 5269
-        module: ejabberd_s2s_in
-        certfile: "/etc/ejabberd/ejabberd.pem"
-        starttls: true
-        starttls_required: true
-        protocol_options:
-          - "no_sslv3"
-          - "no_tlsv1"
-          - "no_tlsv1_1"
-        ciphers: "HIGH:!aNULL:!eNULL:!3DES:@STRENGTH"
-        dhfile: "/etc/ejabberd/dhparams.pem"
-        max_stanza_size: 131072
-        shaper: s2s_shaper
-        access: s2s
+acl:
+  local:
+    user_regexp: ""
 
-    acl:
-      local:
-        user_regexp: ""
+access_rules:
+  local:
+    allow: local
 
-    access_rules:
-      local:
-        allow: local
-    ```
+mod_http_upload:
+    max_size: 1073741824
+    thumbnail: true
+    put_url: https://share.uuxo.net
+    get_url: https://share.uuxo.net
+    external_secret: "changeme"
+    custom_headers:
+      "Access-Control-Allow-Origin": "*"
+      "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
+      "Access-Control-Allow-Headers": "Content-Type"
+```
+---
+
+No further commentary. Let me know if you need additional modifications.
 
 4. Restart ejabberd:
     ```sh
@@ -831,4 +835,3 @@ GOOS=linux GOARCH=arm64 go build -o hmac-file-server-linux-arm64
 
 - The HMAC File Server is designed to be flexible and configurable. Adjust the settings in the `config.toml` file to match your specific requirements and environment.
 - For any issues or questions, refer to the project's GitHub repository and documentation.
-````
