@@ -189,9 +189,6 @@ To build for different architectures:
 ### Deprecated
 - **Thumbnail Support (Previous Implementation):** Dropped the previous thumbnail support mechanism. This feature will not return in future releases.
 
-### Removed
-- **Old Thumbnail Generation Method:** Removed the outdated thumbnail generation process to streamline the codebase and reduce dependencies.
-
 ---
 
 **Note:** Ensure to update your `config.toml` with the new configuration options to take full advantage of the added features. Refer to the [Configuration](./config.toml) section in the documentation for detailed settings.
