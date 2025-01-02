@@ -1,6 +1,4 @@
 ```toml
-# filepath: /home/renz/source/hmac-file-server/config.toml
-
 [server]
 listenport = "8080"
 unixsocket = false
