@@ -1,4 +1,4 @@
-```toml
+```
 [server]
 listenport = "8080"
 unixsocket = false
@@ -80,3 +80,4 @@ uploadqueuesize = 5000
 
 [build]
 version = "v2.5"
+```
