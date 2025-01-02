@@ -174,7 +174,7 @@ To build for different architectures:
 - **Prometheus Metrics Enhancements:** Added detailed metrics for deduplication and ISO container operations to improve monitoring and observability.
 - **Redis Integration Improvements:** Enhanced caching mechanisms using Redis for faster access to file metadata and application states.
 - **Precaching Feature:** Implemented precaching of file structures on startup to reduce access times for frequently used files.
-- **Configuration Options:** Updated `config.toml` to include new settings for deduplication, thumbnails, ISO management, and worker scaling.
+- **Configuration Options:** Updated `config.toml` to include new settings for deduplication, ISO management, and worker scaling.
 
 ### Changed
 - **Worker Pool Scaling:** Implemented dynamic adjustment of worker threads based on system resources to optimize performance.
