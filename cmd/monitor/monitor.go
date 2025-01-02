@@ -21,7 +21,6 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
@@ -107,15 +106,15 @@ func init() {
 	prometheusURL = fmt.Sprintf("http://%s:%d/metrics", bindIP, port)
 	log.Printf("Metrics URL gesetzt auf: %s", prometheusURL)
 
-	// Log-Datei auslesen über logging.file
-	logFileValue := config.Get("logging.file") // Geändert von "server.logfile" zu "logging.file"
+	// Log-Datei auslesen über server.logfile
+	logFileValue := config.Get("server.logfile")
 	if logFileValue == nil {
-		log.Println("Warning: 'logging.file' ist fehlend, Standard '/var/log/hmac-file-server.log' wird verwendet")
+		log.Println("Warning: 'server.logfile' is missing, using default '/var/log/hmac-file-server.log'")
 		logFilePath = "/var/log/hmac-file-server.log"
 	} else {
 		lf, ok := logFileValue.(string)
 		if !ok {
-			log.Fatalf("Fehler: 'logging.file' sollte ein String sein, aber %T wurde gefunden.", logFileValue)
+			log.Fatalf("Error: 'server.logfile' is not of type string, got %T", logFileValue)
 		}
 		logFilePath = lf
 	}
@@ -836,39 +835,6 @@ func readLastNLines(filePath string, n int) (string, error) {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n"), nil
-}
-
-func setupLogging() {
-    // ...existing logging setup...
-
-    // Nutzung der [logging] Konfiguration
-    log.SetFormatter(&logrus.TextFormatter{
-        FullTimestamp: true,
-    })
-
-    log.SetOutput(&lumberjack.Logger{
-        Filename:   logFilePath,
-        MaxSize:    100,    // max_size aus config.toml
-        MaxBackups: 7,      // max_backups aus config.toml
-        MaxAge:     30,     // max_age aus config.toml
-        Compress:   true,   // compress aus config.toml
-    })
-
-    log.SetLevel(logrus.InfoLevel) // level aus config.toml
-
-    log.Printf("Logging eingerichtet. Level: info, Datei: /var/log/hmac-file-server.log")
-    
-    // Nutzung von temppath, falls erforderlich
-    if conf.Server.TempPath != "" {
-        err := os.MkdirAll(conf.Server.TempPath, os.ModePerm)
-        if err != nil {
-            log.Errorf("Fehler beim Erstellen des Temp-Pfads: %v", err)
-        } else {
-            log.Infof("Temp-Pfad eingerichtet: %s", conf.Server.TempPath)
-        }
-    }
-
-    // ...existing code...
 }
 
 func main() {

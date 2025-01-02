@@ -15,6 +15,7 @@ A secure file server with HMAC authentication and configurable features.
 - **File Expiration:** Automatically delete files after a specified TTL.
 - **Graceful Shutdown:** Handles signals and ensures proper cleanup.
 - **Auto-Adjust Worker Scaling:** Dynamically optimize worker threads based on system resources when enabled.
+// Thumbnail support was removed in version 2.5
 
 // ...existing code...
 
