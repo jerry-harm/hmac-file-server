@@ -13,7 +13,7 @@ Special thanks to **Thomas Leister** for inspiration drawn from [[prosody-filer]
 - Virus scanning via ClamAV
 - Prometheus metrics integration
 - Customizable worker management
-- Support for thumbnails and ISO-based storage
+- Support ISO-based storage
 
 ## Table of Contents
 1. [Installation](#installation)
