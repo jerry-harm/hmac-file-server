@@ -167,34 +167,119 @@ To build for different architectures:
 
 ## Changelog
 
-### Version 2.5-Stable
-- **ISO-Based Storage**: Added support for ISO-based storage for specialized use cases.
-- **Improved ClamAV Integration**: Concurrent workers introduced for better scanning performance.
-- **Timeout Configurations**: Granular timeout options added to manage read, write, and idle connections effectively.
-- **Monitor Update**: Bash monitor script is functional, though CPU usage optimization is in progress.
+### Added
+- **Deduplication Support:** Automatically remove duplicate files based on SHA256 hashing to save storage space.
+- **ISO Container Management:** Create and mount ISO containers for specialized storage needs, enhancing flexibility in file management.
+- **Prometheus Metrics Enhancements:** Added detailed metrics for deduplication and ISO container operations to improve monitoring and observability.
+- **Redis Integration Improvements:** Enhanced caching mechanisms using Redis for faster access to file metadata and application states.
+- **Precaching Feature:** Implemented precaching of file structures on startup to reduce access times for frequently used files.
+- **Configuration Options:** Updated `config.toml` to include new settings for deduplication, thumbnails, ISO management, and worker scaling.
 
-### Version 2.2-Stable
-- **Thumbnail Creation**: Introduced automated thumbnail generation for image previews (now deprecated in 2.5).
-- **ClamAV Integration**: Added support for malware scanning with configurable scan workers.
-- **Redis Support**: Enabled caching and session management through Redis.
-- **Enhanced Configuration**: New options for worker auto-adjustment, network event logging, and pre-caching structures.
-- **Bug Fixes**: Resolved critical deduplication issue in v2.1, alongside improved error handling and configuration validation.
+### Changed
+- **Worker Pool Scaling:** Implemented dynamic adjustment of worker threads based on system resources to optimize performance.
+- **Logging Enhancements:** Improved logging for file operations, including detailed information on file extensions and MIME types during uploads.
+- **Temporary Path Configuration:** Replaced hardcoded temporary upload directories with a configurable `TempPath` parameter in `config.toml` for greater flexibility.
 
-### Version 2.0-Stable
-- **MinFreeBytes Configuration**: Introduced a configuration option to ensure a minimum amount of free disk space is maintained for server operations.
-- **Deduplication**: Added automatic deduplication of files based on hashing, improving storage efficiency.
-- **Network Monitoring**: Enabled network monitoring with configurable event handling, allowing response to changes in network conditions.
-- **ISO Mounting Feature**: Introduced ISO file management with customizable mount options, size, and charset.
-- **ClamAV Scanning Enhancements**: Expanded scanning options, allowing specific file types to be targeted.
-- **Error Handling and Logging**: Improved mechanisms for debugging and ensuring robust server operations.
-- **Auto-Adjust Worker Scaling**: Automatically adjusts the number of workers based on available system resources to optimize performance.
+### Fixed
+- **Temporary File Handling:** Resolved issues where temporary `.tmp` files caused "Unsupported file type" warnings by enhancing MIME type detection logic.
+- **MIME Type Detection:** Improved MIME type detection to ensure better compatibility and accuracy during file uploads.
 
----
+### Deprecated
+- **Thumbnail Support (Previous Implementation):** Dropped the previous thumbnail support mechanism. This feature will not return in future releases.
 
-## License
-This project is licensed under the MIT License. See the LICENSE file for details.
+### Removed
+- **Old Thumbnail Generation Method:** Removed the outdated thumbnail generation process to streamline the codebase and reduce dependencies.
 
 ---
 
-### Special Thanks
-Thanks to **Thomas Leister** ([GitHub](https://github.com/ThomasLeister/prosody-filer)) for providing a stable base code that inspired the development of HMAC File Server.
+**Note:** Ensure to update your `config.toml` with the new configuration options to take full advantage of the added features. Refer to the [Configuration](./config.toml) section in the documentation for detailed settings.
+
+---
+
+### Important:
+- **GitHub Release:** Create a corresponding GitHub release tagged `v2.6.0` with these updated release notes to inform users of the new features and changes.
+- **Migration Steps:** If upgrading from a previous version, review the configuration changes and deprecated features to adjust your setup accordingly.
+
+```toml
+[server]
+listenport = "8080"
+unixsocket = false
+storagepath = "./uploads"
+metricsenabled = true
+metricsport = "9090"
+filettl = "8760h"
+minfreebytes = "100MB"
+autoadjustworkers = true
+networkevents = true
+temppath = "/tmp"
+loggingjson = false
+pidfilepath = "/var/run/hmacfileserver.pid"
+cleanuponexit = true
+precaching = true
+filettlenabled = true
+deduplicationenabled = true
+globalextensions = [".txt", ".pdf", ".png", ".jpg"]
+
+[logging]
+level = "info"
+file = "/var/log/hmac-file-server.log"
+max_size = 100
+max_backups = 7
+max_age = 30
+compress = true
+
+[deduplication]
+enabled = true
+directory = "/deduplication"
+
+[iso]
+enabled = true
+size = "1GB"
+mountpoint = "/mnt/iso"
+charset = "utf-8"
+containerfile = "/mnt/iso/container.iso"
+
+[timeouts]
+readtimeout = "4800s"
+writetimeout = "4800s"
+idletimeout = "4800s"
+
+[security]
+secret = "changeme"
+
+[versioning]
+enableversioning = false
+maxversions = 1
+
+[uploads]
+resumableuploadsenabled = true
+chunkeduploadsenabled = true
+chunksize = "64MB"
+allowedextensions = [".txt", ".pdf", ".png", ".jpg"]
+
+[downloads]
+resumabledownloadsenabled = true
+chunkeddownloadsenabled = true
+chunksize = "64MB"
+allowedextensions = [".txt", ".pdf", ".png", ".jpg"]
+
+[clamav]
+clamavenabled = true
+clamavsocket = "/var/run/clamav/clamd.ctl"
+numscanworkers = 2
+scanfileextensions = [".txt", ".pdf", ".png", ".jpg"]
+
+[redis]
+redisenabled = true
+redisdbindex = 0
+redisaddr = "localhost:6379"
+redispassword = ""
+redishealthcheckinterval = "120s"
+
+[workers]
+numworkers = 4
+uploadqueuesize = 50
+
+[build]
+version = "2.5"
+```
