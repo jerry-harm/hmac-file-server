@@ -8,7 +8,6 @@ This documentation provides detailed information on configuring, setting up, and
 2. [Configuration](#configuration)
     - [Server Configuration](#server-configuration)
     - [Deduplication Settings](#deduplication-settings)
-    - [Thumbnails Settings](#thumbnails-settings)
     - [ISO Settings](#iso-settings)
     - [Timeout Settings](#timeout-settings)
     - [Security Settings](#security-settings)
@@ -18,7 +17,6 @@ This documentation provides detailed information on configuring, setting up, and
     - [ClamAV Settings](#clamav-settings)
     - [Redis Settings](#redis-settings)
     - [Worker Settings](#worker-settings)
-    - [File Settings](#file-settings)
 3. [Example Configuration](#example-configuration)
 4. [Setup Instructions](#setup-instructions)
     - [1. HMAC File Server Installation](#1-hmac-file-server-installation)
@@ -165,42 +163,6 @@ directory = "/path/to/hmac-file-server/deduplication/"  # Path to deduplication 
   - *Type*: `String`  
   - *Description*: Specifies the directory path where deduplication metadata is stored. Ensure this directory exists and has appropriate permissions.  
   - *Default*: `"/path/to/hmac-file-server/deduplication/"`
-
----
-
-### Thumbnails Settings
-
-```toml
-# Thumbnails settings
-[thumbnails]
-enabled = true
-directory = "/path/to/hmac-file-server/thumbnails/"  # Directory for storing thumbnails
-size = "200x200"  # Thumbnail dimensions
-thumbnailintervalscan = "1h"  # Interval for scheduled thumbnail generation
-```
-
-#### Configuration Options
-
-- **enabled**:  
-  - *Type*: `Boolean`  
-  - *Description*: Enables or disables the automatic generation of thumbnails for uploaded images.  
-  - *Default*: `true`
-  
-- **directory**:  
-  - *Type*: `String`  
-  - *Description*: Defines the directory where generated thumbnails are stored. Ensure this directory exists and has appropriate permissions.  
-  - *Default*: `"/path/to/hmac-file-server/thumbnails/"`
-  
-- **size**:  
-  - *Type*: `String`  
-  - *Description*: Specifies the dimensions to which thumbnails are resized. The format should be `"widthxheight"` (e.g., `"200x200"`).  
-  - *Default*: `"200x200"`
-  
-- **thumbnailintervalscan**:  
-  - *Type*: `String`  
-  - *Description*: Sets the frequency at which the server scans for new or updated images to generate thumbnails.  
-  - *Format*: Duration (e.g., `"1h"` for one hour)  
-  - *Default*: `"1h"`
 
 ---
 
@@ -537,13 +499,6 @@ precaching = true
 enabled = true
 directory = "/path/to/hmac-file-server/deduplication/"
 
-# Thumbnails settings
-[thumbnails]
-enabled = true
-directory = "/path/to/hmac-file-server/thumbnails/"
-size = "200x200"
-thumbnailintervalscan = "1h"
-
 # ISO settings
 [iso]
 enabled = false
@@ -630,7 +585,6 @@ To install the HMAC File Server, follow these steps:
     ```sh
     mkdir -p /path/to/hmac-file-server/data/
     mkdir -p /path/to/hmac-file-server/deduplication/
-    mkdir -p /path/to/hmac-file-server/thumbnails/
     mkdir -p /path/to/hmac-file-server/iso/
     ```
 
