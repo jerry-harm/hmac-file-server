@@ -197,7 +197,6 @@ type WorkersConfig struct {
 }
 
 type FileConfig struct {
-	FileRevision int `mapstructure:"filerevision"`
 }
 
 type BuildConfig struct {
@@ -597,7 +596,7 @@ func main() {
 		go monitorWorkerPerformance(ctx, &conf.Server, &conf.Workers, &conf.ClamAV)
 	}
 
-	versionString = "2.5" // Updated from "2.4"
+	versionString = conf.Build.Version // Updated to use Build.Version from config
 	log.Infof("Running version: %s", versionString)
 
 	log.Infof("Starting HMAC file server %s...", versionString)
@@ -934,9 +933,6 @@ func validateConfig(conf *Config) error {
 	}
 
 	// Verify File Configuration
-	if conf.File.FileRevision < 0 {
-		return fmt.Errorf("file.filerevision cannot be negative")
-	}
 
 	// Validate Global Extensions
 	if len(conf.Server.GlobalExtensions) == 0 {
