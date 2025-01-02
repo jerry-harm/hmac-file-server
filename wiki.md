@@ -685,7 +685,7 @@ You're correct—my statement included unnecessary comments about the configurat
 
 ---
 
-### ejabberd Configuration
+#### 3. ejabberd Configuration
 
 ```yaml
 hosts:
@@ -743,9 +743,6 @@ mod_http_upload:
       "Access-Control-Allow-Methods": "GET,HEAD,PUT,OPTIONS"
       "Access-Control-Allow-Headers": "Content-Type"
 ```
----
-
-No further commentary. Let me know if you need additional modifications.
 
 4. Restart ejabberd:
     ```sh
