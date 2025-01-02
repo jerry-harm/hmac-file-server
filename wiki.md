@@ -629,7 +629,7 @@ To install the HMAC File Server, follow these steps:
 
 1. Clone the repository:
     ```sh
-    git clone https://github.com/your-repo/hmac-file-server.git
+    git clone https://github.com/PlusOne/hmac-file-server.git
     cd hmac-file-server
     ```
 
