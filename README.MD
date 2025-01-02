@@ -190,7 +190,7 @@ To build for different architectures:
 
 ---
 
-**Note:** Ensure to update your `config.toml` with the new configuration options to take full advantage of the added features. Refer to the [Configuration](./config.example) section in the documentation for detailed settings.
+**Note:** Ensure to update your `config.toml` with the new configuration options to take full advantage of the added features. Refer to the [Configuration](./config.example.toml) section in the documentation for detailed settings.
 
 ---
 
