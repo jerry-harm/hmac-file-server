@@ -31,7 +31,7 @@ Special thanks to **Thomas Leister** for inspiration drawn from [[prosody-filer]
 ## Installation
 
 ### Prerequisites
-- Go 1.18 or higher
+- Go **1.20** or higher
 - Redis server (optional, for caching)
 - ClamAV (optional, for virus scanning)
 
@@ -185,97 +185,10 @@ To build for different architectures:
 
 ---
 
-**Note:** Ensure to update your `config.toml` with the new configuration options to take full advantage of the added features. Refer to the [Configuration](./config.example.toml) section in the documentation for detailed settings.
+**Important Update:**
+- The minimum Go version required is now **1.20**. Please ensure your environment meets this requirement for successful compilation.
 
 ---
-
-### Important:
-- **GitHub Release:** Create a corresponding GitHub release tagged `v2.6.0` with these updated release notes to inform users of the new features and changes.
-- **Migration Steps:** If upgrading from a previous version, review the configuration changes and deprecated features to adjust your setup accordingly.
-
-```toml
-[server]
-listenport = "8080"
-unixsocket = false
-storagepath = "./uploads"
-metricsenabled = true
-metricsport = "9090"
-filettl = "8760h"
-minfreebytes = "100MB"
-autoadjustworkers = true
-networkevents = false
-temppath = "/tmp"
-loggingjson = false
-pidfilepath = "/var/run/hmacfileserver.pid"
-cleanuponexit = true
-precaching = true
-filettlenabled = true
-deduplicationenabled = true
-globalextensions = [".txt", ".pdf", ".png", ".jpg"]
-
-[logging]
-level = "info"
-file = "/var/log/hmac-file-server.log"
-max_size = 100
-max_backups = 7
-max_age = 30
-compress = true
-
-[deduplication]
-enabled = true
-directory = "/deduplication"
-
-[iso]
-enabled = true
-size = "1GB"
-mountpoint = "/mnt/iso"
-charset = "utf-8"
-containerfile = "/mnt/iso/container.iso"
-
-[timeouts]
-readtimeout = "4800s"
-writetimeout = "4800s"
-idletimeout = "4800s"
-
-[security]
-secret = "changeme"
-
-[versioning]
-enableversioning = false
-maxversions = 1
-
-[uploads]
-resumableuploadsenabled = true
-chunkeduploadsenabled = true
-chunksize = "64MB"
-allowedextensions = [".txt", ".pdf", ".png", ".jpg"]
-
-[downloads]
-resumabledownloadsenabled = true
-chunkeddownloadsenabled = true
-chunksize = "64MB"
-allowedextensions = [".txt", ".pdf", ".png", ".jpg"]
-
-[clamav]
-clamavenabled = true
-clamavsocket = "/var/run/clamav/clamd.ctl"
-numscanworkers = 2
-scanfileextensions = [".txt", ".pdf", ".png", ".jpg"]
-
-[redis]
-redisenabled = true
-redisdbindex = 0
-redisaddr = "localhost:6379"
-redispassword = ""
-redishealthcheckinterval = "120s"
-
-[workers]
-numworkers = 4
-uploadqueuesize = 50
-
-[build]
-version = "2.5"
-```
 
 ## License
 
@@ -285,18 +198,8 @@ Copyright (c) 2025 Alexander Renz
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
