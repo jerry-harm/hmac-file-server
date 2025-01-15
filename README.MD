@@ -149,19 +149,14 @@ sudo systemctl start hmac-file-server
 ## Building
 To build for different architectures:
 
-- **Linux (x86_64)**:
+- **Linux (amd64)**:
   ```bash
-  GOOS=linux GOARCH=amd64 go build -o hmac-file-server-linux-amd64
+  GOOS=linux GOARCH=amd64 go build -o hmac-file-server main.go
   ```
 
-- **macOS (x86_64)**:
+- **Linux (arm64)**:
   ```bash
-  GOOS=darwin GOARCH=amd64 go build -o hmac-file-server-darwin-amd64
-  ```
-
-- **Windows (x86_64)**:
-  ```bash
-  GOOS=windows GOARCH=amd64 go build -o hmac-file-server-windows-amd64.exe
+  GOOS=linux GOARCH=arm64 go build -o hmac-file-server main.go
   ```
 
 ---
