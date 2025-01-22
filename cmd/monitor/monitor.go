@@ -52,7 +52,7 @@ func init() {
 	}
 
 	if err != nil {
-		log.Fatalf("Error loading config file: %v", err)
+		log.Fatalf("Error loading config file: %v\nPlease create a config.toml in one of the following locations:\n%v", err, configPaths)
 	}
 
 	// Metricsport auslesen

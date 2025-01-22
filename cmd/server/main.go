@@ -411,7 +411,11 @@ func main() {
 
 	err := readConfig(configFile, &conf)
 	if err != nil {
-		log.Fatalf("Error reading config: %v", err)
+		log.Fatalf("Failed to load configuration: %v\nPlease ensure your config.toml is present at one of the following paths:\n%v", err, []string{
+			"/etc/hmac-file-server/config.toml",
+			"../config.toml",
+			"./config.toml",
+		})
 	}
 	log.Info("Configuration loaded successfully.")
 
