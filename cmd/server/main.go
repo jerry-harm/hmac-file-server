@@ -52,17 +52,16 @@ func parseSize(sizeStr string) (int64, error) {
 	valueStr := sizeStr[:len(sizeStr)-2]
 	value, err := strconv.Atoi(valueStr)
 	if err != nil {
-		log.WithError(err).Errorf("Failed to parse size from input: %s", sizeStr)
-		return 0, err
+		return 0, fmt.Errorf("invalid size value: %v", err)
 	}
 
 	switch unit {
 	case "KB":
-		return int64(value) * 1 << 10, nil
+		return int64(value) * 1024, nil
 	case "MB":
-		return int64(value) * 1 << 20, nil
+		return int64(value) * 1024 * 1024, nil
 	case "GB":
-		return int64(value) * 1 << 30, nil
+		return int64(value) * 1024 * 1024 * 1024, nil
 	default:
 		return 0, fmt.Errorf("unknown size unit: %s", unit)
 	}
@@ -72,7 +71,7 @@ func parseSize(sizeStr string) (int64, error) {
 func parseTTL(ttlStr string) (time.Duration, error) {
 	ttlStr = strings.ToLower(strings.TrimSpace(ttlStr))
 	if ttlStr == "" {
-		return 0, fmt.Errorf("empty TTL string")
+		return 0, fmt.Errorf("TTL string cannot be empty")
 	}
 	var valueStr string
 	var unit rune
@@ -89,16 +88,14 @@ func parseTTL(ttlStr string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid TTL value: %v", err)
 	}
 	switch unit {
-	case 'h': // hours
+	case 's':
+		return time.Duration(val) * time.Second, nil
+	case 'm':
+		return time.Duration(val) * time.Minute, nil
+	case 'h':
 		return time.Duration(val) * time.Hour, nil
-	case 'd': // days
-		return time.Duration(val*24) * time.Hour, nil
-	case 'm': // months (approx. 30 days)
-		return time.Duration(val*24*30) * time.Hour, nil
-	case 'y': // years (approx. 365 days)
-		return time.Duration(val*24*365) * time.Hour, nil
-	default: // fallback to Go's standard parsing
-		return time.ParseDuration(ttlStr)
+	default:
+		return 0, fmt.Errorf("unknown TTL unit: %c", unit)
 	}
 }
 
@@ -325,7 +322,8 @@ func writePIDFile(pidPath string) error {
 	pidStr := strconv.Itoa(pid)
 	err := os.WriteFile(pidPath, []byte(pidStr), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to write PID file: %v", err)
+		log.Errorf("Failed to write PID file: %v", err) // Improved error logging
+		return err
 	}
 	log.Infof("PID %d written to %s", pid, pidPath)
 	return nil
@@ -335,9 +333,9 @@ func writePIDFile(pidPath string) error {
 func removePIDFile(pidPath string) {
 	err := os.Remove(pidPath)
 	if err != nil {
-		log.Warnf("failed to remove PID file %s: %v", pidPath, err)
+		log.Errorf("Failed to remove PID file: %v", err) // Improved error logging
 	} else {
-		log.Infof("PID file %s removed", pidPath)
+		log.Infof("PID file %s removed successfully", pidPath)
 	}
 }
 
