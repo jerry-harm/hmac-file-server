@@ -116,26 +116,26 @@ type LoggingConfig struct {
 }
 
 type ServerConfig struct {
+	BindIP               string        `mapstructure:"bind_ip"`
 	ListenPort           string        `mapstructure:"listenport"`
 	UnixSocket           bool          `mapstructure:"unixsocket"`
 	StoragePath          string        `mapstructure:"storagepath"`
+	LogFile              string        `mapstructure:"logfile"` // NEW field
 	MetricsEnabled       bool          `mapstructure:"metricsenabled"`
 	MetricsPort          string        `mapstructure:"metricsport"`
-	FileTTL              string        `mapstructure:"filettl"`
 	MinFreeBytes         string        `mapstructure:"minfreebytes"`
+	FileTTL              string        `mapstructure:"filettl"`
+	FileTTLEnabled       bool          `mapstructure:"filettlenabled"`
 	AutoAdjustWorkers    bool          `mapstructure:"autoadjustworkers"`
 	NetworkEvents        bool          `mapstructure:"networkevents"`
-	TempPath             string        `mapstructure:"temppath"`
-	LoggingJSON          bool          `mapstructure:"loggingjson"`
 	PIDFilePath          string        `mapstructure:"pidfilepath"`
 	CleanUponExit        bool          `mapstructure:"cleanuponexit"`
 	PreCaching           bool          `mapstructure:"precaching"`
-	FileTTLEnabled       bool          `mapstructure:"filettlenabled"`
 	DeduplicationEnabled bool          `mapstructure:"deduplicationenabled"`
 	Logging              LoggingConfig `mapstructure:"logging"`
 	GlobalExtensions     []string      `mapstructure:"globalextensions"`
-	BindIP               string        `mapstructure:"bind_ip"` // Hinzugefügt: bind_ip
-	FileNaming           string        `mapstructure:"filenaming"` // Added: filenaming option
+	FileNaming           string        `mapstructure:"filenaming"`
+	// Removed TempPath, LoggingJSON
 }
 
 type DeduplicationConfig struct {
@@ -451,8 +451,6 @@ func main() {
 	log.Infof("Server MinFreeBytes: %s", conf.Server.MinFreeBytes)
 	log.Infof("Server AutoAdjustWorkers: %v", conf.Server.AutoAdjustWorkers)
 	log.Infof("Server NetworkEvents: %v", conf.Server.NetworkEvents)
-	log.Infof("Server TempPath: %s", conf.Server.TempPath)
-	log.Infof("Server LoggingJSON: %v", conf.Server.LoggingJSON)
 	log.Infof("Server PIDFilePath: %s", conf.Server.PIDFilePath)
 	log.Infof("Server CleanUponExit: %v", conf.Server.CleanUponExit)
 	log.Infof("Server PreCaching: %v", conf.Server.PreCaching)
