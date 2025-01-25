@@ -94,6 +94,12 @@ func parseTTL(ttlStr string) (time.Duration, error) {
 		return time.Duration(val) * time.Minute, nil
 	case 'h':
 		return time.Duration(val) * time.Hour, nil
+	case 'd':
+		return time.Duration(val) * 24 * time.Hour, nil
+	case 'w':
+		return time.Duration(val) * 7 * 24 * time.Hour, nil
+	case 'y':
+		return time.Duration(val) * 365 * 24 * time.Hour, nil
 	default:
 		return 0, fmt.Errorf("unknown TTL unit: %c", unit)
 	}
@@ -453,6 +459,7 @@ func main() {
 	log.Infof("Server FileTTLEnabled: %v", conf.Server.FileTTLEnabled)
 	log.Infof("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
 	log.Infof("Server BindIP: %s", conf.Server.BindIP) // Hinzugefügt: Logging für BindIP
+	log.Infof("Server FileNaming: %s", conf.Server.FileNaming) // Added: Logging for FileNaming
 
 	err = writePIDFile(conf.Server.PIDFilePath) // Write PID file after config is loaded
 	if err != nil {
