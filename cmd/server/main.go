@@ -1788,7 +1788,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 
 	// Determine the final filename based on the FileNaming configuration
 	finalFilename := absFilename
-	if conf.Server.FileNaming == "HMAC" || conf.Server.FileNaming == "None" {
+	if conf.Server.FileNaming == "HMAC" {
 		finalFilename = filepath.Join(filepath.Dir(absFilename), hex.EncodeToString(calculatedMAC)+filepath.Ext(absFilename))
 	}
 
