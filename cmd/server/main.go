@@ -1902,6 +1902,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 
 	if conf.Uploads.ResumableUploadsEnabled {
 		handleResumableDownload(absFilename, w, r, fileInfo.Size())
