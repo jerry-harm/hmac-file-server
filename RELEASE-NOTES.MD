@@ -30,7 +30,6 @@ Version 2.5-Stable focuses on improving the overall stability and performance of
 4. **FileNaming Configuration**: Update the `FileNaming` setting in `[server]` to use the new "None" option if you want filenames to remain unchanged.
 
 [server]
-// ...existing code...
 # FileNaming options: "HMAC", "None"
 FileNaming = "HMAC"
 
