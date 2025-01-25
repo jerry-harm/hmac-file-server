@@ -129,6 +129,7 @@ type ServerConfig struct {
 	Logging              LoggingConfig `mapstructure:"logging"`
 	GlobalExtensions     []string      `mapstructure:"globalextensions"`
 	BindIP               string        `mapstructure:"bind_ip"` // Hinzugefügt: bind_ip
+	FileNaming           string        `mapstructure:"filenaming"` // Added: filenaming option
 }
 
 type DeduplicationConfig struct {
@@ -1688,21 +1689,27 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		return
 	}
 
+	// Determine the final filename based on the FileNaming configuration
+	finalFilename := absFilename
+	if conf.Server.FileNaming == "HMAC" {
+		finalFilename = filepath.Join(filepath.Dir(absFilename), hex.EncodeToString(calculatedMAC)+filepath.Ext(absFilename))
+	}
+
 	// Create temp file and write the uploaded data
-	tempFilename := absFilename + ".tmp"
+	tempFilename := finalFilename + ".tmp"
 	err = createFile(tempFilename, r)
 	if err != nil {
 		log.WithFields(logrus.Fields{
-			"filename": absFilename,
+			"filename": finalFilename,
 		}).WithError(err).Error("Error creating temp file")
 		http.Error(w, "Error writing temp file", http.StatusInternalServerError)
 		return
 	}
 
 	// Move temp file to final destination
-	err = os.Rename(tempFilename, absFilename)
+	err = os.Rename(tempFilename, finalFilename)
 	if err != nil {
-		log.Errorf("Rename failed for %s: %v", absFilename, err)
+		log.Errorf("Rename failed for %s: %v", finalFilename, err)
 		os.Remove(tempFilename)
 		http.Error(w, "Error moving file to final destination", http.StatusInternalServerError)
 		return
@@ -1713,55 +1720,55 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	log.Infof("Responded with 201 Created for file: %s", absFilename)
+	log.Infof("Responded with 201 Created for file: %s", finalFilename)
 
 	// Asynchronous processing in the background
 	go func() {
 		var logMessages []string
 
 		// ClamAV scanning
-		if conf.ClamAV.ClamAVEnabled && shouldScanFile(absFilename) {
-			err := scanFileWithClamAV(absFilename)
+		if conf.ClamAV.ClamAVEnabled && shouldScanFile(finalFilename) {
+			err := scanFileWithClamAV(finalFilename)
 			if err != nil {
-				logMessages = append(logMessages, fmt.Sprintf("ClamAV failed for %s: %v", absFilename, err))
+				logMessages = append(logMessages, fmt.Sprintf("ClamAV failed for %s: %v", finalFilename, err))
 				for _, msg := range logMessages {
 					log.Info(msg)
 				}
 				return
 			} else {
-				logMessages = append(logMessages, fmt.Sprintf("ClamAV scan passed for file: %s", absFilename))
+				logMessages = append(logMessages, fmt.Sprintf("ClamAV scan passed for file: %s", finalFilename))
 			}
 		}
 
 		// Deduplication
 		if conf.Redis.RedisEnabled && conf.Server.DeduplicationEnabled {
-			err := handleDeduplication(context.Background(), absFilename)
+			err := handleDeduplication(context.Background(), finalFilename)
 			if err != nil {
-				log.Errorf("Deduplication failed for %s: %v", absFilename, err)
-				os.Remove(absFilename)
+				log.Errorf("Deduplication failed for %s: %v", finalFilename, err)
+				os.Remove(finalFilename)
 				uploadErrorsTotal.Inc()
 				return
 			} else {
-				logMessages = append(logMessages, fmt.Sprintf("Deduplication handled successfully for file: %s", absFilename))
+				logMessages = append(logMessages, fmt.Sprintf("Deduplication handled successfully for file: %s", finalFilename))
 			}
 		}
 
 		// Versioning
 		if conf.Versioning.EnableVersioning {
-			if exists, _ := fileExists(absFilename); exists {
-				err := versionFile(absFilename)
+			if exists, _ := fileExists(finalFilename); exists {
+				err := versionFile(finalFilename)
 				if err != nil {
-					log.Errorf("Versioning failed for %s: %v", absFilename, err)
-					os.Remove(absFilename)
+					log.Errorf("Versioning failed for %s: %v", finalFilename, err)
+					os.Remove(finalFilename)
 					uploadErrorsTotal.Inc()
 					return
 				} else {
-					logMessages = append(logMessages, fmt.Sprintf("File versioned successfully: %s", absFilename))
+					logMessages = append(logMessages, fmt.Sprintf("File versioned successfully: %s", finalFilename))
 				}
 			}
 		}
 
-		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", absFilename))
+		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", finalFilename))
 		uploadsTotal.Inc()
 
 		// Log all messages at once
