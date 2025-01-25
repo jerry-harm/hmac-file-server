@@ -1,21 +1,23 @@
 [server]
+bind_ip = "0.0.0.0"
 listenport = "8080"
 unixsocket = false
 storagepath = "./uploads"
+logfile = "/var/log/hmac-file-server.log"
 metricsenabled = true
 metricsport = "9090"
-filettl = "8760h"
 minfreebytes = "100MB"
+filettl = "8760h"
+filettlenabled = true
 autoadjustworkers = true
 networkevents = true
-temppath = "/tmp/hmac-file-server"
-loggingjson = false
 pidfilepath = "/var/run/hmacfileserver.pid"
 cleanuponexit = true
 precaching = true
-filettlenabled = true
-globalextensions = ["*"] # Allows all file types globally
-bind_ip = "0.0.0.0" # Specify the IP address to bind to (IPv4 or IPv6)
+deduplicationenabled = true
+globalextensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp"]
+# FileNaming options: "HMAC", "None"
+filenaming = "HMAC"
 
 [logging]
 level = "info"
@@ -34,7 +36,7 @@ enabled = true
 size = "1GB"
 mountpoint = "/mnt/iso"
 charset = "utf-8"
-containerfile = "/path/to/iso/container.iso"
+containerfile = "/mnt/iso/container.iso"
 
 [timeouts]
 readtimeout = "4800s"
@@ -46,36 +48,39 @@ secret = "changeme"
 
 [versioning]
 enableversioning = false
-maxversions = 5
+maxversions = 1
 
 [uploads]
-resumableuploadsenabled = false
+resumableuploadsenabled = true
 chunkeduploadsenabled = true
-chunksize = "64mb"
-allowedextensions = ["*"] # Use ["*"] to allow all or specify extensions
+chunksize = "8192"
+allowedextensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp"]
 
 [downloads]
-resumabledownloadsenabled = false
+resumabledownloadsenabled = true
 chunkeddownloadsenabled = true
-chunksize = "64mb"
-allowedextensions = [".jpg", ".png"] # Restricts downloads to specific types
+chunksize = "8192"
+allowedextensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp"]
 
 [clamav]
-clamavenabled = false
+clamavenabled = true
 clamavsocket = "/var/run/clamav/clamd.ctl"
 numscanworkers = 2
-scanfileextensions = [".exe", ".dll", ".pdf"]
+scanfileextensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp"]
 
 [redis]
-redisenabled = false
+redisenabled = true
+redisdbindex = 0
 redisaddr = "localhost:6379"
 redispassword = ""
-redisdbindex = 0
 redishealthcheckinterval = "120s"
 
 [workers]
 numworkers = 4
-uploadqueuesize = 5000
+uploadqueuesize = 50
+
+[file]
+# Add file-specific configurations here
 
 [build]
-version = "v2.5"
+version = "2.5-Stable"
