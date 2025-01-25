@@ -12,6 +12,7 @@ Version 2.5-Stable focuses on improving the overall stability and performance of
 - **ISO-Based Storage Support**: Introduced support for ISO-based storage to accommodate specialized use cases.
 - **Enhanced ClamAV Integration**: Improved ClamAV scanning with concurrent workers, providing better performance for large-scale deployments.
 - **Timeout Configuration**: Added granular timeout settings for read, write, and idle connections, improving connection management.
+- **FileNaming Configuration**: Added support for a "None" option in the `FileNaming` configuration. When set to "None", the filename remains unchanged.
 
 ### Improvements
 - **Worker Management**: Auto-scaling worker threads based on system load for optimal performance.
@@ -25,6 +26,7 @@ Version 2.5-Stable focuses on improving the overall stability and performance of
 1. **Thumbnail Settings**: Remove `[thumbnails]` configuration blocks from your `config.toml` file to avoid errors.
 2. **Updated Configuration**: Review new timeout settings in `[timeouts]` and adjust as needed.
 3. **ISO Integration**: Configure the new `[iso]` block for environments utilizing ISO-based storage.
+4. **FileNaming Configuration**: Update the `FileNaming` setting in `[server]` to use the new "None" option if you want filenames to remain unchanged.
 
 ## Recommendations
 - **Security**: Ensure that the HMAC secret key in `config.toml` is updated to a strong, unique value.
