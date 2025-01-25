@@ -28,6 +28,11 @@ Version 2.5-Stable focuses on improving the overall stability and performance of
 3. **ISO Integration**: Configure the new `[iso]` block for environments utilizing ISO-based storage.
 4. **FileNaming Configuration**: Update the `FileNaming` setting in `[server]` to use the new "None" option if you want filenames to remain unchanged.
 
+[server]
+// ...existing code...
+# FileNaming options: "HMAC", "None"
+FileNaming = "HMAC"
+
 ## Recommendations
 - **Security**: Ensure that the HMAC secret key in `config.toml` is updated to a strong, unique value.
 - **Backups**: Regularly back up your `config.toml` and important data directories.
