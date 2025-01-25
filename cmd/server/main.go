@@ -1698,6 +1698,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	finalFilename := absFilename
 	if conf.Server.FileNaming == "HMAC" {
 		finalFilename = filepath.Join(filepath.Dir(absFilename), hex.EncodeToString(calculatedMAC)+filepath.Ext(absFilename))
+	} else if conf.Server.FileNaming == "None" {
+		finalFilename = absFilename
 	}
 
 	// Create temp file and write the uploaded data
