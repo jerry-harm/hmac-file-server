@@ -1793,11 +1793,17 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	finalFilename := absFilename
 	switch conf.Server.FileNaming {
 	case "HMAC":
-		finalFilename = filepath.Join(filepath.Dir(absFilename), hex.EncodeToString(calculatedMAC)+filepath.Ext(absFilename))
-	case "None", "none":
-		// Do nothing: keep finalFilename as-is
+		// Use hashed/HMAC name
+		tempFilename := ""
+		hashVal, err := computeSHA256(context.Background(), tempFilename)
+		if err != nil {
+			// ...existing code...
+		}
+		finalFilename = filepath.Join(filepath.Dir(absFilename), hashVal)
+	case "None":
+		// Keep filename as-is
 	default:
-		log.Warnf("Unrecognized filenaming config %q, skipping rename.", conf.Server.FileNaming)
+		// ...existing code...
 	}
 
 	// Create temp file and write the uploaded data
