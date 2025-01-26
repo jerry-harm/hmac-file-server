@@ -1,7 +1,7 @@
-# Release Notes for HMAC File Server 2.5-Stable
+# Release Notes for HMAC File Server 2.6-Stable
 
 ## Summary
-Version 2.5-Stable focuses on improving the overall stability and performance of the HMAC File Server. Significant changes have been made to prioritize reliability and scalability for production environments.
+Version 2.6-Stable focuses on improving the overall stability and performance of the HMAC File Server. Significant changes have been made to prioritize reliability and scalability for production environments.
 
 ## Key Changes
 

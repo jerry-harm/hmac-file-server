@@ -718,7 +718,7 @@ uploadqueuesize = 50
 # Add file-specific configurations here
 
 [build]
-version = "2.5-Stable"
+version = "2.6-Stable"
 `)
 }
 
