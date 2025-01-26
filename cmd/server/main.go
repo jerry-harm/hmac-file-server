@@ -1801,7 +1801,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		}
 		finalFilename = filepath.Join(filepath.Dir(absFilename), hashVal)
 	case "None":
-		// Keep filename as-is
+		 // Preserve the original filename
+		finalFilename = absFilename
 	default:
 		// ...existing code...
 	}
