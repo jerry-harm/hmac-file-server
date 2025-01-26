@@ -1736,6 +1736,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	} else {
 		log.Warn("No HMAC attached to URL.")
 		http.Error(w, "No HMAC attached to URL. Expecting 'v', 'v2', or 'token' parameter as MAC", http.StatusForbidden)
+		uploadErrorsTotal.Inc()
 		return
 	}
 
@@ -1758,12 +1759,14 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 	if err != nil {
 		log.Warn("Invalid MAC encoding")
 		http.Error(w, "Invalid MAC encoding", http.StatusForbidden)
+		uploadErrorsTotal.Inc()
 		return
 	}
 
 	if !hmac.Equal(calculatedMAC, providedMAC) {
 		log.Warn("Invalid MAC")
 		http.Error(w, "Invalid MAC", http.StatusForbidden)
+		uploadErrorsTotal.Inc()
 		return
 	}
 
@@ -1805,6 +1808,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 			"filename": finalFilename,
 		}).WithError(err).Error("Error creating temp file")
 		http.Error(w, "Error writing temp file", http.StatusInternalServerError)
+		uploadErrorsTotal.Inc()
 		return
 	}
 
@@ -1814,6 +1818,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		log.Errorf("Rename failed for %s: %v", finalFilename, err)
 		os.Remove(tempFilename)
 		http.Error(w, "Error moving file to final destination", http.StatusInternalServerError)
+		uploadErrorsTotal.Inc()
 		return
 	}
 
@@ -1899,6 +1904,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request, absFilename, fileSto
 			}
 		}
 		http.NotFound(w, r)
+		downloadErrorsTotal.Inc()
 		return
 	}
 
