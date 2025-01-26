@@ -14,6 +14,7 @@ Version 2.5-Stable focuses on improving the overall stability and performance of
 - **Timeout Configuration**: Added granular timeout settings for read, write, and idle connections, improving connection management.
 - **FileNaming Configuration**: Added support for a "None" option in the `FileNaming` configuration. When set to "None", the filename remains unchanged.
 - **Example Configuration Generation**: If no configuration file is found, the server will output an example configuration for the user to copy and paste.
+- **Prometheus Metrics**: Enhanced Prometheus metrics for better monitoring and performance tracking. New metrics include upload and download durations, error counts, memory and CPU usage, and more.
 
 ### Improvements
 - **Worker Management**: Auto-scaling worker threads based on system load for optimal performance.
