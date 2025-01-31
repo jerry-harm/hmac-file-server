@@ -2092,6 +2092,7 @@ func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) er
 	buffer := make([]byte, chunkSize)
 
 	totalBytes := int64(0)
+	originalIP := r.RemoteAddr
 	for {
 		n, err := r.Body.Read(buffer)
 		if err != nil && err != io.EOF {
@@ -2099,6 +2100,12 @@ func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) er
 		}
 		if n == 0 {
 			break
+		}
+
+		currentIP := r.RemoteAddr
+		if currentIP != originalIP {
+			log.Warnf("IP changed from %s to %s, terminating transfer", originalIP, currentIP)
+			return fmt.Errorf("client IP changed during transfer")
 		}
 
 		_, err = writer.Write(buffer[:n])
