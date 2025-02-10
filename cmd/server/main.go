@@ -26,6 +26,8 @@ import (
 	"syscall"
 	"time"
 
+	"sync/atomic"
+
 	"github.com/dutchcoders/go-clamd" // ClamAV integration
 	"github.com/go-redis/redis/v8"    // Redis integration
 	"github.com/patrickmn/go-cache"
@@ -38,7 +40,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"sync/atomic"
 )
 
 // parseSize converts a human-readable size string to bytes
@@ -144,10 +145,10 @@ type DeduplicationConfig struct {
 }
 
 type ISOConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	Size       string `mapstructure:"size"`
-	MountPoint string `mapstructure:"mountpoint"`
-	Charset    string `mapstructure:"charset"`
+	Enabled       bool   `mapstructure:"enabled"`
+	Size          string `mapstructure:"size"`
+	MountPoint    string `mapstructure:"mountpoint"`
+	Charset       string `mapstructure:"charset"`
 	ContainerFile string `mapstructure:"containerfile"`
 }
 
@@ -296,7 +297,7 @@ var (
 	workerPool    *WorkerPool
 	networkEvents chan NetworkEvent
 
-	workerAdjustmentsTotal prometheus.Counter
+	workerAdjustmentsTotal   prometheus.Counter
 	workerReAdjustmentsTotal prometheus.Counter
 )
 
@@ -457,7 +458,7 @@ func main() {
 	log.Infof("Server PreCaching: %v", conf.Server.PreCaching)
 	log.Infof("Server FileTTLEnabled: %v", conf.Server.FileTTLEnabled)
 	log.Infof("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
-	log.Infof("Server BindIP: %s", conf.Server.BindIP) // Hinzugefügt: Logging für BindIP
+	log.Infof("Server BindIP: %s", conf.Server.BindIP)         // Hinzugefügt: Logging für BindIP
 	log.Infof("Server FileNaming: %s", conf.Server.FileNaming) // Added: Logging for FileNaming
 
 	err = writePIDFile(conf.Server.PIDFilePath) // Write PID file after config is loaded
@@ -1085,7 +1086,7 @@ func checkStoragePath(path string) error {
 
 func setupLogging() {
 	level, err := logrus.ParseLevel(conf.Logging.Level)
-	if (err != nil) {
+	if err != nil {
 		log.Fatalf("Invalid log level: %s", conf.Logging.Level)
 	}
 	log.SetLevel(level)
@@ -1546,25 +1547,25 @@ func (j ScanJob) Execute() error {
 
 // WorkerPool manages a pool of workers
 type WorkerPool struct {
-	jobQueue      chan Job
-	workerCount   int32
-	maxWorkers    int32
-	minWorkers    int32
-	workerMutex   sync.Mutex
-	shutdown      chan struct{}
-	shutdownWG    sync.WaitGroup
-	scaleUpThresh int
+	jobQueue        chan Job
+	workerCount     int32
+	maxWorkers      int32
+	minWorkers      int32
+	workerMutex     sync.Mutex
+	shutdown        chan struct{}
+	shutdownWG      sync.WaitGroup
+	scaleUpThresh   int
 	scaleDownThresh int
 }
 
 // NewWorkerPool initializes a new WorkerPool
 func NewWorkerPool(min, max int32, scaleUp, scaleDown int) *WorkerPool {
 	pool := &WorkerPool{
-		jobQueue:      make(chan Job, 100),
-		minWorkers:    min,
-		maxWorkers:    max,
-		shutdown:      make(chan struct{}),
-		scaleUpThresh: scaleUp,
+		jobQueue:        make(chan Job, 100),
+		minWorkers:      min,
+		maxWorkers:      max,
+		shutdown:        make(chan struct{}),
+		scaleUpThresh:   scaleUp,
 		scaleDownThresh: scaleDown,
 	}
 	atomic.StoreInt32(&pool.workerCount, 0)
@@ -1801,7 +1802,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		}
 		finalFilename = filepath.Join(filepath.Dir(absFilename), hashVal)
 	case "None":
-		 // Preserve the original filename
+		// Preserve the original filename
 		finalFilename = absFilename
 	default:
 		// ...existing code...
@@ -1972,7 +1973,7 @@ func scanFileWithClamAV(filePath string) error {
 }
 
 func initClamAV(socket string) (*clamd.Clamd, error) {
-	if (socket == "") {
+	if socket == "" {
 		log.Error("ClamAV socket path not configured.")
 		return nil, fmt.Errorf("ClamAV socket path not configured")
 	}
@@ -2092,7 +2093,6 @@ func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) er
 	buffer := make([]byte, chunkSize)
 
 	totalBytes := int64(0)
-	originalIP := r.RemoteAddr
 	for {
 		n, err := r.Body.Read(buffer)
 		if err != nil && err != io.EOF {
@@ -2100,12 +2100,6 @@ func handleChunkedUpload(tempFilename string, r *http.Request, chunkSize int) er
 		}
 		if n == 0 {
 			break
-		}
-
-		currentIP := r.RemoteAddr
-		if currentIP != originalIP {
-			log.Warnf("IP changed from %s to %s, terminating transfer", originalIP, currentIP)
-			return fmt.Errorf("client IP changed during transfer")
 		}
 
 		_, err = writer.Write(buffer[:n])
@@ -2227,7 +2221,7 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc) {
 }
 
 func initRedis() {
-	if (!conf.Redis.RedisEnabled) {
+	if !conf.Redis.RedisEnabled {
 		log.Info("Redis is disabled in configuration.")
 		return
 	}
@@ -2270,7 +2264,7 @@ func MonitorRedisHealth(ctx context.Context, client *redis.Client, checkInterval
 				}
 				redisConnected = false
 			} else {
-				if (!redisConnected) {
+				if !redisConnected {
 					log.Info("Redis reconnected successfully")
 				}
 				redisConnected = true
