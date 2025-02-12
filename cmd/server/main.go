@@ -1648,7 +1648,10 @@ func (p *WorkerPool) Shutdown() {
 func handleRequest(w http.ResponseWriter, r *http.Request) {
 	ips := getClientIPs(r)
 	for _, ip := range ips {
-		log.WithFields(logrus.Fields{"client_ip": ip}).Info("Incoming connection")
+		log.WithFields(logrus.Fields{
+			"client_ip": ip,
+			"version":   detectIPVersion(ip),
+		}).Info("Incoming request")
 	}
 	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
 		absFilename, err := sanitizeFilePath(conf.Server.StoragePath, strings.TrimPrefix(r.URL.Path, "/"))
@@ -2781,4 +2784,11 @@ func getClientIPs(r *http.Request) []string {
 		ips = append(ips, host)
 	}
 	return ips
+}
+
+func detectIPVersion(ip string) string {
+	if strings.Contains(ip, ":") {
+		return "IPv6"
+	}
+	return "IPv4"
 }
