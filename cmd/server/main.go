@@ -1646,6 +1646,10 @@ func (p *WorkerPool) Shutdown() {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	ips := getClientIPs(r)
+	for _, ip := range ips {
+		log.WithFields(logrus.Fields{"client_ip": ip}).Info("Incoming connection")
+	}
 	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
 		absFilename, err := sanitizeFilePath(conf.Server.StoragePath, strings.TrimPrefix(r.URL.Path, "/"))
 		if err != nil {
@@ -2759,4 +2763,22 @@ func setupRouter() *http.ServeMux {
 	router := http.NewServeMux()
 	router.HandleFunc("/", handleRequest)
 	return router
+}
+
+func getClientIPs(r *http.Request) []string {
+	var ips []string
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for _, part := range parts {
+			ips = append(ips, strings.TrimSpace(part))
+		}
+	}
+	if rip := r.Header.Get("X-Real-IP"); rip != "" {
+		ips = append(ips, rip)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		ips = append(ips, host)
+	}
+	return ips
 }
