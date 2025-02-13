@@ -1646,13 +1646,13 @@ func (p *WorkerPool) Shutdown() {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
-	ips := getClientIPs(r)
-	for _, ip := range ips {
-		log.WithFields(logrus.Fields{
-			"client_ip": ip,
-			"version":   detectIPVersion(ip),
-		}).Info("Incoming request")
-	}
+	clientIP := getOriginalClientIP(r)
+	log.WithFields(logrus.Fields{
+		"method": r.Method,
+		"url":    r.URL.String(),
+		"remote": clientIP,
+	}).Info("Incoming request")
+
 	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
 		absFilename, err := sanitizeFilePath(conf.Server.StoragePath, strings.TrimPrefix(r.URL.Path, "/"))
 		if err != nil {
@@ -1670,7 +1670,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientIP := r.Header.Get("X-Real-IP")
+	clientIP = r.Header.Get("X-Real-IP")
 	if clientIP == "" {
 		clientIP = r.Header.Get("X-Forwarded-For")
 	}
@@ -2791,4 +2791,16 @@ func detectIPVersion(ip string) string {
 		return "IPv6"
 	}
 	return "IPv4"
+}
+
+func getOriginalClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		parts := strings.Split(ip, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return strings.TrimSpace(ip)
+	}
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return host
 }
