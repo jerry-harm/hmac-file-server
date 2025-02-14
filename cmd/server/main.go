@@ -381,6 +381,17 @@ func createAndMountISO(size, mountpoint, charset string) error {
 	return nil
 }
 
+var dialer = &net.Dialer{
+	DualStack: true,
+	Timeout:   5 * time.Second,
+}
+
+var dualStackClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext: dialer.DialContext,
+	},
+}
+
 func main() {
 	setDefaults()
 
