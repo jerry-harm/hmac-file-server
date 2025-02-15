@@ -44,3 +44,10 @@ For a detailed guide on setting up and configuring the HMAC File Server, refer t
 ---
 
 Thank you for using HMAC File Server! If you encounter any issues, feel free to report them on our GitHub repository.
+
+## Version 2.7
+
+- Refinements in worker scaling logic
+- Removed obsolete parameters for sorting
+- Further improvements to ISO-based storage handling
+- Fixed dual stack for upload (IPv4/IPv6)
