@@ -611,6 +611,16 @@ func main() {
 		}()
 	}
 
+	if conf.Server.MetricsEnabled {
+		go func() {
+			log.Infof("Starting Prometheus metrics server on port %s", conf.Server.MetricsPort)
+			http.Handle("/metrics", promhttp.Handler())
+			if err := http.ListenAndServe(":"+conf.Server.MetricsPort, nil); err != nil {
+				log.Errorf("Metrics server failed: %v", err)
+			}
+		}()
+	}
+
 	setupGracefulShutdown(server, cancel)
 
 	if conf.Server.AutoAdjustWorkers {
