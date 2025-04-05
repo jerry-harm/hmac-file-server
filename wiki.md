@@ -832,3 +832,7 @@ GOOS=linux GOARCH=arm64 go build -o hmac-file-server-linux-arm64
 
 - The HMAC File Server is designed to be flexible and configurable. Adjust the settings in the `config.toml` file to match your specific requirements and environment.
 - For any issues or questions, refer to the project's GitHub repository and documentation.
+
+## Version 3.0 Release Note
+
+Version 2.8 is the last release before we begin integrating additional features and focusing on further stability patches.
