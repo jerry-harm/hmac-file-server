@@ -894,7 +894,7 @@ curl -X PUT "$BASE_URL/upload/$FILENAME?ts=$TIMESTAMP&sig=$SIGNATURE" --data-bin
 
 FILENAME="output.tar.gz"
 SECRET="your-secret-key"
-BASE_URL="https://devstation.dev"
+BASE_URL="https://your-hmac-server.com"
 
 TIMESTAMP=$(date +%s)
 SIGNATURE=$(echo -n "$FILENAME$TIMESTAMP" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
