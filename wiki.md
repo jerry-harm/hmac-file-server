@@ -808,6 +808,30 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o hmac-file-server-linux-arm
 GOOS=linux GOARCH=arm64 go build -o hmac-file-server-linux-arm64
 ```
 
+### Building the Monitoring Tool
+
+The monitoring tool (`monitor.go`) is located in the `server/cmd/monitor/` directory and is compiled separately from the main HMAC File Server. Below are the instructions for building the monitoring tool:
+
+#### Building for Linux (x86_64)
+
+```sh
+GOOS=linux GOARCH=amd64 go build -o monitor-linux-amd64 ./server/cmd/monitor/monitor.go
+```
+
+#### Building for ARM (32-bit)
+
+```sh
+GOOS=linux GOARCH=arm GOARM=7 go build -o monitor-linux-arm ./server/cmd/monitor/monitor.go
+```
+
+#### Building for ARM (64-bit)
+
+```sh
+GOOS=linux GOARCH=arm64 go build -o monitor-linux-arm64 ./server/cmd/monitor/monitor.go
+```
+
+Once built, the monitoring tool can be executed independently to track system performance, Prometheus metrics, and active processes.
+
 ---
 
 ## Additional Recommendations
