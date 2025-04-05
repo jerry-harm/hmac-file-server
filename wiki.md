@@ -822,23 +822,23 @@ GOOS=linux GOARCH=arm64 go build -o hmac-file-server-linux-arm64
 - The HMAC File Server is designed to be flexible and configurable. Adjust the settings in the `config.toml` file to match your specific requirements and environment.
 - For any issues or questions, refer to the project's GitHub repository and documentation.
 
-## 🧱 Using HMAC File Server for CI/CD Build Artifacts
+## Using HMAC File Server for CI/CD Build Artifacts
 
 This guide explains how to use [HMAC File Server](https://github.com/PlusOne/hmac-file-server) to securely upload and download build artifacts in CI/CD pipelines.
 
 ---
 
-## 📦 Why Use HMAC File Server?
+## Why Use HMAC File Server?
 
-- ✅ Secure, HMAC-authenticated access  
-- ✅ Self-hosted, no third-party storage needed  
-- ✅ Configurable TTL, versioning, and deduplication  
-- ✅ Prometheus metrics for monitoring  
-- ✅ Easily integrated into GitHub Actions, GitLab CI, Jenkins, etc.
+- Secure, HMAC-authenticated access  
+- Self-hosted, no third-party storage needed  
+- Configurable TTL, versioning, and deduplication  
+- Prometheus metrics for monitoring  
+- Easily integrated into GitHub Actions, GitLab CI, Jenkins, etc.
 
 ---
 
-## ⚙️ Step 1: Set Up HMAC File Server
+## Step 1: Set Up HMAC File Server
 
 Clone and build the server:
 
@@ -867,7 +867,7 @@ enabled = true
 
 ---
 
-## 🔐 Step 2: Generate Signed URLs
+## Step 2: Generate Signed URLs
 
 Use HMAC to generate signed URLs for secure upload/download.
 
@@ -904,7 +904,7 @@ curl -O "$BASE_URL/download/$FILENAME?ts=$TIMESTAMP&sig=$SIGNATURE"
 
 ---
 
-## 🔁 Step 3: Integrate into CI/CD
+## Step 3: Integrate into CI/CD
 
 ### GitHub Actions Example
 
@@ -927,7 +927,7 @@ jobs:
 
 ---
 
-## 🧹 Optional Features
+## Optional Features
 
 - **TTL**: Auto-delete artifacts after a set time  
 - **Deduplication**: Only store unique files  
@@ -936,19 +936,19 @@ jobs:
 
 ---
 
-## 📊 Monitoring
+## Monitoring
 
 Enable Prometheus metrics in the config to track upload/download usage, failures, etc.
 
 ---
 
-## 📝 License
+## License
 
 HMAC File Server is open-source and MIT licensed.
 
 ---
 
-## 🔗 Resources
+## Resources
 
 - [HMAC File Server GitHub Repo](https://github.com/PlusOne/hmac-file-server)
 - [Configuration Docs](https://github.com/PlusOne/hmac-file-server/wiki)
@@ -957,13 +957,13 @@ HMAC File Server is open-source and MIT licensed.
 
 Version 2.8 is the last release before we begin integrating additional features and focusing on further stability patches.
 
-## 🚀 CI/CD with HMAC File Server – Summary
+## CI/CD with HMAC File Server – Summary
 
 Sure! Here is a brief guide on how to use the HMAC File Server in your CI/CD pipeline:
 
 ---
 
-### 🔧 1. Server Setup
+### 1. Server Setup
 
 ```bash
 git clone https://github.com/PlusOne/hmac-file-server.git
@@ -989,7 +989,7 @@ enabled = true
 
 ---
 
-### 🔐 2. Upload & Download with HMAC
+### 2. Upload & Download with HMAC
 
 #### Upload Script
 
@@ -1010,7 +1010,7 @@ curl -O "$URL/download/$FILE?ts=$TS&sig=$SIG"
 
 ---
 
-### 🔁 3. Using in CI/CD (GitHub Actions)
+### 3. Using in CI/CD (GitHub Actions)
 
 ```yaml
 - name: Build
@@ -1026,7 +1026,7 @@ curl -O "$URL/download/$FILE?ts=$TS&sig=$SIG"
 
 ---
 
-### ✅ Advantages
+### Advantages
 
 - Secure (HMAC)
 - Self-hosted
