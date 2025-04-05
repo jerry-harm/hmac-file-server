@@ -1712,6 +1712,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		flushLogMessages()
 		return
 	}
+	// NEW: Compute absolute file path from storage path and fileStorePath.
+	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
+	if err != nil {
+		log.WithError(err).Warn("Invalid file path")
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
 
 	a, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
