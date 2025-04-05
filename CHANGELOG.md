@@ -8,6 +8,24 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.8-Stable] - 2026-05-01
+
+### Added
+
+- Version check history for improved tracking.
+- Enhanced ClamAV scanning with concurrent workers.
+
+### Changed
+
+- Improved ISO-based storage for specialized use cases.
+- Auto-scaling workers for optimized performance.
+
+### Fixed
+
+- Minor issues in worker thread adjustments under high load.
+
+---
+
 ## [2.7] - 2026-02-10
 
 ### Added
