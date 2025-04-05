@@ -968,3 +968,80 @@ HMAC File Server is open-source and MIT licensed.
 ## Version 3.0 Release Note
 
 Version 2.8 is the last release before we begin integrating additional features and focusing on further stability patches.
+
+## 🚀 CI/CD mit HMAC File Server – Kurzfassung
+
+Klar! Hier ist eine **kurze und knackige Anleitung**, wie du den **HMAC File Server** in deiner CI/CD-Pipeline nutzen kannst:
+
+---
+
+### 🔧 1. Server aufsetzen
+
+```bash
+git clone https://github.com/PlusOne/hmac-file-server.git
+cd hmac-file-server
+go build -o hmac-file-server
+cp config.example.toml config.toml
+mkdir -p /data/artifacts
+./hmac-file-server -config config.toml
+```
+
+**`config.toml` anpassen:**
+
+```toml
+[hmac]
+secret = "your-secret-key"
+
+[upload]
+enabled = true
+path = "/data/artifacts"
+
+[download]
+enabled = true
+```
+
+---
+
+### 🔐 2. Upload & Download mit HMAC
+
+#### **Upload-Script**
+
+```bash
+FILE="output.tar.gz"
+TS=$(date +%s)
+SIG=$(echo -n "$FILE$TS" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+curl -X PUT "$URL/upload/$FILE?ts=$TS&sig=$SIG" --data-binary "@build/$FILE"
+```
+
+#### **Download-Script**
+
+```bash
+TS=$(date +%s)
+SIG=$(echo -n "$FILE$TS" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+curl -O "$URL/download/$FILE?ts=$TS&sig=$SIG"
+```
+
+---
+
+### 🔁 3. In CI/CD nutzen (GitHub Actions)
+
+```yaml
+- name: Build
+  run: |
+    mkdir -p build
+    echo "artifact" > build/output.tar.gz
+
+- name: Upload
+  env:
+    SECRET: ${{ secrets.HMAC_SECRET }}
+  run: bash scripts/upload.sh
+```
+
+---
+
+### ✅ Vorteile
+
+- Sicher (HMAC)
+- Self-hosted
+- Einfach zu integrieren
+- Keine Abhängigkeiten zu Drittanbietern
