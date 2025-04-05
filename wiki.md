@@ -29,6 +29,7 @@ This documentation provides detailed information on configuring, setting up, and
 6. [Additional Recommendations](#additional-recommendations)
 7. [Notes](#notes)
 8. [Using HMAC File Server for CI/CD Build Artifacts](#using-hmac-file-server-for-ci-cd-build-artifacts)
+9. [Monitoring](#monitoring)
 
 ---
 
@@ -938,7 +939,64 @@ jobs:
 
 ## Monitoring
 
-Enable Prometheus metrics in the config to track upload/download usage, failures, etc.
+The HMAC File Server provides a built-in monitoring interface to track system performance, Prometheus metrics, and active processes. Below is an overview of the monitoring features:
+
+### System Data
+
+The monitoring interface displays key system metrics, including:
+- **CPU Usage**: Current CPU usage percentage.
+- **Memory Usage**: Current memory usage percentage.
+- **CPU Cores**: Number of CPU cores available.
+
+### Prometheus Metrics
+
+The server exposes Prometheus metrics for tracking upload and download statistics:
+- **hmac_file_server_upload_errors_total**: Total number of upload errors.
+- **hmac_file_server_uploads_total**: Total number of successful uploads.
+- **hmac_file_server_downloads_total**: Total number of successful downloads.
+
+These metrics can be integrated with Prometheus and visualized using tools like Grafana.
+
+### Process List
+
+The monitoring interface also provides a list of active processes, including:
+- Process ID (PID)
+- CPU usage percentage
+- Memory usage percentage
+- Command or service name
+
+This information helps in identifying resource-intensive processes and debugging performance issues.
+
+### Example Monitoring Output
+
+Below is an example of the monitoring interface output:
+
+```
+System Data
+Metric                Value
+CPU Usage             2.78%
+Memory Usage          26.49%
+CPU Cores             4
+
+Prometheus Metrics
+hmac_file_server_upload_errors_total   1.00
+hmac_file_server_uploads_total         4.00
+hmac_file_server_downloads_total       15.00
+
+Process List
+PID       CPU   MEM   COMMAND
+907752    0.12  2.69  /lib/systemd/systemd-journald
+4055132   0.12  0.03  /usr/sbin/qemu-ga
+2370782   0.11  0.00  kworker/0:2-wg-crypt-wg1
+2371119   0.10  0.08  bash
+2371096   0.10  0.14  sshd: root@pts/0
+2369170   0.09  0.00  kworker/0:0-mm_percpu_wq
+2371240   0.07  0.00  kworker/0:1-wg-crypt-wg1
+2371099   0.06  0.13  systemd --user
+868714    0.05  0.59  php-fpm: pool www
+```
+
+For more details on integrating Prometheus metrics, refer to the [Prometheus documentation](https://prometheus.io/docs/).
 
 ---
 
