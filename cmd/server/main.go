@@ -1906,6 +1906,21 @@ func handleUpload(w http.ResponseWriter, r *http.Request, absFilename, fileStore
 		logMessages = append(logMessages, fmt.Sprintf("Processing completed successfully for %s", finalFilename))
 		uploadsTotal.Inc()
 
+		// Instead of ignoring Callback-URL, send an asynchronous HTTP POST.
+		callbackURL := r.Header.Get("Callback-URL")
+		if callbackURL != "" {
+			go func(url, filename string) {
+				payload := fmt.Sprintf(`{"file": "%s"}`, filename)
+				resp, err := http.Post(url, "application/json", strings.NewReader(payload))
+				if err != nil {
+					log.Warnf("Failed callback to %s: %v", url, err)
+					return
+				}
+				defer resp.Body.Close()
+				log.Infof("Callback to %s succeeded with status %s", url, resp.Status)
+			}(callbackURL, finalFilename)
+		}
+
 		// Log all messages at once
 		for _, msg := range logMessages {
 			log.Info(msg)
@@ -2391,7 +2406,7 @@ func DeduplicateFiles(storeDir string) error {
 	err := filepath.Walk(storeDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logrus.WithError(err).Errorf("Error accessing path %s", path)
-			return nil
+			return nil // Continue walking
 		}
 		if !info.Mode().IsRegular() {
 			return nil
