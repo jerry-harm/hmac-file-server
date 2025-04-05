@@ -683,8 +683,6 @@ To set up a reverse proxy for the HMAC File Server, you can use either Apache2 o
     sudo systemctl restart nginx
     ```
 
-You're correct—my statement included unnecessary comments about the configuration. Here's the fully revised configuration without comments or meta-discussion:
-
 ---
 
 #### 3. ejabberd Configuration
