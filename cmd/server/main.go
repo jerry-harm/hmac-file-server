@@ -634,6 +634,9 @@ func main() {
 			log.Fatalf("Server failed: %v", err)
 		}
 	} else {
+		if conf.Server.ListenPort == "0.0.0.0" {
+			log.Info("Binding to 0.0.0.0. Any net/http logs you see are normal for this universal address.")
+		}
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}
@@ -1697,31 +1700,23 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	log.WithFields(logrus.Fields{"method": r.Method, "url": r.URL.String(), "remote": clientIP}).Info("Incoming request")
 
+	// Log the requested URL for debugging
+	log.Infof("handleRequest: Received URL path: %s", r.URL.String())
+
 	p := r.URL.Path
+	fileStorePath := strings.TrimPrefix(p, "/")
+	if fileStorePath == "" || fileStorePath == "/" {
+		log.WithField("path", fileStorePath).Warn("No file specified in URL")
+		// Updated to return 404 with a clear message instead of forbidden.
+		http.Error(w, "File not specified in URL. Please include the file path after the host.", http.StatusNotFound)
+		flushLogMessages()
+		return
+	}
+
 	a, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		log.Warn("Failed to parse query parameters")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	fileStorePath := strings.TrimPrefix(p, "/")
-	if fileStorePath == "" || fileStorePath == "/" {
-		log.WithFields(logrus.Fields{
-			"event":    "AccessAttempt",
-			"severity": "warning",
-		}).Warn("Access to root directory is forbidden")
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		flushLogMessages()
-		return
-	} else if fileStorePath[0] == '/' {
-		fileStorePath = fileStorePath[1:]
-	}
-
-	absFilename, err := sanitizeFilePath(conf.Server.StoragePath, fileStorePath)
-	if err != nil {
-		log.WithFields(logrus.Fields{"file": fileStorePath, "error": err}).Warn("Invalid file path")
-		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
 
