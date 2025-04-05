@@ -28,6 +28,7 @@ This documentation provides detailed information on configuring, setting up, and
 5. [Building for Different Architectures](#building-for-different-architectures)
 6. [Additional Recommendations](#additional-recommendations)
 7. [Notes](#notes)
+8. [Using HMAC File Server for CI/CD Build Artifacts](#using-hmac-file-server-for-ci-cd-build-artifacts)
 
 ---
 
@@ -832,6 +833,137 @@ GOOS=linux GOARCH=arm64 go build -o hmac-file-server-linux-arm64
 
 - The HMAC File Server is designed to be flexible and configurable. Adjust the settings in the `config.toml` file to match your specific requirements and environment.
 - For any issues or questions, refer to the project's GitHub repository and documentation.
+
+## 🧱 Using HMAC File Server for CI/CD Build Artifacts
+
+This guide explains how to use [HMAC File Server](https://github.com/PlusOne/hmac-file-server) to securely upload and download build artifacts in CI/CD pipelines.
+
+---
+
+## 📦 Why Use HMAC File Server?
+
+- ✅ Secure, HMAC-authenticated access  
+- ✅ Self-hosted, no third-party storage needed  
+- ✅ Configurable TTL, versioning, and deduplication  
+- ✅ Prometheus metrics for monitoring  
+- ✅ Easily integrated into GitHub Actions, GitLab CI, Jenkins, etc.
+
+---
+
+## ⚙️ Step 1: Set Up HMAC File Server
+
+Clone and build the server:
+
+```bash
+git clone https://github.com/PlusOne/hmac-file-server.git
+cd hmac-file-server
+go build -o hmac-file-server
+cp config.example.toml config.toml
+mkdir -p /data/artifacts
+./hmac-file-server -config config.toml
+```
+
+Update `config.toml` with:
+
+```toml
+[hmac]
+secret = "your-secret-key"
+
+[upload]
+enabled = true
+path = "/data/artifacts"
+
+[download]
+enabled = true
+```
+
+---
+
+## 🔐 Step 2: Generate Signed URLs
+
+Use HMAC to generate signed URLs for secure upload/download.
+
+### Upload Script
+
+```bash
+#!/bin/bash
+
+FILE_PATH="./build/output.tar.gz"
+FILENAME="output.tar.gz"
+SECRET="your-secret-key"
+BASE_URL="https://your-hmac-server.com"
+
+TIMESTAMP=$(date +%s)
+SIGNATURE=$(echo -n "$FILENAME$TIMESTAMP" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+
+curl -X PUT "$BASE_URL/upload/$FILENAME?ts=$TIMESTAMP&sig=$SIGNATURE" --data-binary "@$FILE_PATH"
+```
+
+### Download Script
+
+```bash
+#!/bin/bash
+
+FILENAME="output.tar.gz"
+SECRET="your-secret-key"
+BASE_URL="https://your-hmac-server.com"
+
+TIMESTAMP=$(date +%s)
+SIGNATURE=$(echo -n "$FILENAME$TIMESTAMP" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+
+curl -O "$BASE_URL/download/$FILENAME?ts=$TIMESTAMP&sig=$SIGNATURE"
+```
+
+---
+
+## 🔁 Step 3: Integrate into CI/CD
+
+### GitHub Actions Example
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build
+        run: |
+          mkdir -p build
+          echo "example artifact content" > build/output.tar.gz
+
+      - name: Upload Artifact to HMAC Server
+        run: bash scripts/upload-artifact.sh
+```
+
+---
+
+## 🧹 Optional Features
+
+- **TTL**: Auto-delete artifacts after a set time  
+- **Deduplication**: Only store unique files  
+- **Versioning**: Track changes to files over time  
+- **Virus Scanning**: Integrate with ClamAV
+
+---
+
+## 📊 Monitoring
+
+Enable Prometheus metrics in the config to track upload/download usage, failures, etc.
+
+---
+
+## 📝 License
+
+HMAC File Server is open-source and MIT licensed.
+
+---
+
+## 🔗 Resources
+
+- [HMAC File Server GitHub Repo](https://github.com/PlusOne/hmac-file-server)
+- [Configuration Docs](https://github.com/PlusOne/hmac-file-server/wiki)
 
 ## Version 3.0 Release Note
 
