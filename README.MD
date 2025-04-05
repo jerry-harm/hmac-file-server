@@ -1,4 +1,4 @@
-# HMAC File Server 2.6-Stable
+# HMAC File Server 2.8-Stable **FIXED**
 
 ## Overview
 The **HMAC File Server** ensures secure file uploads and downloads using HMAC authentication. It incorporates rate limiting, CORS support, retries, file versioning, and Unix socket support for enhanced flexibility. Redis integration provides efficient caching and session management. Prometheus metrics and a graceful shutdown mechanism ensure reliable and efficient file handling.
