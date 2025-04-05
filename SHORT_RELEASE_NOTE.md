@@ -1,6 +1,7 @@
 # Short Release Note
 
-Key Highlights from 2.7-Stable:
+Key Highlights from 2.8-Stable:
+- Version check history added for improved tracking.
 - Improved ISO-based storage for specialized use cases.
 - Enhanced ClamAV scanning with concurrent workers.
 - Auto-scaling workers for optimized performance.
