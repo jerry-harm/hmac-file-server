@@ -795,18 +795,6 @@ To build the HMAC File Server for different architectures, you can use the follo
 GOOS=linux GOARCH=amd64 go build -o hmac-file-server-linux-amd64
 ```
 
-### Building for macOS (x86_64)
-
-```sh
-GOOS=darwin GOARCH=amd64 go build -o hmac-file-server-darwin-amd64
-```
-
-### Building for Windows (x86_64)
-
-```sh
-GOOS=windows GOARCH=amd64 go build -o hmac-file-server-windows-amd64.exe
-```
-
 ### Building for ARM (32-bit)
 
 ```sh
@@ -969,13 +957,13 @@ HMAC File Server is open-source and MIT licensed.
 
 Version 2.8 is the last release before we begin integrating additional features and focusing on further stability patches.
 
-## 🚀 CI/CD mit HMAC File Server – Kurzfassung
+## 🚀 CI/CD with HMAC File Server – Summary
 
-Klar! Hier ist eine **kurze und knackige Anleitung**, wie du den **HMAC File Server** in deiner CI/CD-Pipeline nutzen kannst:
+Sure! Here is a brief guide on how to use the HMAC File Server in your CI/CD pipeline:
 
 ---
 
-### 🔧 1. Server aufsetzen
+### 🔧 1. Server Setup
 
 ```bash
 git clone https://github.com/PlusOne/hmac-file-server.git
@@ -986,8 +974,7 @@ mkdir -p /data/artifacts
 ./hmac-file-server -config config.toml
 ```
 
-**`config.toml` anpassen:**
-
+Update config.toml:
 ```toml
 [hmac]
 secret = "your-secret-key"
@@ -1002,9 +989,9 @@ enabled = true
 
 ---
 
-### 🔐 2. Upload & Download mit HMAC
+### 🔐 2. Upload & Download with HMAC
 
-#### **Upload-Script**
+#### Upload Script
 
 ```bash
 FILE="output.tar.gz"
@@ -1013,7 +1000,7 @@ SIG=$(echo -n "$FILE$TS" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //'
 curl -X PUT "$URL/upload/$FILE?ts=$TS&sig=$SIG" --data-binary "@build/$FILE"
 ```
 
-#### **Download-Script**
+#### Download Script
 
 ```bash
 TS=$(date +%s)
@@ -1023,7 +1010,7 @@ curl -O "$URL/download/$FILE?ts=$TS&sig=$SIG"
 
 ---
 
-### 🔁 3. In CI/CD nutzen (GitHub Actions)
+### 🔁 3. Using in CI/CD (GitHub Actions)
 
 ```yaml
 - name: Build
@@ -1039,9 +1026,9 @@ curl -O "$URL/download/$FILE?ts=$TS&sig=$SIG"
 
 ---
 
-### ✅ Vorteile
+### ✅ Advantages
 
-- Sicher (HMAC)
+- Secure (HMAC)
 - Self-hosted
-- Einfach zu integrieren
-- Keine Abhängigkeiten zu Drittanbietern
+- Easy to integrate
+- No dependencies on third-party providers
