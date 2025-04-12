@@ -136,6 +136,7 @@ type ServerConfig struct {
 	Logging              LoggingConfig `mapstructure:"logging"`
 	GlobalExtensions     []string      `mapstructure:"globalextensions"`
 	FileNaming           string        `mapstructure:"filenaming"`
+	ForceProtocol        string        `mapstructure:"forceprotocol"` // NEW field
 	// Removed TempPath, LoggingJSON
 }
 
@@ -381,16 +382,41 @@ func createAndMountISO(size, mountpoint, charset string) error {
 	return nil
 }
 
-var dialer = &net.Dialer{
-	DualStack: true,
-	Timeout:   5 * time.Second,
+func initializeNetworkProtocol(forceProtocol string) (*net.Dialer, error) {
+	switch forceProtocol {
+	case "ipv4":
+		return &net.Dialer{
+			Timeout:   5 * time.Second,
+			DualStack: false,
+			Control: func(network, address string, c syscall.RawConn) error {
+				if network == "tcp6" {
+					return fmt.Errorf("IPv6 is disabled by forceprotocol setting")
+				}
+				return nil
+			},
+		}, nil
+	case "ipv6":
+		return &net.Dialer{
+			Timeout:   5 * time.Second,
+			DualStack: false,
+			Control: func(network, address string, c syscall.RawConn) error {
+				if network == "tcp4" {
+					return fmt.Errorf("IPv4 is disabled by forceprotocol setting")
+				}
+				return nil
+			},
+		}, nil
+	case "auto":
+		return &net.Dialer{
+			Timeout:   5 * time.Second,
+			DualStack: true,
+		}, nil
+	default:
+		return nil, fmt.Errorf("invalid forceprotocol value: %s", forceProtocol)
+	}
 }
 
-var dualStackClient = &http.Client{
-	Transport: &http.Transport{
-		DialContext: dialer.DialContext,
-	},
-}
+var dualStackClient *http.Client
 
 func main() {
 	setDefaults()
@@ -471,6 +497,7 @@ func main() {
 	log.Infof("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
 	log.Infof("Server BindIP: %s", conf.Server.BindIP)         // Hinzugefügt: Logging für BindIP
 	log.Infof("Server FileNaming: %s", conf.Server.FileNaming) // Added: Logging for FileNaming
+	log.Infof("Server ForceProtocol: %s", conf.Server.ForceProtocol) // Added: Logging for ForceProtocol
 
 	err = writePIDFile(conf.Server.PIDFilePath) // Write PID file after config is loaded
 	if err != nil {
@@ -590,6 +617,17 @@ func main() {
 		log.Fatalf("Invalid IdleTimeout: %v", err)
 	}
 
+	// Initialize network protocol based on forceprotocol setting
+	dialer, err := initializeNetworkProtocol(conf.Server.ForceProtocol)
+	if err != nil {
+		log.Fatalf("Failed to initialize network protocol: %v", err)
+	}
+	dualStackClient = &http.Client{
+		Transport: &http.Transport{
+			DialContext: dialer.DialContext,
+		},
+	}
+
 	server := &http.Server{
 		Addr:           conf.Server.BindIP + ":" + conf.Server.ListenPort, // Geändert: Nutzung von BindIP
 		Handler:        router,
@@ -668,6 +706,7 @@ deduplicationenabled = true
 globalextensions = [".txt", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".svg", ".webp"]
 # FileNaming options: "HMAC", "None"
 filenaming = "HMAC"
+forceprotocol = "auto"
 
 [logging]
 level = "info"
@@ -827,6 +866,7 @@ func setDefaults() {
 	viper.SetDefault("server.loggingjson", false)
 	viper.SetDefault("server.filettlenabled", true)
 	viper.SetDefault("server.deduplicationenabled", true)
+	viper.SetDefault("server.forceprotocol", "auto")
 
 	viper.SetDefault("timeouts.readtimeout", "4800s")
 	viper.SetDefault("timeouts.writetimeout", "4800s")

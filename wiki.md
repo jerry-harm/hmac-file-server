@@ -62,6 +62,9 @@ autoadjustworkers = true # Automatically adjust worker threads based on load
 networkevents = false    # Enable detailed network event logging
 pidfilepath = "./hmac-file-server.pid" # Path to PID file
 precaching = true        # Pre-cache file structures on startup
+
+# New option to force network protocol
+forceprotocol = "auto"  # Options: "ipv4", "ipv6", "auto"
 ```
 
 #### Configuration Options
@@ -142,6 +145,14 @@ precaching = true        # Pre-cache file structures on startup
   - *Type*: `Boolean`  
   - *Description*: Enables pre-caching of file structures on startup to improve access speed and performance.  
   - *Default*: `true`
+
+- **forceprotocol**:  
+  - *Type*: `String`  
+  - *Description*: Specifies the network protocol to use for server communication.  
+    - `"ipv4"`: Forces the server to use IPv4.  
+    - `"ipv6"`: Forces the server to use IPv6.  
+    - `"auto"`: Uses the system's default behavior (dual-stack).  
+  - *Default*: `"auto"`
 
 ---
 
@@ -495,6 +506,7 @@ autoadjustworkers = true
 networkevents = false
 pidfilepath = "./hmac-file-server.pid"
 precaching = true
+forceprotocol = "auto"
 
 # Deduplication settings
 [deduplication]
