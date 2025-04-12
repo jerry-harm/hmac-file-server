@@ -495,8 +495,8 @@ func main() {
 	log.Infof("Server PreCaching: %v", conf.Server.PreCaching)
 	log.Infof("Server FileTTLEnabled: %v", conf.Server.FileTTLEnabled)
 	log.Infof("Server DeduplicationEnabled: %v", conf.Server.DeduplicationEnabled)
-	log.Infof("Server BindIP: %s", conf.Server.BindIP)         // Hinzugefügt: Logging für BindIP
-	log.Infof("Server FileNaming: %s", conf.Server.FileNaming) // Added: Logging for FileNaming
+	log.Infof("Server BindIP: %s", conf.Server.BindIP)               // Hinzugefügt: Logging für BindIP
+	log.Infof("Server FileNaming: %s", conf.Server.FileNaming)       // Added: Logging for FileNaming
 	log.Infof("Server ForceProtocol: %s", conf.Server.ForceProtocol) // Added: Logging for ForceProtocol
 
 	err = writePIDFile(conf.Server.PIDFilePath) // Write PID file after config is loaded
@@ -772,7 +772,7 @@ uploadqueuesize = 50
 # Add file-specific configurations here
 
 [build]
-version = "2.7-Stable"
+version = "2.9-Stable"
 `)
 }
 
@@ -1221,6 +1221,9 @@ func logSystemInfo() {
 	log.Infof("Platform Family: %s", hInfo.PlatformFamily)
 	log.Infof("Platform Version: %s", hInfo.PlatformVersion)
 	log.Infof("Kernel Version: %s", hInfo.KernelVersion)
+
+	// Log the forceprotocol configuration
+	log.Infof("Force Protocol: %s", conf.Server.ForceProtocol)
 }
 
 func initMetrics() {
